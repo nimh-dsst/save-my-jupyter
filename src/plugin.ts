@@ -1,12 +1,12 @@
 import type { JupyterFrontEnd, JupyterFrontEndPlugin } from "@jupyterlab/application";
-import { Dialog, ICommandPalette, showDialog } from "@jupyterlab/apputils";
+import { Dialog, ICommandPalette, ToolbarButton, showDialog } from "@jupyterlab/apputils";
 import {
   INotebookTracker,
   NotebookActions,
   type NotebookPanel
 } from "@jupyterlab/notebook";
 import { ISettingRegistry } from "@jupyterlab/settingregistry";
-import { historyIcon, ToolbarButton } from "@jupyterlab/ui-components";
+import { tagIcon } from "@jupyterlab/ui-components";
 
 import { ApiClient } from "./apiClient";
 import { NotebookMetadataStore } from "./metadata";
@@ -16,9 +16,7 @@ import {
   buildNotebookContextPayload
 } from "./notebook/requestBuilders";
 import { ExecutionObserver } from "./notebook/triggerHooks";
-import {
-  requiresPanelSetup
-} from "./panelBehavior";
+import { requiresPanelSetup } from "./panelBehavior";
 import {
   type SnapshotPanelViewState,
   SnapshotPanel
@@ -61,10 +59,6 @@ const DEFAULT_USER_METADATA: SnapshotUserMetadata = {
   tags: []
 };
 
-interface RightSidebarShell {
-  expandRight?(): void;
-}
-
 function currentPanel(tracker: INotebookTracker): NotebookPanel {
   const panel = tracker.currentWidget;
   if (panel === null) {
@@ -96,6 +90,7 @@ function mergeMetadataDefaults(
 }
 
 class SnapshotPanelModel {
+  private hasAutoOpenedPanel = false;
   private viewState: SnapshotPanelViewState = {
     auth: {
       pendingRequestId: null,
@@ -165,6 +160,7 @@ class SnapshotPanelModel {
 
     try {
       await panel.context.ready;
+      this.ensurePanelIsVisible();
       const state = await this.apiClient.getState(panel.context.path);
       const metadata =
         state.notebookMetadata ?? this.metadataStore.readNotebookMetadata(panel);
@@ -211,7 +207,7 @@ class SnapshotPanelModel {
 
   async submitManualSnapshot(): Promise<void> {
     if (requiresPanelSetup(this.viewState.auth)) {
-      this.openPanel();
+      this.ensurePanelIsVisible();
       this.setStatus(
         "warning",
         "Connect LabArchives before creating a snapshot."
@@ -243,8 +239,18 @@ class SnapshotPanelModel {
   }
 
   handleToolbarAction(): void {
-    this.openPanel();
-    this.setStatus("info", "Use this tab to connect LabArchives and create snapshots.");
+    this.ensurePanelIsVisible();
+    if (this.viewState.auth.status === "authenticated") {
+      this.setStatus(
+        "info",
+        "Review the current notebook context and click Snapshot Now when ready."
+      );
+    } else {
+      this.setStatus(
+        "warning",
+        "Connect LabArchives to enable snapshots for this notebook."
+      );
+    }
   }
 
   async setAllCellsTrigger(enabled: boolean): Promise<void> {
@@ -458,8 +464,9 @@ class SnapshotPanelModel {
       10,
       "save-my-jupyter:snapshot",
       new ToolbarButton({
-        icon: historyIcon,
-        iconLabel: "Save My Jupyter",
+        className: "smj-ToolbarButton",
+        icon: tagIcon,
+        label: "Save",
         onClick: () => {
           this.handleToolbarAction();
         },
@@ -469,7 +476,12 @@ class SnapshotPanelModel {
   }
 
   private ensurePanelIsVisible(): void {
+    if (this.hasAutoOpenedPanel) {
+      return;
+    }
+
     this.openPanel();
+    this.hasAutoOpenedPanel = true;
   }
 
   private resolveCommitMode(actionLabel: string): CommitMode {
@@ -631,17 +643,13 @@ const plugin: JupyterFrontEndPlugin<void> = {
     });
     snapshotPanel.id = PANEL_ID;
     snapshotPanel.title.caption = "Save My Jupyter";
-    snapshotPanel.title.icon = historyIcon;
-    snapshotPanel.title.iconLabel = "Save My Jupyter";
     snapshotPanel.title.label = "Save My Jupyter";
     snapshotPanel.title.closable = false;
 
     const openPanel = (): void => {
       if (!snapshotPanel.isAttached) {
-        app.shell.add(snapshotPanel, "right", { rank: 1000 });
+        app.shell.add(snapshotPanel, "main");
       }
-      const shell = app.shell as RightSidebarShell;
-      shell.expandRight?.();
       app.shell.activateById(PANEL_ID);
     };
 

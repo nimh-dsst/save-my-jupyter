@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  getSnapshotAvailability,
-  requiresPanelSetup
-} from "../src/panelBehavior";
+import { requiresPanelSetup } from "../src/panelBehavior";
 
 void test("requiresPanelSetup blocks unauthenticated states", () => {
   assert.equal(
@@ -33,71 +30,5 @@ void test("requiresPanelSetup allows authenticated state", () => {
       userEmail: "user@example.com"
     }),
     false
-  );
-});
-
-void test("getSnapshotAvailability explains disabled states", () => {
-  assert.deepEqual(
-    getSnapshotAvailability(
-      {
-        pendingRequestId: null,
-        status: "unauthenticated",
-        userEmail: null
-      },
-      "analysis/notebook.ipynb",
-      false
-    ),
-    {
-      enabled: false,
-      message: "Connect LabArchives to enable snapshot creation."
-    }
-  );
-  assert.deepEqual(
-    getSnapshotAvailability(
-      {
-        pendingRequestId: null,
-        status: "authenticated",
-        userEmail: "user@example.com"
-      },
-      null,
-      false
-    ),
-    {
-      enabled: false,
-      message: "Open a notebook to configure and create snapshots."
-    }
-  );
-  assert.deepEqual(
-    getSnapshotAvailability(
-      {
-        pendingRequestId: null,
-        status: "authenticated",
-        userEmail: "user@example.com"
-      },
-      "analysis/notebook.ipynb",
-      true
-    ),
-    {
-      enabled: false,
-      message: "Save My Jupyter is working on the current request."
-    }
-  );
-});
-
-void test("getSnapshotAvailability allows ready snapshots", () => {
-  assert.deepEqual(
-    getSnapshotAvailability(
-      {
-        pendingRequestId: null,
-        status: "authenticated",
-        userEmail: "user@example.com"
-      },
-      "analysis/notebook.ipynb",
-      false
-    ),
-    {
-      enabled: true,
-      message: "Ready to create a snapshot for this notebook."
-    }
   );
 });

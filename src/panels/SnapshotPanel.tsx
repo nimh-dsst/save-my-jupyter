@@ -1,7 +1,6 @@
 import { ReactWidget } from "@jupyterlab/apputils";
 import React from "react";
 
-import { getSnapshotAvailability } from "../panelBehavior";
 import type {
   AuthState,
   CommitMode,
@@ -69,11 +68,6 @@ function SnapshotPanelBody({
     viewState.statusKind === null
       ? null
       : `smj-SnapshotPanel__status smj-SnapshotPanel__status--${viewState.statusKind}`;
-  const snapshotAvailability = getSnapshotAvailability(
-    viewState.auth,
-    viewState.notebookPath,
-    viewState.isBusy
-  );
 
   return (
     <section className="smj-SnapshotPanel__body">
@@ -260,7 +254,7 @@ function SnapshotPanelBody({
         <button
           className="jp-mod-styled jp-mod-accept"
           type="button"
-          disabled={!snapshotAvailability.enabled}
+          disabled={viewState.notebookPath === null || viewState.isBusy}
           onClick={() => {
             callbacks.onSnapshot();
           }}
@@ -268,7 +262,6 @@ function SnapshotPanelBody({
           Snapshot Now
         </button>
       </div>
-      <p className="smj-SnapshotPanel__hint">{snapshotAvailability.message}</p>
 
       {viewState.statusMessage !== null ? (
         <p
