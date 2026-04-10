@@ -157,8 +157,12 @@ function SnapshotPanelBody({
           </p>
 
           <section className="smj-SnapshotPanel__section">
-            <div className="smj-SnapshotPanel__sectionHeader">
-              <h3 className="smj-SnapshotPanel__sectionTitle">LabArchives</h3>
+            <h3 className="smj-SnapshotPanel__sectionTitle">Setup</h3>
+            <div className="smj-SnapshotPanel__row">
+              <div className="smj-SnapshotPanel__rowCopy">
+                <strong className="smj-SnapshotPanel__rowTitle">LabArchives</strong>
+                <p className="smj-SnapshotPanel__hint">{authLabel}</p>
+              </div>
               <button
                 className="jp-mod-styled smj-SnapshotPanel__button"
                 type="button"
@@ -169,7 +173,6 @@ function SnapshotPanelBody({
                 Connect
               </button>
             </div>
-            <p className="smj-SnapshotPanel__hint">{authLabel}</p>
             {viewState.authStatusMessage !== null ? (
               <p
                 aria-live="polite"
@@ -181,11 +184,11 @@ function SnapshotPanelBody({
                 {viewState.authStatusMessage}
               </p>
             ) : null}
-          </section>
-
-          <section className="smj-SnapshotPanel__section">
-            <div className="smj-SnapshotPanel__sectionHeader">
-              <h3 className="smj-SnapshotPanel__sectionTitle">Project config</h3>
+            <div className="smj-SnapshotPanel__row">
+              <div className="smj-SnapshotPanel__rowCopy">
+                <strong className="smj-SnapshotPanel__rowTitle">Project config</strong>
+                <p className="smj-SnapshotPanel__hint">{repoConfigPath}</p>
+              </div>
               <button
                 className="jp-mod-styled smj-SnapshotPanel__button"
                 type="button"
@@ -197,7 +200,6 @@ function SnapshotPanelBody({
                 {repoConfigButtonLabel}
               </button>
             </div>
-            <p className="smj-SnapshotPanel__hint">{repoConfigPath}</p>
             <p className="smj-SnapshotPanel__hint">
               {viewState.effectiveState?.repoConfigLoaded
                 ? "This config is already available for the current notebook."
@@ -217,9 +219,7 @@ function SnapshotPanelBody({
           </section>
 
           <section className="smj-SnapshotPanel__section">
-            <div className="smj-SnapshotPanel__sectionHeader">
-              <h3 className="smj-SnapshotPanel__sectionTitle">Snapshot</h3>
-            </div>
+            <h3 className="smj-SnapshotPanel__sectionTitle">Capture</h3>
             <label className="smj-SnapshotPanel__field">
               <span>Commit mode</span>
               <select
@@ -254,10 +254,9 @@ function SnapshotPanelBody({
               />
               Remember prompt decisions
             </label>
-          </section>
-
-          <section className="smj-SnapshotPanel__section">
-            <h3 className="smj-SnapshotPanel__sectionTitle">Trigger cells</h3>
+            <div className="smj-SnapshotPanel__subsection">
+              <h4 className="smj-SnapshotPanel__subsectionTitle">Trigger cells</h4>
+            </div>
             <dl className="smj-SnapshotPanel__facts">
               <div>
                 <dt>Selected cell</dt>
@@ -282,10 +281,9 @@ function SnapshotPanelBody({
               Trigger cells in this notebook:{" "}
               {viewState.metadata.trigger_cell_ids.join(", ") || "(none)"}
             </p>
-          </section>
-
-          <section className="smj-SnapshotPanel__section">
-            <h3 className="smj-SnapshotPanel__sectionTitle">Watched paths</h3>
+            <div className="smj-SnapshotPanel__subsection">
+              <h4 className="smj-SnapshotPanel__subsectionTitle">Watched paths</h4>
+            </div>
             <div className="smj-SnapshotPanel__inlineForm">
               <input
                 className="jp-mod-styled"
@@ -378,24 +376,6 @@ function SnapshotPanelBody({
                 }}
               />
             </label>
-          </section>
-
-          <section className="smj-SnapshotPanel__section">
-            <h3 className="smj-SnapshotPanel__sectionTitle">Context</h3>
-            <dl className="smj-SnapshotPanel__facts">
-              <div>
-                <dt>Repo config</dt>
-                <dd>{viewState.effectiveState?.repoConfigLoaded ? "Loaded" : "Not loaded"}</dd>
-              </div>
-              <div>
-                <dt>Path rule</dt>
-                <dd>{pathRuleLabel}</dd>
-              </div>
-              <div>
-                <dt>Git</dt>
-                <dd>{gitLabel}</dd>
-              </div>
-            </dl>
           </section>
 
           {viewState.statusMessage !== null ? (

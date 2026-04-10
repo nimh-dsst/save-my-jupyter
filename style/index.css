@@ -140,6 +140,33 @@
   justify-content: space-between;
 }
 
+.smj-SnapshotPanel__row {
+  align-items: flex-start;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.smj-SnapshotPanel__rowCopy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.smj-SnapshotPanel__rowTitle,
+.smj-SnapshotPanel__subsectionTitle {
+  color: var(--jp-ui-font-color1);
+  font-size: var(--jp-ui-font-size0);
+  font-weight: 600;
+  margin: 0;
+}
+
+.smj-SnapshotPanel__subsection {
+  border-top: 1px solid var(--jp-border-color3);
+  margin-top: 2px;
+  padding-top: 8px;
+}
+
 .smj-SnapshotPanel__field {
   display: grid;
   gap: 4px;
