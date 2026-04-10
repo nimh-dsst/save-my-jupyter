@@ -1,8 +1,4 @@
-import {
-  ILabShell,
-  type JupyterFrontEnd,
-  type JupyterFrontEndPlugin
-} from "@jupyterlab/application";
+import type { JupyterFrontEnd, JupyterFrontEndPlugin } from "@jupyterlab/application";
 import { Dialog, ICommandPalette, showDialog } from "@jupyterlab/apputils";
 import {
   INotebookTracker,
@@ -64,6 +60,10 @@ const DEFAULT_USER_METADATA: SnapshotUserMetadata = {
   run_label: null,
   tags: []
 };
+
+interface RightSidebarShell {
+  expandRight?(): void;
+}
 
 function currentPanel(tracker: INotebookTracker): NotebookPanel {
   const panel = tracker.currentWidget;
@@ -585,7 +585,6 @@ const plugin: JupyterFrontEndPlugin<void> = {
     app: JupyterFrontEnd,
     tracker: INotebookTracker,
     palette: ICommandPalette,
-    labShell: ILabShell,
     settingRegistry: ISettingRegistry | null
   ): void => {
     const apiClient = new ApiClient();
@@ -641,7 +640,8 @@ const plugin: JupyterFrontEndPlugin<void> = {
       if (!snapshotPanel.isAttached) {
         app.shell.add(snapshotPanel, "right", { rank: 1000 });
       }
-      labShell.expandRight();
+      const shell = app.shell as RightSidebarShell;
+      shell.expandRight?.();
       app.shell.activateById(PANEL_ID);
     };
 
@@ -708,7 +708,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
   autoStart: true,
   id: PLUGIN_ID,
   optional: [ISettingRegistry],
-  requires: [INotebookTracker, ICommandPalette, ILabShell]
+  requires: [INotebookTracker, ICommandPalette]
 };
 
 export default plugin;
