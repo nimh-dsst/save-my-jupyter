@@ -6,10 +6,8 @@
 
 .smj-SnapshotPanel__body {
   display: grid;
-  gap: 16px;
-  margin: 0 auto;
-  max-width: 920px;
-  padding: 20px;
+  gap: 12px;
+  padding: 12px;
 }
 
 .smj-SnapshotPanel__header {
@@ -17,8 +15,8 @@
   border: 1px solid var(--jp-border-color2);
   border-radius: 12px;
   display: grid;
-  gap: 12px;
-  padding: 16px 18px;
+  gap: 10px;
+  padding: 12px;
 }
 
 .smj-SnapshotPanel__header h2 {
@@ -57,7 +55,7 @@
   box-shadow: var(--jp-elevation-z1);
   display: grid;
   gap: 10px;
-  padding: 16px 18px;
+  padding: 12px;
 }
 
 .smj-SnapshotPanel__sectionHeader,
@@ -165,8 +163,4 @@
   background: color-mix(in srgb, var(--jp-error-color1) 12%, var(--jp-layout-color1));
   border-color: color-mix(in srgb, var(--jp-error-color1) 35%, var(--jp-border-color2));
   color: var(--jp-ui-font-color1);
-}
-
-.smj-ToolbarButton .jp-ToolbarButtonComponent-label {
-  font-weight: 600;
 }

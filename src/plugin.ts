@@ -1,12 +1,12 @@
 import type { JupyterFrontEnd, JupyterFrontEndPlugin } from "@jupyterlab/application";
-import { Dialog, ICommandPalette, ToolbarButton, showDialog } from "@jupyterlab/apputils";
+import { Dialog, ICommandPalette, showDialog } from "@jupyterlab/apputils";
 import {
   INotebookTracker,
   NotebookActions,
   type NotebookPanel
 } from "@jupyterlab/notebook";
 import { ISettingRegistry } from "@jupyterlab/settingregistry";
-import { tagIcon } from "@jupyterlab/ui-components";
+import { saveIcon, ToolbarButton } from "@jupyterlab/ui-components";
 
 import { ApiClient } from "./apiClient";
 import { NotebookMetadataStore } from "./metadata";
@@ -238,19 +238,9 @@ class SnapshotPanelModel {
     });
   }
 
-  handleToolbarAction(): void {
+  async handleToolbarAction(): Promise<void> {
     this.ensurePanelIsVisible();
-    if (this.viewState.auth.status === "authenticated") {
-      this.setStatus(
-        "info",
-        "Review the current notebook context and click Snapshot Now when ready."
-      );
-    } else {
-      this.setStatus(
-        "warning",
-        "Connect LabArchives to enable snapshots for this notebook."
-      );
-    }
+    await this.submitManualSnapshot();
   }
 
   async setAllCellsTrigger(enabled: boolean): Promise<void> {
@@ -464,13 +454,12 @@ class SnapshotPanelModel {
       10,
       "save-my-jupyter:snapshot",
       new ToolbarButton({
-        className: "smj-ToolbarButton",
-        icon: tagIcon,
-        label: "Save",
+        icon: saveIcon,
+        iconLabel: "Save My Jupyter",
         onClick: () => {
-          this.handleToolbarAction();
+          void this.handleToolbarAction();
         },
-        tooltip: "Open Save My Jupyter"
+        tooltip: "Save My Jupyter snapshot"
       })
     );
   }
@@ -643,12 +632,14 @@ const plugin: JupyterFrontEndPlugin<void> = {
     });
     snapshotPanel.id = PANEL_ID;
     snapshotPanel.title.caption = "Save My Jupyter";
+    snapshotPanel.title.icon = saveIcon;
+    snapshotPanel.title.iconLabel = "Save My Jupyter";
     snapshotPanel.title.label = "Save My Jupyter";
     snapshotPanel.title.closable = false;
 
     const openPanel = (): void => {
       if (!snapshotPanel.isAttached) {
-        app.shell.add(snapshotPanel, "main");
+        app.shell.add(snapshotPanel, "right", { rank: 1000 });
       }
       app.shell.activateById(PANEL_ID);
     };
