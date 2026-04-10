@@ -15,6 +15,7 @@ import {
   buildNotebookContextPayload
 } from "./notebook/requestBuilders";
 import { ExecutionObserver } from "./notebook/triggerHooks";
+import { requiresPanelSetup } from "./panelBehavior";
 import {
   type SnapshotPanelViewState,
   SnapshotPanel
@@ -88,6 +89,7 @@ function mergeMetadataDefaults(
 }
 
 class SnapshotPanelModel {
+  private hasAutoOpenedPanel = false;
   private viewState: SnapshotPanelViewState = {
     auth: {
       pendingRequestId: null,
@@ -107,6 +109,7 @@ class SnapshotPanelModel {
   constructor(
     private readonly apiClient: ApiClient,
     private readonly metadataStore: NotebookMetadataStore,
+    private readonly openPanel: () => void,
     private readonly preferencesStore: UserPreferencesStore,
     private readonly panelWidget: SnapshotPanel,
     private readonly tracker: INotebookTracker
@@ -154,6 +157,7 @@ class SnapshotPanelModel {
 
     try {
       await panel.context.ready;
+      this.ensurePanelIsVisible();
       const state = await this.apiClient.getState(panel.context.path);
       const metadata =
         state.notebookMetadata ?? this.metadataStore.readNotebookMetadata(panel);
@@ -212,6 +216,20 @@ class SnapshotPanelModel {
       this.applySubmissionResult(result);
       await this.persistPreferences();
     });
+  }
+
+  async handleToolbarAction(): Promise<void> {
+    this.ensurePanelIsVisible();
+    if (requiresPanelSetup(this.viewState.auth)) {
+      this.updateViewState(current => ({
+        ...current,
+        statusMessage:
+          "Connect LabArchives in the Save My Jupyter panel before taking snapshots."
+      }));
+      return;
+    }
+
+    await this.submitManualSnapshot();
   }
 
   async setAllCellsTrigger(enabled: boolean): Promise<void> {
@@ -419,11 +437,20 @@ class SnapshotPanelModel {
       new ToolbarButton({
         label: "Snapshot",
         onClick: () => {
-          void this.submitManualSnapshot();
+          void this.handleToolbarAction();
         },
-        tooltip: "Create a LabArchives snapshot"
+        tooltip: "Open Save My Jupyter or create a LabArchives snapshot"
       })
     );
+  }
+
+  private ensurePanelIsVisible(): void {
+    if (this.hasAutoOpenedPanel) {
+      return;
+    }
+
+    this.openPanel();
+    this.hasAutoOpenedPanel = true;
   }
 
   private resolveCommitMode(actionLabel: string): CommitMode {
@@ -568,11 +595,19 @@ const plugin: JupyterFrontEndPlugin<void> = {
     snapshotPanel.id = PANEL_ID;
     snapshotPanel.title.caption = "Save My Jupyter";
     snapshotPanel.title.label = "Save My Jupyter";
-    app.shell.add(snapshotPanel, "right", { rank: 1000 });
+    snapshotPanel.title.closable = false;
+
+    const openPanel = (): void => {
+      if (!snapshotPanel.isAttached) {
+        app.shell.add(snapshotPanel, "main");
+      }
+      app.shell.activateById(PANEL_ID);
+    };
 
     const panelModel = new SnapshotPanelModel(
       apiClient,
       metadataStore,
+      openPanel,
       preferencesStore,
       snapshotPanel,
       tracker
@@ -608,7 +643,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
     });
     app.commands.addCommand(COMMAND_IDS.openSnapshotSettings, {
       execute: () => {
-        app.shell.activateById(PANEL_ID);
+        openPanel();
       },
       label: "Open Snapshot Settings"
     });
