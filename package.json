@@ -19,7 +19,7 @@
     "build:prod": "build-labextension . --core-path jupyterlab_core",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "install:extension": "node scripts/run-jupyterlab-command.mjs develop . --overwrite",
+    "install:extension": "python -m jupyterlab.labextensions develop . --overwrite",
     "lint": "eslint .",
     "test": "npm run test:build && npm run test:node",
     "test:build": "rimraf test-dist && tsc -p tsconfig.test.json",

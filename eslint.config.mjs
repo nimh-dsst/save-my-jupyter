@@ -9,7 +9,10 @@ import tseslint from "typescript-eslint";
 export default tseslint.config(
   {
     ignores: [
+      ".uv-cache/**",
+      ".venv_pkgtest/**",
       ".pytest_tmp/**",
+      "dist/**",
       "eslint.config.mjs",
       "lib/**",
       "node_modules/**",
