@@ -49,8 +49,19 @@ class AuthServiceImpl:
         request_id = uuid4().hex
         callback_url = f"{callback_base_url.rstrip('/')}/{request_id}"
         labapi = load_labapi()
-        client = labapi.Client()
-        auth_url = client.generate_auth_url(callback_url)
+        try:
+            client = labapi.Client()
+            auth_url = client.generate_auth_url(callback_url)
+        except labapi.AuthenticationError as exc:
+            raise LabArchivesWriteError(
+                (
+                    "LabArchives credentials are not configured for the Jupyter "
+                    "server. Set ACCESS_KEYID and ACCESS_PWD in the server "
+                    "environment before connecting."
+                ),
+                code="missing_labarchives_credentials",
+                context={"callback_url": callback_url},
+            ) from exc
         self._pending_requests[request_id] = PendingAuthRequest(
             callback_url=callback_url,
             client=client,

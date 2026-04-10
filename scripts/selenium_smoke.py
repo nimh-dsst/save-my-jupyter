@@ -40,6 +40,7 @@ class SmokeResult:
     trigger_button_label: str | None
     trigger_left_highlight_present: bool
     trigger_pill_visible_after_click: bool
+    connect_error_message: str | None
 
 
 def parse_args() -> argparse.Namespace:
@@ -52,6 +53,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ui", choices=("lab", "notebook"), default="lab")
     parser.add_argument("--port", type=int, default=8898)
     parser.add_argument("--token", default="test-token")
+    parser.add_argument("--check-connect", action="store_true")
     parser.add_argument("--log-prefix", default="tmp-selenium-jupyter")
     parser.add_argument("--output-json", default="tmp-selenium-smoke.json")
     parser.add_argument("--screenshot", default="tmp-selenium-smoke.png")
@@ -269,6 +271,30 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
         };
         """
     )
+    connect_error_message: str | None = None
+    if args.check_connect:
+        connect_button = wait.until(
+            expected_conditions.presence_of_element_located(
+                (
+                    By.XPATH,
+                    "//button[contains(normalize-space(.), 'Connect')]",
+                )
+            )
+        )
+        driver.execute_script("arguments[0].click();", connect_button)
+        status_message = wait.until(
+            lambda browser: browser.execute_script(
+                """
+                const status = document.querySelector('.smj-SnapshotPanel__status');
+                if (!status) {
+                  return null;
+                }
+                const text = (status.textContent || '').trim();
+                return text === '' ? null : text;
+                """
+            )
+        )
+        connect_error_message = str(status_message)
     driver.save_screenshot(args.screenshot)
 
     return SmokeResult(
@@ -286,6 +312,7 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
         trigger_button_label=trigger_button_label,
         trigger_left_highlight_present=bool(trigger_decoration["hasLeftHighlight"]),
         trigger_pill_visible_after_click=bool(trigger_decoration["pillVisible"]),
+        connect_error_message=connect_error_message,
     )
 
 

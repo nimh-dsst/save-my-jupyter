@@ -9,6 +9,7 @@ from typing import Any, TypeVar, cast
 from jupyter_server.base.handlers import JupyterHandler
 from jupyter_server.utils import url_path_join
 from tornado import web
+from tornado.escape import xhtml_escape
 
 from save_my_jupyter.api.parsers import (
     parse_snapshot_request,
@@ -37,7 +38,7 @@ HandlerMethod = TypeVar("HandlerMethod", bound=Callable[..., object])
 authenticated = cast("Callable[[HandlerMethod], HandlerMethod]", web.authenticated)
 
 
-class BaseSaveMyJupyterHandler(JupyterHandler):  # type: ignore[misc]
+class BaseSaveMyJupyterHandler(JupyterHandler):
     @property
     def services(self) -> ServiceContainer:
         return cast("ServiceContainer", self.settings["save_my_jupyter_services"])
@@ -109,7 +110,7 @@ class SnapshotHandler(BaseSaveMyJupyterHandler):
     @authenticated
     def post(self) -> None:
         try:
-            raw_body = self.get_json_body()
+            raw_body = _require_json_body(self.get_json_body())
             snapshot_request = parse_snapshot_request(raw_body)
             user_id = _current_user_id(self.current_user)
             result = process_snapshot_request(
@@ -132,7 +133,7 @@ class WatchSyncHandler(BaseSaveMyJupyterHandler):
     @authenticated
     def post(self) -> None:
         try:
-            raw_body = self.get_json_body()
+            raw_body = _require_json_body(self.get_json_body())
             registration_request = parse_watch_registration_request(raw_body)
             user_id = _current_user_id(self.current_user)
             synthetic_request = ManualSnapshotRequest(
@@ -176,22 +177,28 @@ class WatchSyncHandler(BaseSaveMyJupyterHandler):
 class AuthStartHandler(BaseSaveMyJupyterHandler):
     @authenticated
     def post(self) -> None:
-        auth_service = self.services.auth_service
-        user_id = str(_current_user_id(self.current_user))
-        callback_base_url = (
-            f"{self.request.protocol}://{self.request.host}"
-            f"{url_path_join(self.base_url, 'save-my-jupyter', 'auth', 'callback')}"
-        )
-        result = auth_service.start_auth(user_id, callback_base_url)
-        self.write_json(
-            {
-                "authUrl": result.auth_url,
-                "message": result.message,
-                "requestId": result.request_id,
-                "status": result.status,
-            },
-            status=HTTPStatus.ACCEPTED,
-        )
+        try:
+            auth_service = self.services.auth_service
+            user_id = str(_current_user_id(self.current_user))
+            callback_base_url = (
+                f"{self.request.protocol}://{self.request.host}"
+                f"{url_path_join(self.base_url, 'save-my-jupyter', 'auth', 'callback')}"
+            )
+            result = auth_service.start_auth(user_id, callback_base_url)
+            self.write_json(
+                {
+                    "authUrl": result.auth_url,
+                    "message": result.message,
+                    "requestId": result.request_id,
+                    "status": result.status,
+                },
+                status=HTTPStatus.ACCEPTED,
+            )
+        except SaveMyJupyterError as exc:
+            self.write_json(
+                {"error": _serialize_error(exc)},
+                status=HTTPStatus.BAD_REQUEST,
+            )
 
 
 class AuthStatusHandler(BaseSaveMyJupyterHandler):
@@ -212,7 +219,7 @@ class AuthCallbackHandler(BaseSaveMyJupyterHandler):
             auth_service.fail_pending_auth(request_id)
             self.finish(
                 "<html><body><h1>LabArchives authentication failed</h1>"
-                f"<p>{web.xhtml_escape(error)}</p></body></html>"
+                f"<p>{xhtml_escape(error)}</p></body></html>"
             )
             return
 
@@ -226,7 +233,7 @@ class AuthCallbackHandler(BaseSaveMyJupyterHandler):
             )
             self.finish(
                 "<html><body><h1>LabArchives authentication complete</h1>"
-                f"<p>Authenticated as {web.xhtml_escape(session.user_email)}.</p>"
+                f"<p>Authenticated as {xhtml_escape(session.user_email)}.</p>"
                 "<p>You can close this tab and return to JupyterLab.</p>"
                 "</body></html>"
             )
@@ -234,7 +241,7 @@ class AuthCallbackHandler(BaseSaveMyJupyterHandler):
             self.set_status(HTTPStatus.BAD_REQUEST.value)
             self.finish(
                 "<html><body><h1>LabArchives authentication failed</h1>"
-                f"<p>{web.xhtml_escape(str(exc))}</p></body></html>"
+                f"<p>{xhtml_escape(str(exc))}</p></body></html>"
             )
 
 
@@ -423,3 +430,12 @@ def _current_user_id(current_user: object) -> UserId:
     if isinstance(current_user, bytes):
         return UserId(current_user.decode())
     return UserId(str(current_user))
+
+
+def _require_json_body(raw_body: dict[str, Any] | None) -> dict[str, Any]:
+    if raw_body is None:
+        raise SaveMyJupyterError(
+            "Request body must be valid JSON.",
+            code="missing_json_body",
+        )
+    return raw_body

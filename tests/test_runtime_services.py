@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+import pytest
 from save_my_jupyter.adapters.labarchives import LabArchivesAdapter
 from save_my_jupyter.domain import (
     CommitMode,
@@ -35,6 +36,7 @@ from save_my_jupyter.domain import (
     UserId,
     UserMetadata,
 )
+from save_my_jupyter.errors import LabArchivesWriteError
 from save_my_jupyter.git.service import DefaultGitService
 from save_my_jupyter.services.auth import AuthServiceImpl, LabArchivesSession
 from save_my_jupyter.watchers.service import DefaultWatchService
@@ -55,6 +57,19 @@ class FakeLabApiClient:
 
     def login(self, email: str, auth_code: str) -> SimpleNamespace:
         return SimpleNamespace(email=email, auth_code=auth_code)
+
+
+class FakeLabApiAuthError(Exception):
+    pass
+
+
+class FailingLabApiModule:
+    AuthenticationError = FakeLabApiAuthError
+
+    def Client(self) -> FakeLabApiClient:  # noqa: N802
+        raise self.AuthenticationError(
+            "ACCESS_KEYID or ACCESS_PWD environment variables not set.",
+        )
 
 
 class FakeLabApiModule:
@@ -214,9 +229,28 @@ def test_auth_service_can_start_and_complete_auth(
     assert service.get_auth_status("user-1").status == "authenticated"
 
 
+def test_auth_service_reports_missing_server_credentials(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "save_my_jupyter.services.auth.load_labapi",
+        lambda: FailingLabApiModule(),
+    )
+    service = AuthServiceImpl()
+
+    with pytest.raises(LabArchivesWriteError) as exc_info:
+        service.start_auth(
+            "user-1",
+            "http://localhost/save-my-jupyter/auth/callback",
+        )
+
+    assert exc_info.value.code == "missing_labarchives_credentials"
+    assert "ACCESS_KEYID" in str(exc_info.value)
+
+
 def test_watch_service_polls_files_and_emits_requests() -> None:
     root = _make_workspace_temp_dir()
-    service = DefaultWatchService()
+    service = DefaultWatchService(poll_interval_seconds=60.0)
     try:
         notebook_path = root / "analysis.ipynb"
         notebook_path.write_text("{}", encoding="utf-8")
@@ -234,6 +268,7 @@ def test_watch_service_polls_files_and_emits_requests() -> None:
             user_metadata=UserMetadata(),
             watch_paths=(RelativeWatchPath("outputs"),),
         )
+        service.stop()
 
         watched_file = watch_root / "result.txt"
         watched_file.write_text("first", encoding="utf-8")
