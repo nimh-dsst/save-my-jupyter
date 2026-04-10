@@ -1,41 +1,63 @@
 .smj-SnapshotPanel {
-  --smj-accent: #0b6e4f;
-  --smj-accent-soft: rgba(11, 110, 79, 0.12);
-  --smj-border: rgba(16, 24, 40, 0.12);
-  --smj-surface: linear-gradient(180deg, #f7fbf8 0%, #eef5f0 100%);
-  padding: 16px;
+  background: var(--jp-layout-color1);
+  color: var(--jp-ui-font-color1);
+  padding: 0;
 }
 
 .smj-SnapshotPanel__body {
   display: grid;
-  gap: 12px;
+  gap: 16px;
+  margin: 0 auto;
+  max-width: 920px;
+  padding: 20px;
 }
 
 .smj-SnapshotPanel__header {
-  background: var(--smj-surface);
-  border: 1px solid var(--smj-border);
-  border-radius: 14px;
-  padding: 14px;
+  background: var(--jp-layout-color2);
+  border: 1px solid var(--jp-border-color2);
+  border-radius: 12px;
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px;
 }
 
 .smj-SnapshotPanel__header h2 {
-  margin: 0 0 4px;
+  color: var(--jp-ui-font-color1);
+  font-size: var(--jp-ui-font-size3);
+  margin: 0;
+}
+
+.smj-SnapshotPanel__headerMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.smj-SnapshotPanel__chip {
+  background: var(--jp-layout-color3);
+  border: 1px solid var(--jp-border-color2);
+  border-radius: 999px;
+  color: var(--jp-ui-font-color1);
+  font-size: var(--jp-ui-font-size0);
+  padding: 4px 10px;
 }
 
 .smj-SnapshotPanel__header p,
 .smj-SnapshotPanel__section p,
 .smj-SnapshotPanel__hint,
 .smj-SnapshotPanel__status {
+  color: var(--jp-ui-font-color2);
   margin: 0;
 }
 
 .smj-SnapshotPanel__section {
-  background: white;
-  border: 1px solid var(--smj-border);
-  border-radius: 14px;
+  background: var(--jp-layout-color1);
+  border: 1px solid var(--jp-border-color2);
+  border-radius: 12px;
+  box-shadow: var(--jp-elevation-z1);
   display: grid;
   gap: 10px;
-  padding: 14px;
+  padding: 16px 18px;
 }
 
 .smj-SnapshotPanel__sectionHeader,
@@ -52,14 +74,16 @@
   gap: 4px;
 }
 
+.smj-SnapshotPanel__field span,
+.smj-SnapshotPanel__section strong {
+  color: var(--jp-ui-font-color1);
+}
+
 .smj-SnapshotPanel__field input,
 .smj-SnapshotPanel__field select,
 .smj-SnapshotPanel__field textarea,
 .smj-SnapshotPanel__inlineForm input {
-  border: 1px solid var(--smj-border);
-  border-radius: 10px;
   min-height: 34px;
-  padding: 8px 10px;
 }
 
 .smj-SnapshotPanel__field textarea {
@@ -74,14 +98,7 @@
 }
 
 .smj-SnapshotPanel button {
-  background: var(--smj-accent-soft);
-  border: 1px solid rgba(11, 110, 79, 0.28);
-  border-radius: 999px;
-  color: var(--smj-accent);
   cursor: pointer;
-  font-weight: 600;
-  min-height: 34px;
-  padding: 0 12px;
 }
 
 .smj-SnapshotPanel button:disabled {
@@ -103,17 +120,53 @@
 
 .smj-SnapshotPanel__list li {
   align-items: center;
-  background: var(--smj-surface);
-  border-radius: 10px;
+  background: var(--jp-layout-color2);
+  border: 1px solid var(--jp-border-color2);
+  border-radius: 8px;
   display: flex;
   gap: 8px;
   justify-content: space-between;
-  padding: 8px 10px;
+  padding: 10px 12px;
 }
 
-.smj-SnapshotPanel__hint,
-.smj-SnapshotPanel__status {
-  color: #475467;
-  font-size: 12px;
+.smj-SnapshotPanel__hint {
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
   line-height: 1.5;
+}
+
+.smj-SnapshotPanel__status {
+  border: 1px solid var(--jp-border-color2);
+  border-radius: 10px;
+  font-size: var(--jp-ui-font-size1);
+  line-height: 1.5;
+  padding: 12px 14px;
+}
+
+.smj-SnapshotPanel__status--info {
+  background: color-mix(in srgb, var(--jp-brand-color1) 10%, var(--jp-layout-color1));
+  border-color: color-mix(in srgb, var(--jp-brand-color1) 35%, var(--jp-border-color2));
+  color: var(--jp-ui-font-color1);
+}
+
+.smj-SnapshotPanel__status--success {
+  background: color-mix(in srgb, var(--jp-success-color1) 12%, var(--jp-layout-color1));
+  border-color: color-mix(in srgb, var(--jp-success-color1) 35%, var(--jp-border-color2));
+  color: var(--jp-ui-font-color1);
+}
+
+.smj-SnapshotPanel__status--warning {
+  background: color-mix(in srgb, var(--jp-warn-color1) 16%, var(--jp-layout-color1));
+  border-color: color-mix(in srgb, var(--jp-warn-color1) 35%, var(--jp-border-color2));
+  color: var(--jp-ui-font-color1);
+}
+
+.smj-SnapshotPanel__status--error {
+  background: color-mix(in srgb, var(--jp-error-color1) 12%, var(--jp-layout-color1));
+  border-color: color-mix(in srgb, var(--jp-error-color1) 35%, var(--jp-border-color2));
+  color: var(--jp-ui-font-color1);
+}
+
+.smj-ToolbarButton .jp-ToolbarButtonComponent-label {
+  font-weight: 600;
 }

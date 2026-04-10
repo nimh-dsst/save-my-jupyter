@@ -17,6 +17,7 @@ export interface SnapshotPanelViewState {
   notebookPath: string | null;
   rememberCommitChoice: boolean;
   selectedCommitMode: CommitMode;
+  statusKind: "error" | "info" | "success" | "warning" | null;
   statusMessage: string | null;
   userMetadata: SnapshotUserMetadata;
 }
@@ -63,17 +64,27 @@ function SnapshotPanelBody({
         ? "Authentication pending"
         : "Not authenticated";
 
+  const statusClassName =
+    viewState.statusKind === null
+      ? null
+      : `smj-SnapshotPanel__status smj-SnapshotPanel__status--${viewState.statusKind}`;
+
   return (
     <section className="smj-SnapshotPanel__body">
       <div className="smj-SnapshotPanel__header">
         <h2>Save My Jupyter</h2>
         <p>{viewState.notebookPath ?? "Open a notebook to configure snapshots."}</p>
+        <div className="smj-SnapshotPanel__headerMeta">
+          <span className="smj-SnapshotPanel__chip">Notebook workflow snapshots</span>
+          <span className="smj-SnapshotPanel__chip">{authLabel}</span>
+        </div>
       </div>
 
       <section className="smj-SnapshotPanel__section">
         <div className="smj-SnapshotPanel__sectionHeader">
           <strong>LabArchives</strong>
           <button
+            className="jp-mod-styled"
             type="button"
             onClick={() => {
               callbacks.onAuthenticate();
@@ -89,6 +100,7 @@ function SnapshotPanelBody({
         <div className="smj-SnapshotPanel__sectionHeader">
           <strong>Snapshot Behavior</strong>
           <button
+            className="jp-mod-styled"
             type="button"
             onClick={() => {
               callbacks.onRefresh();
@@ -110,6 +122,7 @@ function SnapshotPanelBody({
         <label className="smj-SnapshotPanel__field">
           <span>Commit mode</span>
           <select
+            className="jp-mod-styled"
             value={viewState.selectedCommitMode}
             onChange={event => {
               callbacks.onCommitModeChange(event.target.value as CommitMode);
@@ -136,6 +149,7 @@ function SnapshotPanelBody({
         <strong>Watched Paths</strong>
         <div className="smj-SnapshotPanel__inlineForm">
           <input
+            className="jp-mod-styled"
             type="text"
             value={watchPathInput}
             placeholder="relative/path/to/watch"
@@ -144,6 +158,7 @@ function SnapshotPanelBody({
             }}
           />
           <button
+            className="jp-mod-styled"
             type="button"
             onClick={() => {
               callbacks.onWatchPathSubmit(watchPathInput);
@@ -158,6 +173,7 @@ function SnapshotPanelBody({
             <li key={path}>
               <code>{path}</code>
               <button
+                className="jp-mod-styled"
                 type="button"
                 onClick={() => {
                   callbacks.onRemoveWatchedPath(path);
@@ -178,6 +194,7 @@ function SnapshotPanelBody({
         <label className="smj-SnapshotPanel__field">
           <span>Tags</span>
           <input
+            className="jp-mod-styled"
             type="text"
             value={tagsValue}
             placeholder="baseline, experiment-1"
@@ -189,6 +206,7 @@ function SnapshotPanelBody({
         <label className="smj-SnapshotPanel__field">
           <span>Run label</span>
           <input
+            className="jp-mod-styled"
             type="text"
             value={viewState.userMetadata.run_label ?? ""}
             onChange={event => {
@@ -199,6 +217,7 @@ function SnapshotPanelBody({
         <label className="smj-SnapshotPanel__field">
           <span>Experiment context</span>
           <input
+            className="jp-mod-styled"
             type="text"
             value={viewState.userMetadata.experiment_context ?? ""}
             onChange={event => {
@@ -209,6 +228,7 @@ function SnapshotPanelBody({
         <label className="smj-SnapshotPanel__field">
           <span>Notes</span>
           <textarea
+            className="jp-mod-styled"
             value={viewState.userMetadata.notes ?? ""}
             onChange={event => {
               callbacks.onNotesChange(event.target.value);
@@ -232,6 +252,7 @@ function SnapshotPanelBody({
 
       <div className="smj-SnapshotPanel__actions">
         <button
+          className="jp-mod-styled jp-mod-accept"
           type="button"
           disabled={viewState.notebookPath === null || viewState.isBusy}
           onClick={() => {
@@ -243,7 +264,13 @@ function SnapshotPanelBody({
       </div>
 
       {viewState.statusMessage !== null ? (
-        <p className="smj-SnapshotPanel__status">{viewState.statusMessage}</p>
+        <p
+          aria-live="polite"
+          className={statusClassName ?? "smj-SnapshotPanel__status"}
+          role="status"
+        >
+          {viewState.statusMessage}
+        </p>
       ) : null}
     </section>
   );
@@ -274,6 +301,7 @@ export class SnapshotPanel extends ReactWidget {
       notebookPath: null,
       rememberCommitChoice: false,
       selectedCommitMode: "prompt",
+      statusKind: null,
       statusMessage: null,
       userMetadata: {
         experiment_context: null,

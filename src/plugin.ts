@@ -1,11 +1,12 @@
 import type { JupyterFrontEnd, JupyterFrontEndPlugin } from "@jupyterlab/application";
-import { ICommandPalette, ToolbarButton } from "@jupyterlab/apputils";
+import { Dialog, ICommandPalette, ToolbarButton, showDialog } from "@jupyterlab/apputils";
 import {
   INotebookTracker,
   NotebookActions,
   type NotebookPanel
 } from "@jupyterlab/notebook";
 import { ISettingRegistry } from "@jupyterlab/settingregistry";
+import { tagIcon } from "@jupyterlab/ui-components";
 
 import { ApiClient } from "./apiClient";
 import { NotebookMetadataStore } from "./metadata";
@@ -102,6 +103,7 @@ class SnapshotPanelModel {
     notebookPath: null,
     rememberCommitChoice: false,
     selectedCommitMode: "prompt",
+    statusKind: null,
     statusMessage: null,
     userMetadata: DEFAULT_USER_METADATA
   };
@@ -149,6 +151,7 @@ class SnapshotPanelModel {
         notebookPath: null,
         rememberCommitChoice: preferences.rememberCommitChoice,
         selectedCommitMode: preferences.defaultCommitMode,
+        statusKind: null,
         statusMessage: null,
         userMetadata: mergeMetadataDefaults(DEFAULT_METADATA, preferences)
       }));
@@ -174,6 +177,7 @@ class SnapshotPanelModel {
         selectedCommitMode: shouldPreserveDrafts
           ? this.viewState.selectedCommitMode
           : preferences.defaultCommitMode,
+        statusKind: shouldPreserveDrafts ? this.viewState.statusKind : null,
         statusMessage: shouldPreserveDrafts ? this.viewState.statusMessage : null,
         userMetadata: shouldPreserveDrafts
           ? this.viewState.userMetadata
@@ -191,6 +195,7 @@ class SnapshotPanelModel {
         notebookPath: panel.context.path,
         rememberCommitChoice: preferences.rememberCommitChoice,
         selectedCommitMode: preferences.defaultCommitMode,
+        statusKind: "error",
         statusMessage:
           error instanceof Error
             ? error.message
@@ -201,6 +206,21 @@ class SnapshotPanelModel {
   }
 
   async submitManualSnapshot(): Promise<void> {
+    if (requiresPanelSetup(this.viewState.auth)) {
+      this.ensurePanelIsVisible();
+      this.setStatus(
+        "warning",
+        "Connect LabArchives before creating a snapshot."
+      );
+      await showDialog({
+        body:
+          "Connect LabArchives in the Save My Jupyter tab before creating a snapshot.",
+        buttons: [Dialog.okButton({ label: "Open Save My Jupyter" })],
+        title: "LabArchives connection required"
+      });
+      return;
+    }
+
     const panel = currentPanel(this.tracker);
     await panel.context.save();
     const commitMode = this.resolveCommitMode("this manual snapshot");
@@ -218,18 +238,19 @@ class SnapshotPanelModel {
     });
   }
 
-  async handleToolbarAction(): Promise<void> {
+  handleToolbarAction(): void {
     this.ensurePanelIsVisible();
-    if (requiresPanelSetup(this.viewState.auth)) {
-      this.updateViewState(current => ({
-        ...current,
-        statusMessage:
-          "Connect LabArchives in the Save My Jupyter panel before taking snapshots."
-      }));
-      return;
+    if (this.viewState.auth.status === "authenticated") {
+      this.setStatus(
+        "info",
+        "Review the current notebook context and click Snapshot Now when ready."
+      );
+    } else {
+      this.setStatus(
+        "warning",
+        "Connect LabArchives to enable snapshots for this notebook."
+      );
     }
-
-    await this.submitManualSnapshot();
   }
 
   async setAllCellsTrigger(enabled: boolean): Promise<void> {
@@ -253,6 +274,7 @@ class SnapshotPanelModel {
     if (!validation.ok) {
       this.updateViewState(current => ({
         ...current,
+        statusKind: "warning",
         statusMessage: validation.message
       }));
       return;
@@ -271,6 +293,7 @@ class SnapshotPanelModel {
     const nextViewState = {
       ...this.viewState,
       metadata: nextMetadata,
+      statusKind: "success" as const,
       statusMessage: `Watching ${validation.normalizedPath}.`
     };
     this.setViewState(nextViewState);
@@ -290,6 +313,7 @@ class SnapshotPanelModel {
     const nextViewState = {
       ...this.viewState,
       metadata: nextMetadata,
+      statusKind: "info" as const,
       statusMessage: `Stopped watching ${path}.`
     };
     this.setViewState(nextViewState);
@@ -302,6 +326,7 @@ class SnapshotPanelModel {
     if (activeCell === null) {
       this.updateViewState(current => ({
         ...current,
+        statusKind: "warning",
         statusMessage: "Select a cell before changing trigger status."
       }));
       return;
@@ -315,6 +340,7 @@ class SnapshotPanelModel {
     this.updateViewState(current => ({
       ...current,
       metadata,
+      statusKind: "success",
       statusMessage: enabled
         ? `Marked ${activeCell.model.id} as a trigger cell.`
         : `Removed ${activeCell.model.id} from trigger cells.`
@@ -334,6 +360,7 @@ class SnapshotPanelModel {
           status: "pending",
           userEmail: current.auth.userEmail
         },
+        statusKind: "info",
         statusMessage:
           result.authUrl === null
             ? result.message
@@ -347,10 +374,11 @@ class SnapshotPanelModel {
     this.updateViewState(current => ({
       ...current,
       auth,
+      statusKind: auth.status === "authenticated" ? "success" : "warning",
       statusMessage:
         auth.status === "authenticated"
           ? `Authenticated as ${auth.userEmail ?? "unknown"}.`
-          : current.statusMessage
+          : "Not authenticated with LabArchives yet."
     }));
   }
 
@@ -420,6 +448,7 @@ class SnapshotPanelModel {
   applySubmissionResult(result: SnapshotSubmissionResult): void {
     this.updateViewState(current => ({
       ...current,
+      statusKind: result.status === "accepted" ? "success" : "error",
       statusMessage: toStatusMessage(result)
     }));
   }
@@ -435,11 +464,13 @@ class SnapshotPanelModel {
       10,
       "save-my-jupyter:snapshot",
       new ToolbarButton({
-        label: "Snapshot",
+        className: "smj-ToolbarButton",
+        icon: tagIcon,
+        label: "Save",
         onClick: () => {
-          void this.handleToolbarAction();
+          this.handleToolbarAction();
         },
-        tooltip: "Open Save My Jupyter or create a LabArchives snapshot"
+        tooltip: "Open Save My Jupyter"
       })
     );
   }
@@ -466,6 +497,7 @@ class SnapshotPanelModel {
       this.updateViewState(current => ({
         ...current,
         selectedCommitMode: resolvedCommitMode,
+        statusKind: "info",
         statusMessage: `Future snapshots will ${
           resolvedCommitMode === "always" ? "create" : "skip"
         } commits until you change the commit mode.`
@@ -489,6 +521,7 @@ class SnapshotPanelModel {
     this.updateViewState(current => ({
       ...current,
       isBusy: true,
+      statusKind: current.statusKind,
       statusMessage: current.statusMessage
     }));
     try {
@@ -496,6 +529,7 @@ class SnapshotPanelModel {
     } catch (error: unknown) {
       this.updateViewState(current => ({
         ...current,
+        statusKind: "error",
         statusMessage:
           error instanceof Error ? error.message : "Unexpected snapshot error."
       }));
@@ -521,6 +555,10 @@ class SnapshotPanelModel {
     if (options.silent !== true) {
       this.updateViewState(current => ({
         ...current,
+        statusKind:
+          result.status === "registered"
+            ? "success"
+            : "info",
         statusMessage:
           result.status === "registered"
             ? `Registered ${String(
@@ -540,6 +578,17 @@ class SnapshotPanelModel {
     updater: (current: SnapshotPanelViewState) => SnapshotPanelViewState
   ): void {
     this.setViewState(updater(this.viewState));
+  }
+
+  private setStatus(
+    statusKind: SnapshotPanelViewState["statusKind"],
+    statusMessage: string
+  ): void {
+    this.updateViewState(current => ({
+      ...current,
+      statusKind,
+      statusMessage
+    }));
   }
 }
 
