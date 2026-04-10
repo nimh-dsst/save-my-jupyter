@@ -1,0 +1,67 @@
+{
+  "name": "@save-my-jupyter/extension",
+  "version": "0.1.0",
+  "description": "Jupyter snapshots for LabArchives.",
+  "license": "UNLICENSED",
+  "files": [
+    "lib/**/*",
+    "style/**/*"
+  ],
+  "sideEffects": [
+    "style/**/*.css"
+  ],
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "scripts": {
+    "clean": "rimraf lib save_my_jupyter/labextension tsconfig.tsbuildinfo",
+    "build": "npm run clean && npm run build:lib && npm run build:prod",
+    "build:lib": "tsc -p tsconfig.json",
+    "build:prod": "build-labextension . --core-path jupyterlab_core",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "install:extension": "node scripts/run-jupyterlab-command.mjs develop . --overwrite",
+    "lint": "eslint .",
+    "test": "npm run test:build && npm run test:node",
+    "test:build": "rimraf test-dist && tsc -p tsconfig.test.json",
+    "test:node": "node --test --test-isolation=none test-dist/ui_tests/*.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "watch": "tsc -w -p tsconfig.json"
+  },
+  "dependencies": {
+    "@jupyterlab/application": "^4.5.0",
+    "@jupyterlab/apputils": "^4.5.0",
+    "@jupyterlab/cells": "^4.5.0",
+    "@jupyterlab/coreutils": "^6.5.0",
+    "@jupyterlab/notebook": "^4.5.0",
+    "@jupyterlab/services": "^7.5.0",
+    "@jupyterlab/settingregistry": "^4.5.0",
+    "@lumino/disposable": "^2.1.4",
+    "@lumino/widgets": "^2.7.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.37.0",
+    "@jupyterlab/builder": "^4.5.0",
+    "@types/node": "^24.7.2",
+    "@types/react": "^18.3.26",
+    "@types/react-dom": "^18.3.7",
+    "eslint": "^9.37.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.0.0",
+    "eslint-plugin-unused-imports": "^4.2.0",
+    "globals": "^16.4.0",
+    "npm-run-all": "^4.1.5",
+    "prettier": "^3.6.2",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.45.0"
+  },
+  "jupyterlab": {
+    "extension": "lib/index.js",
+    "outputDir": "save_my_jupyter/labextension"
+  }
+}

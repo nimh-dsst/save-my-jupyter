@@ -1,0 +1,31 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.13.2
+    hooks:
+      - id: ruff-check
+      - id: ruff-format
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.18.2
+    hooks:
+      - id: mypy
+        additional_dependencies:
+          - jupyter-server>=2.15,<3
+          - jupyterlab>=4.5,<5
+          - traitlets>=5.14,<6
+  - repo: local
+    hooks:
+      - id: npm-lint
+        name: npm lint
+        entry: npm run lint
+        language: system
+        pass_filenames: false
+      - id: npm-typecheck
+        name: npm typecheck
+        entry: npm run typecheck
+        language: system
+        pass_filenames: false
+      - id: npm-test
+        name: npm test
+        entry: npm test
+        language: system
+        pass_filenames: false

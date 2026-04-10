@@ -1,0 +1,114 @@
+[build-system]
+requires = ["hatch-jupyter-builder>=0.9.1", "hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "save-my-jupyter"
+version = "0.1.0"
+description = "Jupyter snapshots for LabArchives."
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "Save My Jupyter Contributors" }]
+dependencies = [
+  "jupyter-server>=2.15,<3",
+  "jupyterlab>=4.5,<5",
+  "traitlets>=5.14,<6",
+]
+
+[project.optional-dependencies]
+dev = [
+  "mypy>=1.18.2",
+  "pre-commit>=4.3.0",
+  "pytest>=8.4.2",
+  "pytest-cov>=7.0.0",
+  "ruff>=0.13.2",
+]
+
+[project.scripts]
+jupyter-save-my-jupyter = "save_my_jupyter.extension:launch_instance"
+
+[tool.hatch.build]
+artifacts = ["jupyter-config", "save_my_jupyter/labextension"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["save_my_jupyter"]
+
+[tool.hatch.build.targets.wheel.shared-data]
+"install.json" = "share/jupyter/labextensions/@save-my-jupyter/extension/install.json"
+"jupyter-config/jupyter_server_config.d/save_my_jupyter.json" = "etc/jupyter/jupyter_server_config.d/save_my_jupyter.json"
+"save_my_jupyter/labextension" = "share/jupyter/labextensions/@save-my-jupyter/extension"
+
+[tool.hatch.build.targets.sdist]
+exclude = ["node_modules", "save_my_jupyter/labextension/static"]
+
+[tool.hatch.build.hooks.jupyter-builder]
+build-function = "hatch_jupyter_builder.npm_builder"
+dependencies = ["hatch-jupyter-builder>=0.9.1"]
+ensured-targets = ["save_my_jupyter/labextension/package.json"]
+skip-if-exists = ["save_my_jupyter/labextension/package.json"]
+
+[tool.hatch.build.hooks.jupyter-builder.build-kwargs]
+build_cmd = "build:prod"
+npm = ["npm"]
+
+[tool.hatch.build.hooks.jupyter-builder.editable-build-kwargs]
+build_cmd = "install:extension"
+build_dir = "save_my_jupyter/labextension"
+npm = ["npm"]
+source_dir = "src"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_redundant_casts = true
+warn_return_any = true
+warn_unused_ignores = true
+exclude = ["^save_my_jupyter/labextension/"]
+
+[[tool.mypy.overrides]]
+module = ["jupyter_server.*", "tornado.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+src = ["save_my_jupyter", "tests"]
+target-version = "py312"
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = [
+  "A",
+  "B",
+  "C4",
+  "DTZ",
+  "E",
+  "EM",
+  "F",
+  "FA",
+  "G",
+  "I",
+  "ICN",
+  "LOG",
+  "N",
+  "PIE",
+  "PT",
+  "PTH",
+  "RET",
+  "RSE",
+  "RUF",
+  "SIM",
+  "SLOT",
+  "TC",
+  "UP",
+  "W",
+]
+ignore = ["EM101", "EM102", "RUF012", "TC001", "TC003", "TC006"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]

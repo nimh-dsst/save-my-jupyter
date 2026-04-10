@@ -1,0 +1,5 @@
+{
+  "packageManager": "python",
+  "packageName": "save-my-jupyter",
+  "uninstallInstructions": "Use `pip uninstall save-my-jupyter` to remove the extension."
+}
