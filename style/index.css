@@ -1,0 +1,119 @@
+.smj-SnapshotPanel {
+  --smj-accent: #0b6e4f;
+  --smj-accent-soft: rgba(11, 110, 79, 0.12);
+  --smj-border: rgba(16, 24, 40, 0.12);
+  --smj-surface: linear-gradient(180deg, #f7fbf8 0%, #eef5f0 100%);
+  padding: 16px;
+}
+
+.smj-SnapshotPanel__body {
+  display: grid;
+  gap: 12px;
+}
+
+.smj-SnapshotPanel__header {
+  background: var(--smj-surface);
+  border: 1px solid var(--smj-border);
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.smj-SnapshotPanel__header h2 {
+  margin: 0 0 4px;
+}
+
+.smj-SnapshotPanel__header p,
+.smj-SnapshotPanel__section p,
+.smj-SnapshotPanel__hint,
+.smj-SnapshotPanel__status {
+  margin: 0;
+}
+
+.smj-SnapshotPanel__section {
+  background: white;
+  border: 1px solid var(--smj-border);
+  border-radius: 14px;
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.smj-SnapshotPanel__sectionHeader,
+.smj-SnapshotPanel__actions,
+.smj-SnapshotPanel__inlineForm {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.smj-SnapshotPanel__field {
+  display: grid;
+  gap: 4px;
+}
+
+.smj-SnapshotPanel__field input,
+.smj-SnapshotPanel__field select,
+.smj-SnapshotPanel__field textarea,
+.smj-SnapshotPanel__inlineForm input {
+  border: 1px solid var(--smj-border);
+  border-radius: 10px;
+  min-height: 34px;
+  padding: 8px 10px;
+}
+
+.smj-SnapshotPanel__field textarea {
+  min-height: 88px;
+  resize: vertical;
+}
+
+.smj-SnapshotPanel__checkbox {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.smj-SnapshotPanel button {
+  background: var(--smj-accent-soft);
+  border: 1px solid rgba(11, 110, 79, 0.28);
+  border-radius: 999px;
+  color: var(--smj-accent);
+  cursor: pointer;
+  font-weight: 600;
+  min-height: 34px;
+  padding: 0 12px;
+}
+
+.smj-SnapshotPanel button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.smj-SnapshotPanel__actions {
+  justify-content: flex-end;
+}
+
+.smj-SnapshotPanel__list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.smj-SnapshotPanel__list li {
+  align-items: center;
+  background: var(--smj-surface);
+  border-radius: 10px;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  padding: 8px 10px;
+}
+
+.smj-SnapshotPanel__hint,
+.smj-SnapshotPanel__status {
+  color: #475467;
+  font-size: 12px;
+  line-height: 1.5;
+}
