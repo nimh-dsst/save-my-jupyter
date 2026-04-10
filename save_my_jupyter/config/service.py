@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from save_my_jupyter.config.parsers import (
     merge_effective_config,
@@ -26,6 +28,13 @@ from save_my_jupyter.errors import ConfigValidationError
 from save_my_jupyter.parsing import normalize_relative_path_text
 
 
+@dataclass(frozen=True, slots=True)
+class RepoConfigBootstrapResult:
+    config_path: Path
+    root_directory: Path
+    status: Literal["created", "exists"]
+
+
 class ConfigService:
     def find_repo_config(self, notebook_path: NotebookPath) -> Path | None:
         path = Path(notebook_path).resolve()
@@ -41,6 +50,142 @@ class ConfigService:
         if config_path is None:
             return None
         return parse_repo_config_file(config_path)
+
+    def suggested_repo_config_path(
+        self,
+        *,
+        notebook_path: NotebookPath,
+        repo_root: Path | None,
+    ) -> Path:
+        config_root = self._resolve_config_root(
+            notebook_path=notebook_path,
+            repo_root=repo_root,
+        )
+        return config_root / ".save-my-jupyter.toml"
+
+    def ensure_repo_config(
+        self,
+        *,
+        notebook_path: NotebookPath,
+        repo_root: Path | None,
+    ) -> RepoConfigBootstrapResult:
+        config_path = self.suggested_repo_config_path(
+            notebook_path=notebook_path,
+            repo_root=repo_root,
+        )
+        if config_path.exists():
+            return RepoConfigBootstrapResult(
+                config_path=config_path,
+                root_directory=config_path.parent,
+                status="exists",
+            )
+
+        config_path.write_text(
+            self.render_repo_config_template(
+                notebook_path=notebook_path,
+                repo_root=repo_root,
+            ),
+            encoding="utf-8",
+        )
+        return RepoConfigBootstrapResult(
+            config_path=config_path,
+            root_directory=config_path.parent,
+            status="created",
+        )
+
+    def render_repo_config_template(
+        self,
+        *,
+        notebook_path: NotebookPath,
+        repo_root: Path | None,
+    ) -> str:
+        notebook = Path(notebook_path).resolve()
+        config_root = self._resolve_config_root(
+            notebook_path=notebook_path,
+            repo_root=repo_root,
+        )
+        relative_parent = (
+            notebook.parent.relative_to(config_root)
+            if notebook.parent != config_root
+            else Path()
+        )
+        match_path = normalize_relative_path_text(
+            str(relative_parent).replace("\\", "/")
+        )
+        project_name = config_root.name or "save-my-jupyter"
+        rule_name = (
+            notebook.parent.name
+            if notebook.parent != config_root
+            else "workspace"
+        )
+        lines = [
+            "# Save My Jupyter starter config",
+            (
+                "# Edit the LabArchives target names and watched paths to match "
+                "your project."
+            ),
+            "# Available target path variables: {user_id}, {scope_path},",
+            "# {path_rule_name}, {repo_name}, {notebook_name}, {notebook_stem},",
+            "# {relative_notebook_path}, {run_label}, {experiment_context},",
+            "# {timestamp}, {date}, {time}, {source}, {commit_hash}",
+            "",
+            "[project]",
+            f'name = "{project_name}"',
+            f'repo_root_strategy = "{"git" if repo_root is not None else "fixed"}"',
+            "",
+            "[defaults]",
+            "all_cells_trigger = false",
+            'commit_mode = "prompt"',
+            "watch_paths = []",
+            "include_notebook_file = true",
+            "include_diff_when_dirty = true",
+            "",
+            "[labarchives]",
+            'target_notebook = "Jupyter Snapshots"',
+            'target_root_path = "Notebook Log/{user_id}/{scope_path}"',
+            "",
+            "[git]",
+            "stage_notebook_on_commit = true",
+            "stage_watched_paths_on_commit = false",
+            'commit_message_template = "snapshot: {notebook_name} {timestamp}"',
+            "",
+            "[[path_rule]]",
+            f'name = "{rule_name}"',
+            f'match_paths = ["{match_path}"]',
+            "watch_paths = []",
+            "include_paths = []",
+            "exclude_paths = []",
+            'labarchives_target_notebook = "Jupyter Snapshots"',
+            'labarchives_target_root_path = "Notebook Log/{user_id}/{scope_path}"',
+            "",
+            "[path_rule.metadata_template]",
+            f'notebook = "{notebook.name}"',
+        ]
+        return "\n".join(lines) + "\n"
+
+    def _resolve_config_root(
+        self,
+        *,
+        notebook_path: NotebookPath,
+        repo_root: Path | None,
+    ) -> Path:
+        notebook = Path(notebook_path).resolve()
+        notebook_dir = notebook if notebook.is_dir() else notebook.parent
+        resolved_repo_root = repo_root.resolve() if repo_root is not None else None
+
+        current = notebook_dir
+        while True:
+            if (current / "pyproject.toml").exists():
+                return current
+            if (current / "package.json").exists():
+                return current
+            if resolved_repo_root is not None and current == resolved_repo_root:
+                break
+            if current.parent == current:
+                break
+            current = current.parent
+
+        return resolved_repo_root if resolved_repo_root is not None else notebook_dir
 
     def load_user_settings(
         self,

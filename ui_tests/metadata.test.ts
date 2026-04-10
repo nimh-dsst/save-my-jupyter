@@ -99,3 +99,31 @@ void test("NotebookMetadataStore removes trigger ids when cells are unmarked", a
   assert.equal(store.readCellMetadata(cell).trigger, false);
   assert.deepEqual(nextMetadata.trigger_cell_ids, []);
 });
+
+void test("NotebookMetadataStore reports the active cell trigger state", () => {
+  const notebookSharedModel = new FakeSharedModel();
+  const firstCellSharedModel = new FakeSharedModel();
+  const secondCellSharedModel = new FakeSharedModel();
+  const store = new NotebookMetadataStore();
+  const firstCell = createCell(firstCellSharedModel, "cell-1");
+  const secondCell = createCell(secondCellSharedModel, "cell-2");
+  const panel = {
+    content: {
+      activeCell: secondCell,
+      model: {
+        sharedModel: notebookSharedModel
+      }
+    },
+    context: {
+      save: () => Promise.resolve()
+    }
+  } as unknown as NotebookPanel;
+
+  store.setCellTrigger(firstCell, true);
+  store.setCellTrigger(secondCell, false);
+
+  assert.deepEqual(store.readActiveCellTriggerState(panel), {
+    cellId: "cell-2",
+    isTrigger: false
+  });
+});

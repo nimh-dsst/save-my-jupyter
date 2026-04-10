@@ -1,6 +1,8 @@
 import { ReactWidget } from "@jupyterlab/apputils";
 import React from "react";
 
+import { getSnapshotAvailability } from "../panelBehavior";
+import { formatTagsInput } from "../tags";
 import type {
   AuthState,
   CommitMode,
@@ -10,7 +12,13 @@ import type {
 } from "../types";
 
 export interface SnapshotPanelViewState {
+  activeCellId: string | null;
+  activeCellIsTrigger: boolean;
   auth: AuthState;
+  authStatusKind: "error" | "info" | "success" | "warning" | null;
+  authStatusMessage: string | null;
+  configStatusKind: "error" | "info" | "success" | "warning" | null;
+  configStatusMessage: string | null;
   effectiveState: EffectiveState | null;
   isBusy: boolean;
   metadata: NotebookExtensionMetadata;
@@ -19,6 +27,7 @@ export interface SnapshotPanelViewState {
   selectedCommitMode: CommitMode;
   statusKind: "error" | "info" | "success" | "warning" | null;
   statusMessage: string | null;
+  tagsInput: string;
   userMetadata: SnapshotUserMetadata;
 }
 
@@ -26,6 +35,7 @@ export interface SnapshotPanelCallbacks {
   onAuthenticate(): void;
   onCommitModeChange(value: CommitMode): void;
   onExperimentContextChange(value: string): void;
+  onGenerateRepoConfig(): void;
   onNotesChange(value: string): void;
   onRefresh(): void;
   onRememberCommitChoiceChange(value: boolean): void;
@@ -33,6 +43,7 @@ export interface SnapshotPanelCallbacks {
   onRunLabelChange(value: string): void;
   onSnapshot(): void;
   onTagsChange(value: string): void;
+  onToggleSelectedCellTrigger(): void;
   onToggleAllCells(value: boolean): void;
   onWatchPathSubmit(path: string): void;
 }
@@ -56,223 +67,327 @@ function SnapshotPanelBody({
     viewState.effectiveState?.effectiveConfig?.watchedPaths ??
     viewState.metadata.watched_paths;
 
-  const tagsValue = viewState.userMetadata.tags.join(", ");
+  const tagsValue = viewState.tagsInput;
   const authLabel =
     viewState.auth.status === "authenticated"
       ? `Authenticated as ${viewState.auth.userEmail ?? "unknown"}`
       : viewState.auth.status === "pending"
         ? "Authentication pending"
         : "Not authenticated";
+  const selectedCellLabel = viewState.activeCellId ?? "No selected cell";
+  const triggerButtonLabel = viewState.activeCellIsTrigger
+    ? "Unmark selected cell"
+    : "Mark selected cell";
+  const repoConfigPath =
+    viewState.effectiveState?.repoConfigPath ?? "Open a notebook to choose a config location.";
+  const repoConfigButtonLabel = viewState.effectiveState?.repoConfigLoaded
+    ? "Ensure config exists"
+    : "Create starter config";
 
   const statusClassName =
     viewState.statusKind === null
       ? null
       : `smj-SnapshotPanel__status smj-SnapshotPanel__status--${viewState.statusKind}`;
+  const authStatusClassName =
+    viewState.authStatusKind === null
+      ? null
+      : `smj-SnapshotPanel__status smj-SnapshotPanel__status--${viewState.authStatusKind}`;
+  const configStatusClassName =
+    viewState.configStatusKind === null
+      ? null
+      : `smj-SnapshotPanel__status smj-SnapshotPanel__status--${viewState.configStatusKind}`;
+  const snapshotAvailability = getSnapshotAvailability(
+    viewState.auth,
+    viewState.notebookPath,
+    viewState.isBusy
+  );
 
   return (
-    <section className="smj-SnapshotPanel__body">
-      <div className="smj-SnapshotPanel__header">
-        <h2>Save My Jupyter</h2>
-        <p>{viewState.notebookPath ?? "Open a notebook to configure snapshots."}</p>
-        <div className="smj-SnapshotPanel__headerMeta">
-          <span className="smj-SnapshotPanel__chip">Notebook workflow snapshots</span>
-          <span className="smj-SnapshotPanel__chip">{authLabel}</span>
-        </div>
+    <>
+      <div className="jp-SidePanel-header">
+        <span className="smj-SnapshotPanel__headerTitle">Save My Jupyter</span>
       </div>
+      <section className="jp-SidePanel-content smj-SnapshotPanel__content">
+        <div className="smj-SnapshotPanel__body">
+          <div className="smj-SnapshotPanel__summary">
+            <p className="smj-SnapshotPanel__summaryPath">
+              {viewState.notebookPath ?? "Open a notebook to configure snapshots."}
+            </p>
+          </div>
 
-      <section className="smj-SnapshotPanel__section">
-        <div className="smj-SnapshotPanel__sectionHeader">
-          <strong>LabArchives</strong>
-          <button
-            className="jp-mod-styled"
-            type="button"
-            onClick={() => {
-              callbacks.onAuthenticate();
-            }}
-          >
-            Connect
-          </button>
-        </div>
-        <p>{authLabel}</p>
-      </section>
-
-      <section className="smj-SnapshotPanel__section">
-        <div className="smj-SnapshotPanel__sectionHeader">
-          <strong>Snapshot Behavior</strong>
-          <button
-            className="jp-mod-styled"
-            type="button"
-            onClick={() => {
-              callbacks.onRefresh();
-            }}
-          >
-            Refresh
-          </button>
-        </div>
-        <label className="smj-SnapshotPanel__checkbox">
-          <input
-            type="checkbox"
-            checked={viewState.metadata.all_cells_trigger}
-            onChange={event => {
-              callbacks.onToggleAllCells(event.target.checked);
-            }}
-          />
-          Trigger on every executed cell
-        </label>
-        <label className="smj-SnapshotPanel__field">
-          <span>Commit mode</span>
-          <select
-            className="jp-mod-styled"
-            value={viewState.selectedCommitMode}
-            onChange={event => {
-              callbacks.onCommitModeChange(event.target.value as CommitMode);
-            }}
-          >
-            <option value="prompt">Prompt</option>
-            <option value="always">Always commit</option>
-            <option value="never">Never commit</option>
-          </select>
-        </label>
-        <label className="smj-SnapshotPanel__checkbox">
-          <input
-            type="checkbox"
-            checked={viewState.rememberCommitChoice}
-            onChange={event => {
-              callbacks.onRememberCommitChoiceChange(event.target.checked);
-            }}
-          />
-          Remember prompt decisions
-        </label>
-      </section>
-
-      <section className="smj-SnapshotPanel__section">
-        <strong>Watched Paths</strong>
-        <div className="smj-SnapshotPanel__inlineForm">
-          <input
-            className="jp-mod-styled"
-            type="text"
-            value={watchPathInput}
-            placeholder="relative/path/to/watch"
-            onChange={event => {
-              setWatchPathInput(event.target.value);
-            }}
-          />
-          <button
-            className="jp-mod-styled"
-            type="button"
-            onClick={() => {
-              callbacks.onWatchPathSubmit(watchPathInput);
-              setWatchPathInput("");
-            }}
-          >
-            Add
-          </button>
-        </div>
-        <ul className="smj-SnapshotPanel__list">
-          {viewState.metadata.watched_paths.map(path => (
-            <li key={path}>
-              <code>{path}</code>
+          <section className="smj-SnapshotPanel__section">
+            <div className="smj-SnapshotPanel__sectionHeader">
+              <strong>LabArchives</strong>
               <button
-                className="jp-mod-styled"
+                className="jp-mod-styled smj-SnapshotPanel__button"
                 type="button"
                 onClick={() => {
-                  callbacks.onRemoveWatchedPath(path);
+                  callbacks.onAuthenticate();
                 }}
               >
-                Remove
+                Connect
               </button>
-            </li>
-          ))}
-        </ul>
-        <p className="smj-SnapshotPanel__hint">
-          Effective watched paths: {watchedPathSummary.join(", ") || "(none)"}
-        </p>
+            </div>
+            <p className="smj-SnapshotPanel__hint">{authLabel}</p>
+            {viewState.authStatusMessage !== null ? (
+              <p
+                aria-live="polite"
+                className={
+                  authStatusClassName ?? "smj-SnapshotPanel__status"
+                }
+                role="status"
+              >
+                {viewState.authStatusMessage}
+              </p>
+            ) : null}
+          </section>
+
+          <section className="smj-SnapshotPanel__section">
+            <div className="smj-SnapshotPanel__sectionHeader">
+              <strong>Project config</strong>
+              <button
+                className="jp-mod-styled smj-SnapshotPanel__button"
+                type="button"
+                disabled={viewState.notebookPath === null}
+                onClick={() => {
+                  callbacks.onGenerateRepoConfig();
+                }}
+              >
+                {repoConfigButtonLabel}
+              </button>
+            </div>
+            <p className="smj-SnapshotPanel__hint">{repoConfigPath}</p>
+            <p className="smj-SnapshotPanel__hint">
+              {viewState.effectiveState?.repoConfigLoaded
+                ? "This config is already available for the current notebook."
+                : "Create a starter .save-my-jupyter.toml to share defaults for this workspace."}
+            </p>
+            {viewState.configStatusMessage !== null ? (
+              <p
+                aria-live="polite"
+                className={
+                  configStatusClassName ?? "smj-SnapshotPanel__status"
+                }
+                role="status"
+              >
+                {viewState.configStatusMessage}
+              </p>
+            ) : null}
+          </section>
+
+          <section className="smj-SnapshotPanel__section">
+            <div className="smj-SnapshotPanel__sectionHeader">
+              <strong>Snapshot</strong>
+              <button
+                className="jp-mod-styled smj-SnapshotPanel__button"
+                type="button"
+                onClick={() => {
+                  callbacks.onRefresh();
+                }}
+              >
+                Refresh
+              </button>
+            </div>
+            <label className="smj-SnapshotPanel__field">
+              <span>Commit mode</span>
+              <select
+                className="jp-mod-styled"
+                value={viewState.selectedCommitMode}
+                onChange={event => {
+                  callbacks.onCommitModeChange(event.target.value as CommitMode);
+                }}
+              >
+                <option value="prompt">Prompt</option>
+                <option value="always">Always commit</option>
+                <option value="never">Never commit</option>
+              </select>
+            </label>
+            <label className="smj-SnapshotPanel__checkbox">
+              <input
+                type="checkbox"
+                checked={viewState.metadata.all_cells_trigger}
+                onChange={event => {
+                  callbacks.onToggleAllCells(event.target.checked);
+                }}
+              />
+              Trigger on every executed cell
+            </label>
+            <label className="smj-SnapshotPanel__checkbox">
+              <input
+                type="checkbox"
+                checked={viewState.rememberCommitChoice}
+                onChange={event => {
+                  callbacks.onRememberCommitChoiceChange(event.target.checked);
+                }}
+              />
+              Remember prompt decisions
+            </label>
+          </section>
+
+          <section className="smj-SnapshotPanel__section">
+            <strong>Trigger cells</strong>
+            <dl className="smj-SnapshotPanel__facts">
+              <div>
+                <dt>Selected cell</dt>
+                <dd>{selectedCellLabel}</dd>
+              </div>
+              <div>
+                <dt>Trigger state</dt>
+                <dd>{viewState.activeCellIsTrigger ? "Marked" : "Not marked"}</dd>
+              </div>
+            </dl>
+            <button
+              className="jp-mod-styled smj-SnapshotPanel__button"
+              type="button"
+              disabled={viewState.activeCellId === null}
+              onClick={() => {
+                callbacks.onToggleSelectedCellTrigger();
+              }}
+            >
+              {triggerButtonLabel}
+            </button>
+            <p className="smj-SnapshotPanel__hint">
+              Trigger cells in this notebook:{" "}
+              {viewState.metadata.trigger_cell_ids.join(", ") || "(none)"}
+            </p>
+          </section>
+
+          <section className="smj-SnapshotPanel__section">
+            <strong>Watched paths</strong>
+            <div className="smj-SnapshotPanel__inlineForm">
+              <input
+                className="jp-mod-styled"
+                type="text"
+                value={watchPathInput}
+                placeholder="relative/path/to/watch"
+                onChange={event => {
+                  setWatchPathInput(event.target.value);
+                }}
+              />
+              <button
+                className="jp-mod-styled smj-SnapshotPanel__button"
+                type="button"
+                onClick={() => {
+                  callbacks.onWatchPathSubmit(watchPathInput);
+                  setWatchPathInput("");
+                }}
+              >
+                Add
+              </button>
+            </div>
+            <ul className="smj-SnapshotPanel__list">
+              {viewState.metadata.watched_paths.map(path => (
+                <li key={path}>
+                  <code>{path}</code>
+                  <button
+                    className="jp-mod-styled smj-SnapshotPanel__button"
+                    type="button"
+                    onClick={() => {
+                      callbacks.onRemoveWatchedPath(path);
+                    }}
+                  >
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <p className="smj-SnapshotPanel__hint">
+              Effective: {watchedPathSummary.join(", ") || "(none)"}
+            </p>
+          </section>
+
+          <section className="smj-SnapshotPanel__section">
+            <strong>Metadata</strong>
+            <label className="smj-SnapshotPanel__field">
+              <span>Tags</span>
+              <input
+                className="jp-mod-styled"
+                type="text"
+                value={tagsValue}
+                placeholder="baseline, experiment-1"
+                onChange={event => {
+                  callbacks.onTagsChange(event.target.value);
+                }}
+              />
+            </label>
+            <label className="smj-SnapshotPanel__field">
+              <span>Run label</span>
+              <input
+                className="jp-mod-styled"
+                type="text"
+                value={viewState.userMetadata.run_label ?? ""}
+                onChange={event => {
+                  callbacks.onRunLabelChange(event.target.value);
+                }}
+              />
+            </label>
+            <label className="smj-SnapshotPanel__field">
+              <span>Experiment context</span>
+              <input
+                className="jp-mod-styled"
+                type="text"
+                value={viewState.userMetadata.experiment_context ?? ""}
+                onChange={event => {
+                  callbacks.onExperimentContextChange(event.target.value);
+                }}
+              />
+            </label>
+            <label className="smj-SnapshotPanel__field">
+              <span>Notes</span>
+              <textarea
+                className="jp-mod-styled"
+                value={viewState.userMetadata.notes ?? ""}
+                onChange={event => {
+                  callbacks.onNotesChange(event.target.value);
+                }}
+              />
+            </label>
+          </section>
+
+          <section className="smj-SnapshotPanel__section">
+            <strong>Context</strong>
+            <dl className="smj-SnapshotPanel__facts">
+              <div>
+                <dt>Repo config</dt>
+                <dd>{viewState.effectiveState?.repoConfigLoaded ? "Loaded" : "Not loaded"}</dd>
+              </div>
+              <div>
+                <dt>Path rule</dt>
+                <dd>{viewState.effectiveState?.pathRule?.name ?? "(none)"}</dd>
+              </div>
+              <div>
+                <dt>Git</dt>
+                <dd>{viewState.effectiveState?.repo?.repoRoot ?? "(no repository detected)"}</dd>
+              </div>
+            </dl>
+          </section>
+
+          <div className="smj-SnapshotPanel__actions">
+            <button
+              className="jp-mod-styled jp-mod-accept"
+              type="button"
+              disabled={!snapshotAvailability.enabled}
+              onClick={() => {
+                callbacks.onSnapshot();
+              }}
+            >
+              Snapshot now
+            </button>
+          </div>
+          <p className="smj-SnapshotPanel__hint">{snapshotAvailability.message}</p>
+
+          {viewState.statusMessage !== null ? (
+            <p
+              aria-live="polite"
+              className={statusClassName ?? "smj-SnapshotPanel__status"}
+              role="status"
+            >
+              {viewState.statusMessage}
+            </p>
+          ) : null}
+        </div>
       </section>
-
-      <section className="smj-SnapshotPanel__section">
-        <strong>Metadata</strong>
-        <label className="smj-SnapshotPanel__field">
-          <span>Tags</span>
-          <input
-            className="jp-mod-styled"
-            type="text"
-            value={tagsValue}
-            placeholder="baseline, experiment-1"
-            onChange={event => {
-              callbacks.onTagsChange(event.target.value);
-            }}
-          />
-        </label>
-        <label className="smj-SnapshotPanel__field">
-          <span>Run label</span>
-          <input
-            className="jp-mod-styled"
-            type="text"
-            value={viewState.userMetadata.run_label ?? ""}
-            onChange={event => {
-              callbacks.onRunLabelChange(event.target.value);
-            }}
-          />
-        </label>
-        <label className="smj-SnapshotPanel__field">
-          <span>Experiment context</span>
-          <input
-            className="jp-mod-styled"
-            type="text"
-            value={viewState.userMetadata.experiment_context ?? ""}
-            onChange={event => {
-              callbacks.onExperimentContextChange(event.target.value);
-            }}
-          />
-        </label>
-        <label className="smj-SnapshotPanel__field">
-          <span>Notes</span>
-          <textarea
-            className="jp-mod-styled"
-            value={viewState.userMetadata.notes ?? ""}
-            onChange={event => {
-              callbacks.onNotesChange(event.target.value);
-            }}
-          />
-        </label>
-      </section>
-
-      <section className="smj-SnapshotPanel__section">
-        <strong>Context</strong>
-        <p>
-          Repo config loaded: {viewState.effectiveState?.repoConfigLoaded ? "yes" : "no"}
-        </p>
-        <p>
-          Path rule: {viewState.effectiveState?.pathRule?.name ?? "(none)"}
-        </p>
-        <p>
-          Git: {viewState.effectiveState?.repo?.repoRoot ?? "(no repository detected)"}
-        </p>
-      </section>
-
-      <div className="smj-SnapshotPanel__actions">
-        <button
-          className="jp-mod-styled jp-mod-accept"
-          type="button"
-          disabled={viewState.notebookPath === null || viewState.isBusy}
-          onClick={() => {
-            callbacks.onSnapshot();
-          }}
-        >
-          Snapshot Now
-        </button>
-      </div>
-
-      {viewState.statusMessage !== null ? (
-        <p
-          aria-live="polite"
-          className={statusClassName ?? "smj-SnapshotPanel__status"}
-          role="status"
-        >
-          {viewState.statusMessage}
-        </p>
-      ) : null}
-    </section>
+    </>
   );
 }
 
@@ -282,11 +397,17 @@ export class SnapshotPanel extends ReactWidget {
   constructor(private readonly callbacks: SnapshotPanelCallbacks) {
     super();
     this.viewState = {
+      activeCellId: null,
+      activeCellIsTrigger: false,
       auth: {
         pendingRequestId: null,
         status: "unauthenticated",
         userEmail: null
       },
+      authStatusKind: null,
+      authStatusMessage: null,
+      configStatusKind: null,
+      configStatusMessage: null,
       effectiveState: null,
       isBusy: false,
       metadata: {
@@ -303,6 +424,7 @@ export class SnapshotPanel extends ReactWidget {
       selectedCommitMode: "prompt",
       statusKind: null,
       statusMessage: null,
+      tagsInput: formatTagsInput([]),
       userMetadata: {
         experiment_context: null,
         extra_fields: {},
@@ -311,6 +433,7 @@ export class SnapshotPanel extends ReactWidget {
         tags: []
       }
     };
+    this.addClass("jp-SidePanel");
     this.addClass("smj-SnapshotPanel");
   }
 

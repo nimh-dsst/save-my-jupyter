@@ -122,6 +122,7 @@ export const effectiveStateSchema = z.object({
   notebookMetadata: notebookExtensionMetadataSchema.nullable(),
   pathRule: pathRuleSchema.nullable(),
   repo: repoStateSchema.nullable(),
+  repoConfigPath: z.string().nullable(),
   repoConfigLoaded: z.boolean()
 });
 
@@ -130,6 +131,12 @@ export const authStartResponseSchema = z.object({
   message: z.string(),
   requestId: z.string().nullable(),
   status: z.string()
+});
+
+export const configInitResponseSchema = z.object({
+  configPath: z.string(),
+  rootDirectory: z.string(),
+  status: z.enum(["created", "exists"])
 });
 
 export const watchSyncResponseSchema = z.object({
@@ -171,6 +178,7 @@ export type AuthStartResponse = z.infer<typeof authStartResponseSchema>;
 export type AuthState = z.infer<typeof authStateSchema>;
 export type CellExtensionMetadata = z.infer<typeof cellExtensionMetadataSchema>;
 export type CommitMode = z.infer<typeof commitModeSchema>;
+export type ConfigInitResponse = z.infer<typeof configInitResponseSchema>;
 export type EffectiveConfig = z.infer<typeof effectiveConfigSchema>;
 export type EffectiveState = z.infer<typeof effectiveStateSchema>;
 export type NotebookContext = z.infer<typeof notebookContextSchema>;
@@ -196,6 +204,10 @@ export function parseAuthStartResponse(raw: unknown): AuthStartResponse {
 
 export function parseAuthState(raw: unknown): AuthState {
   return authStateSchema.parse(raw);
+}
+
+export function parseConfigInitResponse(raw: unknown): ConfigInitResponse {
+  return configInitResponseSchema.parse(raw);
 }
 
 export function parseCellExtensionMetadata(raw: unknown): CellExtensionMetadata {

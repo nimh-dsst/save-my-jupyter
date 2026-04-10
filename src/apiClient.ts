@@ -4,6 +4,7 @@ import { ServerConnection } from "@jupyterlab/services";
 import {
   type AuthStartResponse,
   type AuthState,
+  type ConfigInitResponse,
   type EffectiveState,
   type NotebookContext,
   type SnapshotRequestPayload,
@@ -13,8 +14,9 @@ import {
   parseApiError,
   parseAuthStartResponse,
   parseAuthState,
-  parseSnapshotSubmissionResult,
+  parseConfigInitResponse,
   parseEffectiveState,
+  parseSnapshotSubmissionResult,
   parseWatchSyncResponse
 } from "./types";
 
@@ -77,6 +79,25 @@ export class ApiClient {
       this.settings
     );
     return this.parseJsonResponse(response, parseAuthStartResponse);
+  }
+
+  async generateRepoConfig(notebookPath: string): Promise<ConfigInitResponse> {
+    const url = URLExt.join(
+      this.settings.baseUrl,
+      "save-my-jupyter",
+      "config",
+      "init"
+    );
+    const response = await ServerConnection.makeRequest(
+      url,
+      {
+        body: JSON.stringify({ notebook_path: notebookPath }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST"
+      },
+      this.settings
+    );
+    return this.parseJsonResponse(response, parseConfigInitResponse);
   }
 
   async syncWatchRegistration(

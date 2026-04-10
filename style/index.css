@@ -46,6 +46,11 @@
   padding: 12px 0;
 }
 
+.smj-SnapshotPanel__section .smj-SnapshotPanel__hint,
+.smj-SnapshotPanel__section .smj-SnapshotPanel__status {
+  margin: 0;
+}
+
 .smj-SnapshotPanel__sectionHeader,
 .smj-SnapshotPanel__inlineForm {
   align-items: center;

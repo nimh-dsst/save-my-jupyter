@@ -41,6 +41,13 @@ class SmokeResult:
     trigger_left_highlight_present: bool
     trigger_pill_visible_after_click: bool
     connect_error_message: str | None
+    connect_error_scoped_to_labarchives: bool
+    tags_input_accepts_commas: bool
+    tags_input_value_after_typing: str | None
+    config_path_hint: str | None
+    config_status_message: str | None
+    config_status_scoped_to_project_config: bool
+    config_file_exists_after_click: bool
 
 
 def parse_args() -> argparse.Namespace:
@@ -54,6 +61,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--port", type=int, default=8898)
     parser.add_argument("--token", default="test-token")
     parser.add_argument("--check-connect", action="store_true")
+    parser.add_argument("--check-config-init", action="store_true")
     parser.add_argument("--log-prefix", default="tmp-selenium-jupyter")
     parser.add_argument("--output-json", default="tmp-selenium-smoke.json")
     parser.add_argument("--screenshot", default="tmp-selenium-smoke.png")
@@ -92,6 +100,7 @@ def start_jupyter(args: argparse.Namespace) -> tuple[subprocess.Popen[str], Path
             f"--ServerApp.port={args.port}",
             "--ServerApp.port_retries=0",
         ],
+        cwd=args.root_dir,
         stdout=stdout_handle,
         stderr=stderr_handle,
         text=True,
@@ -272,29 +281,105 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
         """
     )
     connect_error_message: str | None = None
+    connect_error_scoped_to_labarchives = False
+    tags_input = wait.until(
+        expected_conditions.presence_of_element_located(
+            (
+                By.XPATH,
+                "//label[.//span[normalize-space(.)='Tags']]//input",
+            )
+        )
+    )
+    tags_input.clear()
+    tags_input.send_keys("baseline, follow-up,")
+    tags_input_value_after_typing = tags_input.get_attribute("value")
+    tags_input_accepts_commas = tags_input_value_after_typing == "baseline, follow-up,"
+
+    config_path_hint: str | None = None
     if args.check_connect:
+        labarchives_section = driver.execute_script(
+            """
+            return Array.from(document.querySelectorAll('.smj-SnapshotPanel__section'))
+              .find((section) => section.textContent.includes('LabArchives'));
+            """
+        )
         connect_button = wait.until(
-            expected_conditions.presence_of_element_located(
-                (
-                    By.XPATH,
-                    "//button[contains(normalize-space(.), 'Connect')]",
-                )
+            lambda browser: browser.execute_script(
+                """
+                const section = arguments[0];
+                return section?.querySelector('button');
+                """,
+                labarchives_section,
             )
         )
         driver.execute_script("arguments[0].click();", connect_button)
         status_message = wait.until(
             lambda browser: browser.execute_script(
                 """
-                const status = document.querySelector('.smj-SnapshotPanel__status');
+                const section = arguments[0];
+                const status = section?.querySelector('.smj-SnapshotPanel__status');
                 if (!status) {
                   return null;
                 }
                 const text = (status.textContent || '').trim();
                 return text === '' ? null : text;
-                """
+                """,
+                labarchives_section,
             )
         )
         connect_error_message = str(status_message)
+        connect_error_scoped_to_labarchives = True
+
+    config_status_message: str | None = None
+    config_status_scoped_to_project_config = False
+    config_file_exists_after_click = False
+    if args.check_config_init:
+        config_section = driver.execute_script(
+            """
+            return Array.from(document.querySelectorAll('.smj-SnapshotPanel__section'))
+              .find((section) => section.textContent.includes('Project config'));
+            """
+        )
+        config_button = wait.until(
+            lambda browser: browser.execute_script(
+                """
+                const section = arguments[0];
+                return Array.from(section?.querySelectorAll('button') || [])
+                  .find((button) => button.textContent.includes('config'));
+                """,
+                config_section,
+            )
+        )
+        driver.execute_script("arguments[0].click();", config_button)
+        status_message = wait.until(
+            lambda browser: browser.execute_script(
+                """
+                const section = arguments[0];
+                const status = section?.querySelector('.smj-SnapshotPanel__status');
+                if (!status) {
+                  return null;
+                }
+                const text = (status.textContent || '').trim();
+                return text === '' ? null : text;
+                """,
+                config_section,
+            )
+        )
+        config_status_message = str(status_message)
+        config_status_scoped_to_project_config = True
+        config_path = driver.execute_script(
+            """
+            const section = arguments[0];
+            const hints = Array.from(
+              section?.querySelectorAll('.smj-SnapshotPanel__hint') || []
+            );
+            return hints.length > 0 ? (hints[0].textContent || '').trim() : null;
+            """,
+            config_section,
+        )
+        if isinstance(config_path, str) and config_path != "":
+            config_path_hint = config_path
+            config_file_exists_after_click = Path(config_path).exists()
     driver.save_screenshot(args.screenshot)
 
     return SmokeResult(
@@ -313,6 +398,13 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
         trigger_left_highlight_present=bool(trigger_decoration["hasLeftHighlight"]),
         trigger_pill_visible_after_click=bool(trigger_decoration["pillVisible"]),
         connect_error_message=connect_error_message,
+        connect_error_scoped_to_labarchives=connect_error_scoped_to_labarchives,
+        tags_input_accepts_commas=tags_input_accepts_commas,
+        tags_input_value_after_typing=tags_input_value_after_typing,
+        config_path_hint=config_path_hint,
+        config_status_message=config_status_message,
+        config_status_scoped_to_project_config=config_status_scoped_to_project_config,
+        config_file_exists_after_click=config_file_exists_after_click,
     )
 
 

@@ -5,6 +5,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 
+from save_my_jupyter.adapters.path_templates import render_root_path_template
 from save_my_jupyter.domain import (
     ArtifactKind,
     ArtifactRef,
@@ -32,18 +33,12 @@ class LabArchivesAdapter:
             notebook = session.user.notebooks[
                 str(record.labarchives_target.notebook_name)
             ]
-            scope_name = (
-                record.path_rule_name
-                or record.repo.relative_notebook_path
-                or record.notebook_context.notebook_name
-            )
             timestamp_name = record.timestamp.isoformat(timespec="seconds").replace(
                 ":",
                 "-",
             )
-            target_root = notebook.dir(str(record.labarchives_target.root_path))
-            snapshot_root = target_root.dir(str(record.user_id)).dir(str(scope_name))
-            page = snapshot_root.create(
+            target_root = self._resolve_target_root(notebook, record)
+            page = target_root.create(
                 labapi.NotebookPage,
                 timestamp_name,
                 if_exists=labapi.InsertBehavior.Raise,
@@ -60,6 +55,15 @@ class LabArchivesAdapter:
                 error_code="labarchives_write_failed",
                 message=str(exc),
             )
+
+    def _resolve_target_root(self, notebook: Any, record: SnapshotRecord) -> Any:
+        current = notebook
+        for part in render_root_path_template(
+            str(record.labarchives_target.root_path),
+            record,
+        ):
+            current = current.dir(part)
+        return current
 
     def _write_summary_entries(
         self,

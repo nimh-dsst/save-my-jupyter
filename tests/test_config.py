@@ -110,3 +110,65 @@ match_paths = ["analysis/deep"]
         assert path_rule.rule_name == "deep"
     finally:
         shutil.rmtree(repo_root, ignore_errors=True)
+
+
+def test_config_service_creates_starter_repo_config() -> None:
+    repo_root = Path.cwd() / ".test_config_bootstrap_repo"
+    shutil.rmtree(repo_root, ignore_errors=True)
+    try:
+        notebook_dir = repo_root / "analysis"
+        notebook_dir.mkdir(parents=True)
+        notebook_path = notebook_dir / "work.ipynb"
+        notebook_path.write_text("{}", encoding="utf-8")
+
+        service = ConfigService()
+        result = service.ensure_repo_config(
+            notebook_path=NotebookPath(str(notebook_path)),
+            repo_root=repo_root,
+        )
+
+        assert result.status == "created"
+        assert result.config_path == repo_root / ".save-my-jupyter.toml"
+        repo_config = service.load_repo_config(NotebookPath(str(notebook_path)))
+        assert repo_config is not None
+        assert repo_config.project_name == repo_root.name
+        assert repo_config.path_rules[0].name == "analysis"
+        assert str(repo_config.path_rules[0].match_paths[0]) == "analysis"
+        starter_config = result.config_path.read_text(encoding="utf-8")
+        assert (
+            'target_root_path = "Notebook Log/{user_id}/{scope_path}"'
+            in starter_config
+        )
+        assert "{path_rule_name}" in starter_config
+    finally:
+        shutil.rmtree(repo_root, ignore_errors=True)
+
+
+def test_config_service_prefers_nearest_project_root_for_starter_config() -> None:
+    repo_root = Path.cwd() / ".test_config_monorepo"
+    shutil.rmtree(repo_root, ignore_errors=True)
+    try:
+        project_root = repo_root / "save-my-jupyter-test"
+        notebook_dir = project_root / "notebooks"
+        notebook_dir.mkdir(parents=True)
+        (project_root / "pyproject.toml").write_text(
+            '[project]\nname = "save-my-jupyter-test"\nversion = "0.1.0"\n',
+            encoding="utf-8",
+        )
+        notebook_path = notebook_dir / "work.ipynb"
+        notebook_path.write_text("{}", encoding="utf-8")
+
+        service = ConfigService()
+        result = service.ensure_repo_config(
+            notebook_path=NotebookPath(str(notebook_path)),
+            repo_root=repo_root,
+        )
+
+        assert result.status == "created"
+        assert result.config_path == project_root / ".save-my-jupyter.toml"
+        assert result.root_directory == project_root
+        starter_config = result.config_path.read_text(encoding="utf-8")
+        assert 'name = "save-my-jupyter-test"' in starter_config
+        assert 'match_paths = ["notebooks"]' in starter_config
+    finally:
+        shutil.rmtree(repo_root, ignore_errors=True)

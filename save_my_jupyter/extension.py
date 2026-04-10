@@ -11,6 +11,7 @@ from save_my_jupyter.handlers import (
     AuthCallbackHandler,
     AuthStartHandler,
     AuthStatusHandler,
+    ConfigInitHandler,
     SnapshotHandler,
     StateHandler,
     WatchSyncHandler,
@@ -25,11 +26,11 @@ from save_my_jupyter.services.snapshot import SnapshotService
 from save_my_jupyter.watchers.service import DefaultWatchService
 
 
-class SaveMyJupyterApp(ExtensionApp):  # type: ignore[misc]
+class SaveMyJupyterApp(ExtensionApp):
     extension_name = "save_my_jupyter"
 
     def initialize_settings(self) -> None:
-        super().initialize_settings()
+        super().initialize_settings()  # type: ignore[no-untyped-call]
         config_service = ConfigService()
         git_service = DefaultGitService()
         auth_service = AuthServiceImpl()
@@ -71,18 +72,20 @@ class SaveMyJupyterApp(ExtensionApp):  # type: ignore[misc]
         self.settings["save_my_jupyter_services"] = services
 
     def initialize_handlers(self) -> None:
+        server_app = self.serverapp
+        assert server_app is not None
         handlers = [
             (
-                url_path_join(self.serverapp.base_url, "save-my-jupyter", "state"),
+                url_path_join(server_app.base_url, "save-my-jupyter", "state"),
                 StateHandler,
             ),
             (
-                url_path_join(self.serverapp.base_url, "save-my-jupyter", "snapshot"),
+                url_path_join(server_app.base_url, "save-my-jupyter", "snapshot"),
                 SnapshotHandler,
             ),
             (
                 url_path_join(
-                    self.serverapp.base_url,
+                    server_app.base_url,
                     "save-my-jupyter",
                     "watch",
                     "sync",
@@ -91,19 +94,25 @@ class SaveMyJupyterApp(ExtensionApp):  # type: ignore[misc]
             ),
             (
                 url_path_join(
-                    self.serverapp.base_url, "save-my-jupyter", "auth", "start"
+                    server_app.base_url, "save-my-jupyter", "auth", "start"
                 ),
                 AuthStartHandler,
             ),
             (
                 url_path_join(
-                    self.serverapp.base_url, "save-my-jupyter", "auth", "status"
+                    server_app.base_url, "save-my-jupyter", "auth", "status"
                 ),
                 AuthStatusHandler,
             ),
             (
                 url_path_join(
-                    self.serverapp.base_url, "save-my-jupyter", "auth", "callback"
+                    server_app.base_url, "save-my-jupyter", "config", "init"
+                ),
+                ConfigInitHandler,
+            ),
+            (
+                url_path_join(
+                    server_app.base_url, "save-my-jupyter", "auth", "callback"
                 )
                 + "/(?P<request_id>[^/]+)",
                 AuthCallbackHandler,
@@ -113,4 +122,4 @@ class SaveMyJupyterApp(ExtensionApp):  # type: ignore[misc]
 
 
 def launch_instance() -> None:
-    SaveMyJupyterApp.launch_instance()
+    SaveMyJupyterApp.launch_instance()  # type: ignore[no-untyped-call]

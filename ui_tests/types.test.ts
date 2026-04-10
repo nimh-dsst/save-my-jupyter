@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  parseConfigInitResponse,
   parseEffectiveState,
   parseAuthStartResponse,
   parseNotebookExtensionMetadata,
@@ -84,6 +85,17 @@ void test("parseAuthStartResponse parses auth bootstrap payloads", () => {
   assert.equal(result.status, "pending");
 });
 
+void test("parseConfigInitResponse parses starter config responses", () => {
+  const result = parseConfigInitResponse({
+    configPath: "C:/repo/.save-my-jupyter.toml",
+    rootDirectory: "C:/repo",
+    status: "created"
+  });
+
+  assert.equal(result.status, "created");
+  assert.equal(result.configPath, "C:/repo/.save-my-jupyter.toml");
+});
+
 void test("parseEffectiveState parses state payloads from the backend", () => {
   const state = parseEffectiveState({
     auth: {
@@ -133,10 +145,12 @@ void test("parseEffectiveState parses state payloads from the backend", () => {
       repoHost: "github",
       repoRoot: "/repo"
     },
+    repoConfigPath: "/repo/.save-my-jupyter.toml",
     repoConfigLoaded: true
   });
 
   assert.equal(state.auth.status, "authenticated");
   assert.equal(state.effectiveConfig?.commitMode, "always");
   assert.equal(state.pathRule?.name, "analysis");
+  assert.equal(state.repoConfigPath, "/repo/.save-my-jupyter.toml");
 });

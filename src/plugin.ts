@@ -1,12 +1,13 @@
 import type { JupyterFrontEnd, JupyterFrontEndPlugin } from "@jupyterlab/application";
 import { Dialog, ICommandPalette, ToolbarButton, showDialog } from "@jupyterlab/apputils";
+import type { Cell } from "@jupyterlab/cells";
 import {
   INotebookTracker,
   NotebookActions,
   type NotebookPanel
 } from "@jupyterlab/notebook";
 import { ISettingRegistry } from "@jupyterlab/settingregistry";
-import { tagIcon } from "@jupyterlab/ui-components";
+import { historyIcon, tagIcon } from "@jupyterlab/ui-components";
 
 import { ApiClient } from "./apiClient";
 import { NotebookMetadataStore } from "./metadata";
@@ -22,6 +23,7 @@ import {
   SnapshotPanel
 } from "./panels/SnapshotPanel";
 import { UserPreferencesStore } from "./settings";
+import { formatTagsInput, parseTagsInput } from "./tags";
 import type {
   CommitMode,
   NotebookExtensionMetadata,
@@ -37,6 +39,7 @@ const COMMAND_IDS = {
   markCellAsTrigger: "save-my-jupyter:mark-cell-as-trigger",
   openSnapshotSettings: "save-my-jupyter:open-snapshot-settings",
   snapshotNow: "save-my-jupyter:snapshot-now",
+  toggleSelectedCellTrigger: "save-my-jupyter:toggle-selected-cell-trigger",
   toggleAllCells: "save-my-jupyter:toggle-all-cells",
   unmarkCellAsTrigger: "save-my-jupyter:unmark-cell-as-trigger"
 } as const;
@@ -58,6 +61,10 @@ const DEFAULT_USER_METADATA: SnapshotUserMetadata = {
   run_label: null,
   tags: []
 };
+
+interface RightSidebarShell {
+  expandRight?(): void;
+}
 
 function currentPanel(tracker: INotebookTracker): NotebookPanel {
   const panel = tracker.currentWidget;
@@ -90,13 +97,19 @@ function mergeMetadataDefaults(
 }
 
 class SnapshotPanelModel {
-  private hasAutoOpenedPanel = false;
+  private readonly observedPanels = new WeakSet<NotebookPanel>();
   private viewState: SnapshotPanelViewState = {
+    activeCellId: null,
+    activeCellIsTrigger: false,
     auth: {
       pendingRequestId: null,
       status: "unauthenticated",
       userEmail: null
     },
+    authStatusKind: null,
+    authStatusMessage: null,
+    configStatusKind: null,
+    configStatusMessage: null,
     effectiveState: null,
     isBusy: false,
     metadata: DEFAULT_METADATA,
@@ -105,6 +118,7 @@ class SnapshotPanelModel {
     selectedCommitMode: "prompt",
     statusKind: null,
     statusMessage: null,
+    tagsInput: formatTagsInput([]),
     userMetadata: DEFAULT_USER_METADATA
   };
 
@@ -123,11 +137,13 @@ class SnapshotPanelModel {
     });
 
     this.tracker.widgetAdded.connect((_sender, panel) => {
+      this.observePanel(panel);
       this.addToolbarButton(panel);
     });
 
     const initialPanel = this.tracker.currentWidget;
     if (initialPanel !== null) {
+      this.observePanel(initialPanel);
       this.addToolbarButton(initialPanel);
     }
 
@@ -144,7 +160,13 @@ class SnapshotPanelModel {
     if (panel === null) {
       this.updateViewState(() => ({
         ...this.viewState,
+        activeCellId: null,
+        activeCellIsTrigger: false,
         auth: this.viewState.auth,
+        authStatusKind: this.viewState.authStatusKind,
+        authStatusMessage: this.viewState.authStatusMessage,
+        configStatusKind: this.viewState.configStatusKind,
+        configStatusMessage: this.viewState.configStatusMessage,
         effectiveState: null,
         isBusy: false,
         metadata: DEFAULT_METADATA,
@@ -153,6 +175,7 @@ class SnapshotPanelModel {
         selectedCommitMode: preferences.defaultCommitMode,
         statusKind: null,
         statusMessage: null,
+        tagsInput: formatTagsInput(preferences.defaultTags),
         userMetadata: mergeMetadataDefaults(DEFAULT_METADATA, preferences)
       }));
       return;
@@ -160,13 +183,27 @@ class SnapshotPanelModel {
 
     try {
       await panel.context.ready;
-      this.ensurePanelIsVisible();
       const state = await this.apiClient.getState(panel.context.path);
       const metadata =
         state.notebookMetadata ?? this.metadataStore.readNotebookMetadata(panel);
+      const activeCellState = this.metadataStore.readActiveCellTriggerState(panel);
       const shouldPreserveDrafts = this.viewState.notebookPath === panel.context.path;
       const nextViewState: SnapshotPanelViewState = {
+        activeCellId: activeCellState.cellId,
+        activeCellIsTrigger: activeCellState.isTrigger,
         auth: state.auth,
+        authStatusKind: shouldPreserveDrafts
+          ? this.viewState.authStatusKind
+          : null,
+        authStatusMessage: shouldPreserveDrafts
+          ? this.viewState.authStatusMessage
+          : null,
+        configStatusKind: shouldPreserveDrafts
+          ? this.viewState.configStatusKind
+          : null,
+        configStatusMessage: shouldPreserveDrafts
+          ? this.viewState.configStatusMessage
+          : null,
         effectiveState: state,
         isBusy: false,
         metadata,
@@ -179,16 +216,28 @@ class SnapshotPanelModel {
           : preferences.defaultCommitMode,
         statusKind: shouldPreserveDrafts ? this.viewState.statusKind : null,
         statusMessage: shouldPreserveDrafts ? this.viewState.statusMessage : null,
+        tagsInput: shouldPreserveDrafts
+          ? this.viewState.tagsInput
+          : formatTagsInput(
+              mergeMetadataDefaults(metadata, preferences).tags
+            ),
         userMetadata: shouldPreserveDrafts
           ? this.viewState.userMetadata
           : mergeMetadataDefaults(metadata, preferences)
       };
       this.setViewState(nextViewState);
+      this.decoratePanelCells(panel);
       await this.syncWatchRegistration(panel, nextViewState, { silent: true });
     } catch (error: unknown) {
       const metadata = this.metadataStore.readNotebookMetadata(panel);
       this.setViewState({
+        activeCellId: this.metadataStore.readActiveCellTriggerState(panel).cellId,
+        activeCellIsTrigger: this.metadataStore.readActiveCellTriggerState(panel).isTrigger,
         auth: this.viewState.auth,
+        authStatusKind: this.viewState.authStatusKind,
+        authStatusMessage: this.viewState.authStatusMessage,
+        configStatusKind: this.viewState.configStatusKind,
+        configStatusMessage: this.viewState.configStatusMessage,
         effectiveState: null,
         isBusy: false,
         metadata,
@@ -200,6 +249,7 @@ class SnapshotPanelModel {
           error instanceof Error
             ? error.message
             : "Failed to load Save My Jupyter state.",
+        tagsInput: formatTagsInput(mergeMetadataDefaults(metadata, preferences).tags),
         userMetadata: mergeMetadataDefaults(metadata, preferences)
       });
     }
@@ -207,14 +257,14 @@ class SnapshotPanelModel {
 
   async submitManualSnapshot(): Promise<void> {
     if (requiresPanelSetup(this.viewState.auth)) {
-      this.ensurePanelIsVisible();
+      this.openPanel();
       this.setStatus(
         "warning",
         "Connect LabArchives before creating a snapshot."
       );
       await showDialog({
         body:
-          "Connect LabArchives in the Save My Jupyter tab before creating a snapshot.",
+          "Connect LabArchives in the Save My Jupyter sidebar before creating a snapshot.",
         buttons: [Dialog.okButton({ label: "Open Save My Jupyter" })],
         title: "LabArchives connection required"
       });
@@ -239,7 +289,7 @@ class SnapshotPanelModel {
   }
 
   handleToolbarAction(): void {
-    this.ensurePanelIsVisible();
+    this.openPanel();
     if (this.viewState.auth.status === "authenticated") {
       this.setStatus(
         "info",
@@ -337,8 +387,11 @@ class SnapshotPanelModel {
       activeCell,
       enabled
     );
+    this.decoratePanelCells(panel);
     this.updateViewState(current => ({
       ...current,
+      activeCellId: activeCell.model.id,
+      activeCellIsTrigger: enabled,
       metadata,
       statusKind: "success",
       statusMessage: enabled
@@ -347,8 +400,18 @@ class SnapshotPanelModel {
     }));
   }
 
+  async toggleSelectedCellTrigger(): Promise<void> {
+    await this.setCellTrigger(!this.viewState.activeCellIsTrigger);
+  }
+
   async startAuthentication(): Promise<void> {
-    await this.runBusyTask(async () => {
+    this.updateViewState(current => ({
+      ...current,
+      authStatusKind: null,
+      authStatusMessage: null,
+      isBusy: true
+    }));
+    try {
       const result = await this.apiClient.startAuth();
       if (result.authUrl !== null) {
         window.open(result.authUrl, "_blank", "noopener,noreferrer");
@@ -360,13 +423,27 @@ class SnapshotPanelModel {
           status: "pending",
           userEmail: current.auth.userEmail
         },
-        statusKind: "info",
-        statusMessage:
+        authStatusKind: "info",
+        authStatusMessage:
           result.authUrl === null
             ? result.message
             : "Complete the LabArchives sign-in flow in the opened tab, then refresh."
       }));
-    });
+    } catch (error: unknown) {
+      this.updateViewState(current => ({
+        ...current,
+        authStatusKind: "error",
+        authStatusMessage:
+          error instanceof Error
+            ? error.message
+            : "Unable to start LabArchives authentication."
+      }));
+    } finally {
+      this.updateViewState(current => ({
+        ...current,
+        isBusy: false
+      }));
+    }
   }
 
   async refreshAuth(): Promise<void> {
@@ -374,12 +451,56 @@ class SnapshotPanelModel {
     this.updateViewState(current => ({
       ...current,
       auth,
-      statusKind: auth.status === "authenticated" ? "success" : "warning",
-      statusMessage:
+      authStatusKind: auth.status === "authenticated" ? "success" : "warning",
+      authStatusMessage:
         auth.status === "authenticated"
           ? `Authenticated as ${auth.userEmail ?? "unknown"}.`
           : "Not authenticated with LabArchives yet."
     }));
+  }
+
+  async generateRepoConfig(): Promise<void> {
+    if (this.viewState.notebookPath === null) {
+      this.updateViewState(current => ({
+        ...current,
+        configStatusKind: "warning",
+        configStatusMessage: "Open a notebook before creating a repo config."
+      }));
+      return;
+    }
+
+    this.updateViewState(current => ({
+      ...current,
+      configStatusKind: null,
+      configStatusMessage: null,
+      isBusy: true
+    }));
+    try {
+      const result = await this.apiClient.generateRepoConfig(this.viewState.notebookPath);
+      await this.refresh();
+      this.updateViewState(current => ({
+        ...current,
+        configStatusKind: result.status === "created" ? "success" : "info",
+        configStatusMessage:
+          result.status === "created"
+            ? `Created starter config at ${result.configPath}.`
+            : `Config already exists at ${result.configPath}.`
+      }));
+    } catch (error: unknown) {
+      this.updateViewState(current => ({
+        ...current,
+        configStatusKind: "error",
+        configStatusMessage:
+          error instanceof Error
+            ? error.message
+            : "Unable to create the starter config."
+      }));
+    } finally {
+      this.updateViewState(current => ({
+        ...current,
+        isBusy: false
+      }));
+    }
   }
 
   setCommitMode(value: CommitMode): void {
@@ -399,12 +520,10 @@ class SnapshotPanelModel {
   }
 
   setTags(value: string): void {
-    const tags = value
-      .split(",")
-      .map(entry => entry.trim())
-      .filter(entry => entry !== "");
+    const tags = parseTagsInput(value);
     this.updateViewState(current => ({
       ...current,
+      tagsInput: value,
       userMetadata: {
         ...current.userMetadata,
         tags
@@ -465,7 +584,7 @@ class SnapshotPanelModel {
       "save-my-jupyter:snapshot",
       new ToolbarButton({
         className: "smj-ToolbarButton",
-        icon: tagIcon,
+        icon: historyIcon,
         label: "Save",
         onClick: () => {
           this.handleToolbarAction();
@@ -473,15 +592,59 @@ class SnapshotPanelModel {
         tooltip: "Open Save My Jupyter"
       })
     );
+
+    panel.toolbar.insertItem(
+      11,
+      "save-my-jupyter:toggle-trigger",
+      new ToolbarButton({
+        className: "smj-ToolbarButton smj-ToolbarButton--trigger",
+        icon: tagIcon,
+        label: "Trigger",
+        onClick: () => {
+          void this.toggleSelectedCellTrigger();
+        },
+        tooltip: "Mark or unmark the selected cell as a trigger"
+      })
+    );
   }
 
-  private ensurePanelIsVisible(): void {
-    if (this.hasAutoOpenedPanel) {
+  private observePanel(panel: NotebookPanel): void {
+    if (this.observedPanels.has(panel)) {
       return;
     }
 
-    this.openPanel();
-    this.hasAutoOpenedPanel = true;
+    this.observedPanels.add(panel);
+    this.decoratePanelCells(panel);
+    panel.content.activeCellChanged.connect(() => {
+      if (this.tracker.currentWidget !== panel) {
+        return;
+      }
+
+      const activeCellState = this.metadataStore.readActiveCellTriggerState(panel);
+      this.decoratePanelCells(panel);
+      this.updateViewState(current => ({
+        ...current,
+        activeCellId: activeCellState.cellId,
+        activeCellIsTrigger: activeCellState.isTrigger
+      }));
+    });
+  }
+
+  private decoratePanelCells(panel: NotebookPanel): void {
+    for (const cell of panel.content.widgets) {
+      this.decorateCell(cell);
+    }
+  }
+
+  private decorateCell(cell: Cell): void {
+    const isTrigger = this.metadataStore.readCellMetadata(cell).trigger;
+    cell.node.classList.toggle("smj-Cell--trigger", isTrigger);
+    if (isTrigger) {
+      cell.node.dataset["smjTrigger"] = "true";
+      return;
+    }
+
+    delete cell.node.dataset["smjTrigger"];
   }
 
   private resolveCommitMode(actionLabel: string): CommitMode {
@@ -612,6 +775,9 @@ const plugin: JupyterFrontEndPlugin<void> = {
       onExperimentContextChange: value => {
         panelModel.setExperimentContext(value);
       },
+      onGenerateRepoConfig: () => {
+        void panelModel.generateRepoConfig();
+      },
       onNotesChange: value => {
         panelModel.setNotes(value);
       },
@@ -634,6 +800,9 @@ const plugin: JupyterFrontEndPlugin<void> = {
       onTagsChange: value => {
         panelModel.setTags(value);
       },
+      onToggleSelectedCellTrigger: () => {
+        void panelModel.toggleSelectedCellTrigger();
+      },
       onToggleAllCells: value => {
         void panelModel.setAllCellsTrigger(value);
       },
@@ -643,13 +812,17 @@ const plugin: JupyterFrontEndPlugin<void> = {
     });
     snapshotPanel.id = PANEL_ID;
     snapshotPanel.title.caption = "Save My Jupyter";
+    snapshotPanel.title.icon = historyIcon;
+    snapshotPanel.title.iconLabel = "Save My Jupyter";
     snapshotPanel.title.label = "Save My Jupyter";
     snapshotPanel.title.closable = false;
 
     const openPanel = (): void => {
       if (!snapshotPanel.isAttached) {
-        app.shell.add(snapshotPanel, "main");
+        app.shell.add(snapshotPanel, "right", { rank: 1000 });
       }
+      const shell = app.shell as RightSidebarShell;
+      shell.expandRight?.();
       app.shell.activateById(PANEL_ID);
     };
 
@@ -681,6 +854,12 @@ const plugin: JupyterFrontEndPlugin<void> = {
         await panelModel.submitManualSnapshot();
       },
       label: "Snapshot Now"
+    });
+    app.commands.addCommand(COMMAND_IDS.toggleSelectedCellTrigger, {
+      execute: async () => {
+        await panelModel.toggleSelectedCellTrigger();
+      },
+      label: "Toggle Selected Cell Trigger"
     });
     app.commands.addCommand(COMMAND_IDS.toggleAllCells, {
       execute: async () => {

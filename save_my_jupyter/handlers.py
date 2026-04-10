@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
 from http import HTTPStatus
 from pathlib import Path
-from typing import Any, TypeVar, cast
+from typing import Any, cast
 
 from jupyter_server.base.handlers import JupyterHandler
 from jupyter_server.utils import url_path_join
@@ -31,11 +30,11 @@ from save_my_jupyter.domain import (
     UserMetadata,
 )
 from save_my_jupyter.errors import LabArchivesWriteError, SaveMyJupyterError
+from save_my_jupyter.parsing import require_str
 from save_my_jupyter.services.container import ServiceContainer
 
 _NOTEBOOK_METADATA_KEY = "save_my_jupyter"
-HandlerMethod = TypeVar("HandlerMethod", bound=Callable[..., object])
-authenticated = cast("Callable[[HandlerMethod], HandlerMethod]", web.authenticated)
+authenticated = cast("Any", web.authenticated)
 
 
 class BaseSaveMyJupyterHandler(JupyterHandler):
@@ -63,6 +62,7 @@ class StateHandler(BaseSaveMyJupyterHandler):
                     "notebookMetadata": None,
                     "pathRule": None,
                     "repo": None,
+                    "repoConfigPath": None,
                     "repoConfigLoaded": False,
                 },
                 status=HTTPStatus.OK,
@@ -91,6 +91,10 @@ class StateHandler(BaseSaveMyJupyterHandler):
             notebook_metadata=notebook_metadata,
         )
         repo = self.services.git_service.resolve_repo(notebook_path)
+        repo_config_path = self.services.config_service.suggested_repo_config_path(
+            notebook_path=notebook_path,
+            repo_root=Path(repo.repo_root) if repo.repo_root is not None else None,
+        )
         self.write_json(
             {
                 "auth": _serialize_auth_status(auth_status),
@@ -100,6 +104,7 @@ class StateHandler(BaseSaveMyJupyterHandler):
                 ),
                 "pathRule": _serialize_path_rule(path_rule),
                 "repo": _serialize_repo(repo),
+                "repoConfigPath": str(repo_config_path),
                 "repoConfigLoaded": repo_config is not None,
             },
             status=HTTPStatus.OK,
@@ -208,6 +213,32 @@ class AuthStatusHandler(BaseSaveMyJupyterHandler):
         user_id = str(_current_user_id(self.current_user))
         payload = _serialize_auth_status(auth_service.get_auth_status(user_id))
         self.write_json(payload, status=HTTPStatus.OK)
+
+
+class ConfigInitHandler(BaseSaveMyJupyterHandler):
+    @authenticated
+    def post(self) -> None:
+        try:
+            raw_body = _require_json_body(self.get_json_body())
+            notebook_path = NotebookPath(
+                require_str(raw_body.get("notebook_path"), field_name="notebook_path")
+            )
+            repo = self.services.git_service.resolve_repo(notebook_path)
+            result = self.services.config_service.ensure_repo_config(
+                notebook_path=notebook_path,
+                repo_root=Path(repo.repo_root) if repo.repo_root is not None else None,
+            )
+            self.write_json(
+                _serialize_config_init_result(result),
+                status=HTTPStatus.CREATED
+                if result.status == "created"
+                else HTTPStatus.OK,
+            )
+        except SaveMyJupyterError as exc:
+            self.write_json(
+                {"error": _serialize_error(exc)},
+                status=HTTPStatus.BAD_REQUEST,
+            )
 
 
 class AuthCallbackHandler(BaseSaveMyJupyterHandler):
@@ -422,6 +453,14 @@ def _serialize_submission_result(
     return {
         "message": result.message,
         "reasonCode": result.reason_code,
+        "status": result.status,
+    }
+
+
+def _serialize_config_init_result(result: Any) -> dict[str, object]:
+    return {
+        "configPath": str(result.config_path),
+        "rootDirectory": str(result.root_directory),
         "status": result.status,
     }
 

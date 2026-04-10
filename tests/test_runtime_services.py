@@ -11,6 +11,7 @@ from uuid import uuid4
 
 import pytest
 from save_my_jupyter.adapters.labarchives import LabArchivesAdapter
+from save_my_jupyter.adapters.path_templates import render_root_path_template
 from save_my_jupyter.domain import (
     CommitMode,
     EffectiveConfig,
@@ -354,10 +355,10 @@ def test_labarchives_adapter_writes_snapshot_page(
                     relative_path=RelativeRepoPath("outputs/artifact.txt"),
                 ),
             ),
-            metadata=UserMetadata(tags=("baseline",)),
+            metadata=UserMetadata(run_label="baseline", tags=("baseline",)),
             labarchives_target=LabArchivesTarget(
                 notebook_name=LabArchivesNotebookName("Snapshots"),
-                root_path=LabArchivesRootPath("Runs"),
+                root_path=LabArchivesRootPath("Runs/{user_id}/{scope_path}/{run_label}"),
             ),
             extension_version="0.1.0",
         )
@@ -365,11 +366,71 @@ def test_labarchives_adapter_writes_snapshot_page(
         result = adapter.write_snapshot(record, session)
         assert result.status == "persisted"
 
-        target_root = notebook.children["Runs"].children["user-1"].children["analysis"]
+        target_root = (
+            notebook.children["Runs"]
+            .children["user-1"]
+            .children["analysis"]
+            .children["baseline"]
+        )
         page = next(iter(target_root.pages.values()))
         assert len(page.entries.created) == 7
     finally:
         shutil.rmtree(root, ignore_errors=True)
+
+
+def test_render_root_path_template_supports_snapshot_variables() -> None:
+    record = SnapshotRecord(
+        snapshot_id=SnapshotId("snapshot-1"),
+        timestamp=datetime(2026, 4, 10, 15, 0, tzinfo=UTC),
+        source=SnapshotSource.MANUAL,
+        user_id=UserId("user-1"),
+        notebook_context=NotebookContext(
+            notebook_path=NotebookPath("analysis/notebook.ipynb"),
+            notebook_name="notebook.ipynb",
+        ),
+        repo=ResolvedRepoContext(
+            repo_root=RepoRootPath("C:/repo"),
+            relative_notebook_path=RelativeRepoPath("analysis/notebook.ipynb"),
+            remote_url=None,
+            repo_host=RepoHost.UNKNOWN,
+            head_commit=None,
+            is_dirty=True,
+        ),
+        path_rule_name="analysis",
+        commit_hash=None,
+        commit_url=None,
+        dirty_diff=None,
+        run_fingerprint=RunFingerprint("run-1"),
+        trigger_cell_ids=(),
+        executed_cell_ids=(),
+        produced_value_summary=None,
+        artifacts=(),
+        metadata=UserMetadata(
+            experiment_context="screening",
+            run_label="baseline",
+            tags=("baseline",),
+        ),
+        labarchives_target=LabArchivesTarget(
+            notebook_name=LabArchivesNotebookName("Snapshots"),
+            root_path=LabArchivesRootPath(
+                "Runs/{user_id}/{scope_path}/{run_label}/{date}"
+            ),
+        ),
+        extension_version="0.1.0",
+    )
+
+    rendered_path = render_root_path_template(
+        str(record.labarchives_target.root_path),
+        record,
+    )
+
+    assert rendered_path == (
+        "Runs",
+        "user-1",
+        "analysis",
+        "baseline",
+        "2026-04-10",
+    )
 
 
 def test_git_service_stages_only_snapshot_targets() -> None:

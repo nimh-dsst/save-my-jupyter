@@ -11,6 +11,11 @@ import {
 export const NOTEBOOK_METADATA_KEY = "save_my_jupyter";
 export const CELL_METADATA_KEY = "save_my_jupyter";
 
+export interface ActiveCellTriggerState {
+  cellId: string | null;
+  isTrigger: boolean;
+}
+
 export class NotebookMetadataStore {
   readNotebookMetadata(panel: NotebookPanel): NotebookExtensionMetadata {
     const model = panel.content.model;
@@ -30,6 +35,21 @@ export class NotebookMetadataStore {
   readCellMetadata(cell: Cell): CellExtensionMetadata {
     const raw = cell.model.sharedModel.getMetadata(CELL_METADATA_KEY);
     return parseCellExtensionMetadata(raw ?? {});
+  }
+
+  readActiveCellTriggerState(panel: NotebookPanel): ActiveCellTriggerState {
+    const activeCell = panel.content.activeCell;
+    if (activeCell === null) {
+      return {
+        cellId: null,
+        isTrigger: false
+      };
+    }
+
+    return {
+      cellId: activeCell.model.id,
+      isTrigger: this.readCellMetadata(activeCell).trigger
+    };
   }
 
   setCellTrigger(cell: Cell, enabled: boolean): void {
