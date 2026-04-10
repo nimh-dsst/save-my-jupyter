@@ -6,7 +6,7 @@ import {
   type NotebookPanel
 } from "@jupyterlab/notebook";
 import { ISettingRegistry } from "@jupyterlab/settingregistry";
-import { saveIcon, ToolbarButton } from "@jupyterlab/ui-components";
+import { historyIcon, ToolbarButton } from "@jupyterlab/ui-components";
 
 import { ApiClient } from "./apiClient";
 import { NotebookMetadataStore } from "./metadata";
@@ -16,7 +16,9 @@ import {
   buildNotebookContextPayload
 } from "./notebook/requestBuilders";
 import { ExecutionObserver } from "./notebook/triggerHooks";
-import { requiresPanelSetup } from "./panelBehavior";
+import {
+  requiresPanelSetup
+} from "./panelBehavior";
 import {
   type SnapshotPanelViewState,
   SnapshotPanel
@@ -238,9 +240,9 @@ class SnapshotPanelModel {
     });
   }
 
-  async handleToolbarAction(): Promise<void> {
-    this.ensurePanelIsVisible();
-    await this.submitManualSnapshot();
+  handleToolbarAction(): void {
+    this.openPanel();
+    this.setStatus("info", "Use this tab to connect LabArchives and create snapshots.");
   }
 
   async setAllCellsTrigger(enabled: boolean): Promise<void> {
@@ -454,12 +456,12 @@ class SnapshotPanelModel {
       10,
       "save-my-jupyter:snapshot",
       new ToolbarButton({
-        icon: saveIcon,
+        icon: historyIcon,
         iconLabel: "Save My Jupyter",
         onClick: () => {
-          void this.handleToolbarAction();
+          this.handleToolbarAction();
         },
-        tooltip: "Save My Jupyter snapshot"
+        tooltip: "Open Save My Jupyter"
       })
     );
   }
@@ -632,14 +634,22 @@ const plugin: JupyterFrontEndPlugin<void> = {
     });
     snapshotPanel.id = PANEL_ID;
     snapshotPanel.title.caption = "Save My Jupyter";
-    snapshotPanel.title.icon = saveIcon;
+    snapshotPanel.title.icon = historyIcon;
     snapshotPanel.title.iconLabel = "Save My Jupyter";
     snapshotPanel.title.label = "Save My Jupyter";
-    snapshotPanel.title.closable = false;
+    snapshotPanel.title.closable = true;
 
     const openPanel = (): void => {
       if (!snapshotPanel.isAttached) {
-        app.shell.add(snapshotPanel, "right", { rank: 1000 });
+        const notebookRef = tracker.currentWidget?.id;
+        if (notebookRef === undefined) {
+          app.shell.add(snapshotPanel, "main");
+        } else {
+          app.shell.add(snapshotPanel, "main", {
+            mode: "split-right",
+            ref: notebookRef
+          });
+        }
       }
       app.shell.activateById(PANEL_ID);
     };

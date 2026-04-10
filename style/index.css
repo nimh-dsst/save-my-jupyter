@@ -1,7 +1,10 @@
 .smj-SnapshotPanel {
   background: var(--jp-layout-color1);
   color: var(--jp-ui-font-color1);
+  margin: 0 auto;
+  max-width: 52rem;
   padding: 0;
+  width: 100%;
 }
 
 .smj-SnapshotPanel__body {
