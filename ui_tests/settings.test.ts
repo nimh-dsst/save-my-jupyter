@@ -48,7 +48,6 @@ void test("UserPreferencesStore saves and reloads local preferences", async () =
     const store = new UserPreferencesStore("plugin-id", null);
     await store.save({
       defaultCommitMode: "always",
-      defaultExperimentContext: "ctx",
       defaultRunLabel: "baseline",
       defaultTags: ["tag-a", "tag-b"],
       rememberCommitChoice: true
@@ -57,7 +56,6 @@ void test("UserPreferencesStore saves and reloads local preferences", async () =
     const preferences = await store.load();
 
     assert.equal(preferences.defaultCommitMode, "always");
-    assert.equal(preferences.defaultExperimentContext, "ctx");
     assert.equal(preferences.defaultRunLabel, "baseline");
     assert.equal(preferences.rememberCommitChoice, true);
     assert.deepEqual(preferences.defaultTags, ["tag-a", "tag-b"]);

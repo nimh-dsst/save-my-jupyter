@@ -34,7 +34,6 @@ export interface SnapshotPanelViewState {
 export interface SnapshotPanelCallbacks {
   onAuthenticate(): void;
   onCommitModeChange(value: CommitMode): void;
-  onExperimentContextChange(value: string): void;
   onGenerateRepoConfig(): void;
   onNotesChange(value: string): void;
   onRefresh(): void;
@@ -352,17 +351,6 @@ function SnapshotPanelBody({
                 value={viewState.userMetadata.run_label ?? ""}
                 onChange={event => {
                   callbacks.onRunLabelChange(event.target.value);
-                }}
-              />
-            </label>
-            <label className="smj-SnapshotPanel__field">
-              <span>Experiment context</span>
-              <input
-                className="jp-mod-styled"
-                type="text"
-                value={viewState.userMetadata.experiment_context ?? ""}
-                onChange={event => {
-                  callbacks.onExperimentContextChange(event.target.value);
                 }}
               />
             </label>

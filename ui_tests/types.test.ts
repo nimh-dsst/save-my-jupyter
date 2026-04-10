@@ -7,7 +7,8 @@ import {
   parseAuthStartResponse,
   parseNotebookExtensionMetadata,
   parseSnapshotRequestPayload,
-  parseSnapshotSubmissionResult
+  parseSnapshotSubmissionResult,
+  parseUserPreferences
 } from "../src/types";
 
 void test("parseNotebookExtensionMetadata applies defaults", () => {
@@ -153,4 +154,21 @@ void test("parseEffectiveState parses state payloads from the backend", () => {
   assert.equal(state.effectiveConfig?.commitMode, "always");
   assert.equal(state.pathRule?.name, "analysis");
   assert.equal(state.repoConfigPath, "/repo/.save-my-jupyter.toml");
+});
+
+void test("parseUserPreferences ignores removed experiment context settings", () => {
+  const preferences = parseUserPreferences({
+    defaultCommitMode: "always",
+    defaultExperimentContext: "legacy-hidden-value",
+    defaultRunLabel: "run-1",
+    defaultTags: ["baseline"],
+    rememberCommitChoice: true
+  });
+
+  assert.deepEqual(preferences, {
+    defaultCommitMode: "always",
+    defaultRunLabel: "run-1",
+    defaultTags: ["baseline"],
+    rememberCommitChoice: true
+  });
 });

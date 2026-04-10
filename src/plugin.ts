@@ -62,6 +62,15 @@ const DEFAULT_USER_METADATA: SnapshotUserMetadata = {
   tags: []
 };
 
+function normalizeUserMetadata(
+  metadata: SnapshotUserMetadata
+): SnapshotUserMetadata {
+  return {
+    ...metadata,
+    experiment_context: null
+  };
+}
+
 interface RightSidebarShell {
   expandRight?(): void;
 }
@@ -87,13 +96,13 @@ function mergeMetadataDefaults(
   metadata: NotebookExtensionMetadata,
   preferences: UserPreferences
 ): SnapshotUserMetadata {
-  return {
-    experiment_context: preferences.defaultExperimentContext,
+  return normalizeUserMetadata({
+    experiment_context: null,
     extra_fields: metadata.default_metadata,
     notes: null,
     run_label: preferences.defaultRunLabel,
     tags: preferences.defaultTags
-  };
+  });
 }
 
 class SnapshotPanelModel {
@@ -152,7 +161,8 @@ class SnapshotPanelModel {
 
   getCommitMode = (): CommitMode => this.resolveCommitMode("this snapshot");
 
-  getUserMetadata = (): SnapshotUserMetadata => this.viewState.userMetadata;
+  getUserMetadata = (): SnapshotUserMetadata =>
+    normalizeUserMetadata(this.viewState.userMetadata);
 
   async refresh(): Promise<void> {
     const panel = this.tracker.currentWidget;
@@ -222,7 +232,7 @@ class SnapshotPanelModel {
               mergeMetadataDefaults(metadata, preferences).tags
             ),
         userMetadata: shouldPreserveDrafts
-          ? this.viewState.userMetadata
+          ? normalizeUserMetadata(this.viewState.userMetadata)
           : mergeMetadataDefaults(metadata, preferences)
       };
       this.setViewState(nextViewState);
@@ -543,24 +553,13 @@ class SnapshotPanelModel {
     void this.persistPreferences();
   }
 
-  setExperimentContext(value: string): void {
-    this.updateViewState(current => ({
-      ...current,
-      userMetadata: {
-        ...current.userMetadata,
-        experiment_context: value === "" ? null : value
-      }
-    }));
-    void this.persistPreferences();
-  }
-
   setNotes(value: string): void {
     this.updateViewState(current => ({
       ...current,
-      userMetadata: {
+      userMetadata: normalizeUserMetadata({
         ...current.userMetadata,
         notes: value === "" ? null : value
-      }
+      })
     }));
   }
 
@@ -673,7 +672,6 @@ class SnapshotPanelModel {
   private async persistPreferences(): Promise<void> {
     await this.preferencesStore.save({
       defaultCommitMode: this.viewState.selectedCommitMode,
-      defaultExperimentContext: this.viewState.userMetadata.experiment_context,
       defaultRunLabel: this.viewState.userMetadata.run_label,
       defaultTags: this.viewState.userMetadata.tags,
       rememberCommitChoice: this.viewState.rememberCommitChoice
@@ -771,9 +769,6 @@ const plugin: JupyterFrontEndPlugin<void> = {
       },
       onCommitModeChange: value => {
         panelModel.setCommitMode(value);
-      },
-      onExperimentContextChange: value => {
-        panelModel.setExperimentContext(value);
       },
       onGenerateRepoConfig: () => {
         void panelModel.generateRepoConfig();

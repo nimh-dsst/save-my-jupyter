@@ -39,6 +39,7 @@ class SmokeResult:
     panel_header: str | None
     panel_toolbar_visible: bool
     panel_contains_trigger_controls: bool
+    experiment_context_field_present: bool
     selected_cell_label: str | None
     trigger_button_label: str | None
     trigger_left_highlight_present: bool
@@ -281,6 +282,17 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
             panel,
         )
     )
+    experiment_context_field_present = bool(
+        driver.execute_script(
+            """
+            const panel = arguments[0];
+            return Array.from(
+              panel?.querySelectorAll('label.smj-SnapshotPanel__field span') || []
+            ).some((label) => label.textContent?.trim() === 'Experiment context');
+            """,
+            panel,
+        )
+    )
     right_sidebar_visible = bool(
         driver.execute_script(
             """
@@ -472,6 +484,7 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
         panel_header=panel_header,
         panel_toolbar_visible=panel_toolbar_visible,
         panel_contains_trigger_controls=panel_contains_trigger_controls,
+        experiment_context_field_present=experiment_context_field_present,
         selected_cell_label=selected_cell_label,
         trigger_button_label=trigger_button_label,
         trigger_left_highlight_present=bool(trigger_decoration["hasLeftHighlight"]),

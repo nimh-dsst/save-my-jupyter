@@ -11,12 +11,6 @@
       "title": "Default Commit Mode",
       "type": "string"
     },
-    "defaultExperimentContext": {
-      "default": null,
-      "description": "Default experiment context to prefill in the snapshot panel.",
-      "title": "Default Experiment Context",
-      "type": ["string", "null"]
-    },
     "defaultRunLabel": {
       "default": null,
       "description": "Default run label to prefill in the snapshot panel.",

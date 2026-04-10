@@ -40,7 +40,6 @@ void test("plugin schema defines the stored user preference keys", () => {
   const propertyNames = Object.keys(pluginSchema.properties ?? {}).sort();
   assert.deepEqual(propertyNames, [
     "defaultCommitMode",
-    "defaultExperimentContext",
     "defaultRunLabel",
     "defaultTags",
     "rememberCommitChoice"

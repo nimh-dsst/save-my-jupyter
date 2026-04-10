@@ -39,10 +39,6 @@ export class UserPreferencesStore {
     if (this.settingRegistry !== null) {
       const settings = await this.settingRegistry.load(this.pluginId);
       await settings.set("defaultCommitMode", preferences.defaultCommitMode);
-      await settings.set(
-        "defaultExperimentContext",
-        preferences.defaultExperimentContext
-      );
       await settings.set("defaultRunLabel", preferences.defaultRunLabel);
       await settings.set("defaultTags", preferences.defaultTags);
       await settings.set(

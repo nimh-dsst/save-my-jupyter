@@ -159,7 +159,6 @@ export const snapshotSubmissionResultSchema = z.discriminatedUnion("status", [
 
 export const userPreferencesSchema = z.object({
   defaultCommitMode: commitModeSchema.default("prompt"),
-  defaultExperimentContext: z.string().nullable().default(null),
   defaultRunLabel: z.string().nullable().default(null),
   defaultTags: z.array(z.string()).default([]),
   rememberCommitChoice: z.boolean().default(false)
