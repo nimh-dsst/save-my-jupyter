@@ -37,13 +37,12 @@ class RepoConfigBootstrapResult:
 
 class ConfigService:
     def find_repo_config(self, notebook_path: NotebookPath) -> Path | None:
-        path = Path(notebook_path).resolve()
-        search_root = path if path.is_dir() else path.parent
-        for parent in (search_root, *search_root.parents):
-            candidate = parent / ".save-my-jupyter.toml"
-            if candidate.exists():
-                return candidate
-        return None
+        config_root = self._resolve_config_root(
+            notebook_path=notebook_path,
+            repo_root=self._infer_repo_root(notebook_path),
+        )
+        candidate = config_root / ".save-my-jupyter.toml"
+        return candidate if candidate.exists() else None
 
     def load_repo_config(self, notebook_path: NotebookPath) -> RepoConfig | None:
         config_path = self.find_repo_config(notebook_path)
@@ -186,6 +185,18 @@ class ConfigService:
             current = current.parent
 
         return resolved_repo_root if resolved_repo_root is not None else notebook_dir
+
+    def _infer_repo_root(self, notebook_path: NotebookPath) -> Path | None:
+        notebook = Path(notebook_path).resolve()
+        current = notebook if notebook.is_dir() else notebook.parent
+
+        while True:
+            git_marker = current / ".git"
+            if git_marker.exists():
+                return current
+            if current.parent == current:
+                return None
+            current = current.parent
 
     def load_user_settings(
         self,

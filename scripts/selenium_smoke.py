@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -17,6 +18,7 @@ from selenium import webdriver
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver import ChromeOptions
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions
 from selenium.webdriver.support.ui import WebDriverWait
 
@@ -84,12 +86,17 @@ def wait_for_http_ready(base_url: str, timeout_seconds: float = 60.0) -> None:
     ) from last_error
 
 
-def start_jupyter(args: argparse.Namespace) -> tuple[subprocess.Popen[str], Path, Path]:
+def start_jupyter(
+    args: argparse.Namespace,
+) -> tuple[subprocess.Popen[str], Path, Path, Path]:
     log_prefix = Path(args.log_prefix)
     stdout_path = log_prefix.with_suffix(".out.log")
     stderr_path = log_prefix.with_suffix(".err.log")
     stdout_handle = stdout_path.open("w", encoding="utf-8")
     stderr_handle = stderr_path.open("w", encoding="utf-8")
+    workspaces_dir = Path(
+        tempfile.mkdtemp(prefix="jupyter-workspaces-", dir=Path.cwd())
+    )
     process = subprocess.Popen(
         [
             args.jupyter_exe,
@@ -99,26 +106,30 @@ def start_jupyter(args: argparse.Namespace) -> tuple[subprocess.Popen[str], Path
             "--ServerApp.password=",
             f"--ServerApp.port={args.port}",
             "--ServerApp.port_retries=0",
+            f"--LabApp.workspaces_dir={workspaces_dir}",
         ],
         cwd=args.root_dir,
         stdout=stdout_handle,
         stderr=stderr_handle,
         text=True,
     )
-    return process, stdout_path, stderr_path
+    return process, stdout_path, stderr_path, workspaces_dir
 
 
-def build_driver() -> WebDriver:
+def build_driver() -> tuple[WebDriver, Path]:
     cache_path = Path.cwd() / ".selenium-cache"
     os.environ.setdefault("SE_CACHE_PATH", str(cache_path))
+    profile_dir = Path(
+        tempfile.mkdtemp(prefix="selenium-profile-", dir=Path.cwd())
+    )
 
     options = ChromeOptions()
     options.add_argument("--headless=new")
     options.add_argument("--disable-gpu")
     options.add_argument("--no-sandbox")
     options.add_argument("--window-size=1600,1200")
-    options.add_argument(f"--user-data-dir={Path.cwd() / '.selenium-profile'}")
-    return webdriver.Chrome(options=options)
+    options.add_argument(f"--user-data-dir={profile_dir}")
+    return webdriver.Chrome(options=options), profile_dir
 
 
 def find_toolbar_button(driver: WebDriver, selector: str) -> Any | None:
@@ -127,6 +138,30 @@ def find_toolbar_button(driver: WebDriver, selector: str) -> Any | None:
     return document.querySelector(selector);
     """
     return driver.execute_script(script, selector)
+
+
+def find_visible_notebook_panel(driver: WebDriver) -> Any | None:
+    script = """
+    return Array.from(document.querySelectorAll('.jp-NotebookPanel')).find(
+      (panel) => {
+        const rect = panel.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      }
+    ) ?? null;
+    """
+    return driver.execute_script(script)
+
+
+def find_visible_snapshot_panel(driver: WebDriver) -> Any | None:
+    script = """
+    return Array.from(document.querySelectorAll('.smj-SnapshotPanel')).find(
+      (panel) => {
+        const rect = panel.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      }
+    ) ?? null;
+    """
+    return driver.execute_script(script)
 
 
 def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
@@ -149,10 +184,13 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
         )
     )
 
+    notebook_panel = wait.until(find_visible_notebook_panel)
+
     toolbar_buttons = driver.execute_script(
         """
+        const notebookPanel = arguments[0];
         return Array.from(
-          document.querySelectorAll(
+          notebookPanel.querySelectorAll(
             '.jp-Toolbar button, .jp-Toolbar .jp-ToolbarButtonComponent'
           )
         )
@@ -161,7 +199,8 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
             text: (button.textContent || '').trim(),
             title: button.getAttribute('title') || ''
           }));
-        """
+        """,
+        notebook_panel,
     )
     save_button_found = any(
         "smj-ToolbarButton" in (button["className"] or "")
@@ -181,19 +220,20 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
     )
 
     save_button = wait.until(
-        lambda browser: find_toolbar_button(
-            browser,
-            ".smj-ToolbarButton:not(.smj-ToolbarButton--trigger)",
+        lambda browser: browser.execute_script(
+            """
+            const notebookPanel = arguments[0];
+            return notebookPanel?.querySelector(
+              '.smj-ToolbarButton:not(.smj-ToolbarButton--trigger)'
+            ) ?? null;
+            """,
+            notebook_panel,
         )
     )
     driver.execute_script("arguments[0].click();", save_button)
 
     try:
-        wait.until(
-            expected_conditions.presence_of_element_located(
-                (By.CSS_SELECTOR, ".smj-SnapshotPanel"),
-            )
-        )
+        panel = wait.until(find_visible_snapshot_panel)
     except TimeoutException as error:
         raise RuntimeError(
             "Save My Jupyter panel did not appear after clicking the toolbar button.",
@@ -201,28 +241,30 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
 
     panel_header = driver.execute_script(
         """
-        const panel = document.querySelector('.smj-SnapshotPanel');
+        const panel = arguments[0];
         const header = panel?.querySelector('.smj-SnapshotPanel__headerTitle');
         return header ? header.textContent.trim() : null;
-        """
+        """,
+        panel,
     )
     panel_contains_trigger_controls = bool(
         driver.execute_script(
             """
-            const panel = document.querySelector('.smj-SnapshotPanel');
+            const panel = arguments[0];
             if (!panel) {
               return false;
             }
             return panel.textContent.includes('Trigger cells') &&
               panel.textContent.includes('Selected cell') &&
               panel.textContent.includes('Mark selected cell');
-            """
+            """,
+            panel,
         )
     )
     right_sidebar_visible = bool(
         driver.execute_script(
             """
-            const panel = document.querySelector('.smj-SnapshotPanel');
+            const panel = arguments[0];
             if (!panel) {
               return false;
             }
@@ -231,17 +273,20 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
             );
             const rect = panel.getBoundingClientRect();
             return rect.width > 0 && rect.height > 0 && shell !== null;
-            """
+            """,
+            panel,
         )
     )
     selected_cell_label = driver.execute_script(
         """
+        const panel = arguments[0];
         const values = Array.from(
-          document.querySelectorAll('.smj-SnapshotPanel__facts dd')
+          panel?.querySelectorAll('.smj-SnapshotPanel__facts dd') || []
         )
           .map((node) => node.textContent.trim());
         return values[0] ?? null;
-        """
+        """,
+        panel,
     )
     trigger_toggle = wait.until(
         expected_conditions.presence_of_element_located(
@@ -283,14 +328,19 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
     connect_error_message: str | None = None
     connect_error_scoped_to_labarchives = False
     tags_input = wait.until(
-        expected_conditions.presence_of_element_located(
-            (
-                By.XPATH,
-                "//label[.//span[normalize-space(.)='Tags']]//input",
-            )
+        lambda browser: browser.execute_script(
+            """
+            const panel = arguments[0];
+            return Array.from(
+              panel?.querySelectorAll('label.smj-SnapshotPanel__field') || []
+            ).find((label) =>
+              label.querySelector('span')?.textContent?.trim() === 'Tags'
+            )?.querySelector('input') ?? null;
+            """,
+            panel,
         )
     )
-    tags_input.clear()
+    tags_input.send_keys(Keys.CONTROL, "a", Keys.BACKSPACE)
     tags_input.send_keys("baseline, follow-up,")
     tags_input_value_after_typing = tags_input.get_attribute("value")
     tags_input_accepts_commas = tags_input_value_after_typing == "baseline, follow-up,"
@@ -299,9 +349,13 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
     if args.check_connect:
         labarchives_section = driver.execute_script(
             """
-            return Array.from(document.querySelectorAll('.smj-SnapshotPanel__section'))
+            const panel = arguments[0];
+            return Array.from(
+              panel?.querySelectorAll('.smj-SnapshotPanel__section') || []
+            )
               .find((section) => section.textContent.includes('LabArchives'));
-            """
+            """,
+            panel,
         )
         connect_button = wait.until(
             lambda browser: browser.execute_script(
@@ -336,9 +390,13 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
     if args.check_config_init:
         config_section = driver.execute_script(
             """
-            return Array.from(document.querySelectorAll('.smj-SnapshotPanel__section'))
+            const panel = arguments[0];
+            return Array.from(
+              panel?.querySelectorAll('.smj-SnapshotPanel__section') || []
+            )
               .find((section) => section.textContent.includes('Project config'));
-            """
+            """,
+            panel,
         )
         config_button = wait.until(
             lambda browser: browser.execute_script(
@@ -410,8 +468,9 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
 
 def main() -> int:
     args = parse_args()
-    process, stdout_path, stderr_path = start_jupyter(args)
+    process, stdout_path, stderr_path, workspaces_dir = start_jupyter(args)
     driver: WebDriver | None = None
+    profile_dir: Path | None = None
     try:
         ready_url = (
             f"http://127.0.0.1:{args.port}/lab?token={args.token}"
@@ -419,7 +478,7 @@ def main() -> int:
             else f"http://127.0.0.1:{args.port}/tree?token={args.token}"
         )
         wait_for_http_ready(ready_url)
-        driver = build_driver()
+        driver, profile_dir = build_driver()
         result = run_smoke(driver, args)
         output_path = Path(args.output_json)
         output_path.write_text(
@@ -431,12 +490,21 @@ def main() -> int:
     finally:
         if driver is not None:
             driver.quit()
+        if profile_dir is not None:
+            subprocess.run(
+                ["cmd", "/c", "rmdir", "/s", "/q", str(profile_dir)],
+                check=False,
+            )
         process.terminate()
         try:
             process.wait(timeout=10)
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=10)
+        subprocess.run(
+            ["cmd", "/c", "rmdir", "/s", "/q", str(workspaces_dir)],
+            check=False,
+        )
         if process.returncode not in (0, None):
             print(
                 (
