@@ -1,4 +1,8 @@
-import type { JupyterFrontEnd, JupyterFrontEndPlugin } from "@jupyterlab/application";
+import {
+  ILabShell,
+  type JupyterFrontEnd,
+  type JupyterFrontEndPlugin
+} from "@jupyterlab/application";
 import { Dialog, ICommandPalette, showDialog } from "@jupyterlab/apputils";
 import {
   INotebookTracker,
@@ -92,7 +96,6 @@ function mergeMetadataDefaults(
 }
 
 class SnapshotPanelModel {
-  private hasAutoOpenedPanel = false;
   private viewState: SnapshotPanelViewState = {
     auth: {
       pendingRequestId: null,
@@ -162,7 +165,6 @@ class SnapshotPanelModel {
 
     try {
       await panel.context.ready;
-      this.ensurePanelIsVisible();
       const state = await this.apiClient.getState(panel.context.path);
       const metadata =
         state.notebookMetadata ?? this.metadataStore.readNotebookMetadata(panel);
@@ -209,7 +211,7 @@ class SnapshotPanelModel {
 
   async submitManualSnapshot(): Promise<void> {
     if (requiresPanelSetup(this.viewState.auth)) {
-      this.ensurePanelIsVisible();
+      this.openPanel();
       this.setStatus(
         "warning",
         "Connect LabArchives before creating a snapshot."
@@ -467,12 +469,7 @@ class SnapshotPanelModel {
   }
 
   private ensurePanelIsVisible(): void {
-    if (this.hasAutoOpenedPanel) {
-      return;
-    }
-
     this.openPanel();
-    this.hasAutoOpenedPanel = true;
   }
 
   private resolveCommitMode(actionLabel: string): CommitMode {
@@ -588,6 +585,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
     app: JupyterFrontEnd,
     tracker: INotebookTracker,
     palette: ICommandPalette,
+    labShell: ILabShell,
     settingRegistry: ISettingRegistry | null
   ): void => {
     const apiClient = new ApiClient();
@@ -637,20 +635,13 @@ const plugin: JupyterFrontEndPlugin<void> = {
     snapshotPanel.title.icon = historyIcon;
     snapshotPanel.title.iconLabel = "Save My Jupyter";
     snapshotPanel.title.label = "Save My Jupyter";
-    snapshotPanel.title.closable = true;
+    snapshotPanel.title.closable = false;
 
     const openPanel = (): void => {
       if (!snapshotPanel.isAttached) {
-        const notebookRef = tracker.currentWidget?.id;
-        if (notebookRef === undefined) {
-          app.shell.add(snapshotPanel, "main");
-        } else {
-          app.shell.add(snapshotPanel, "main", {
-            mode: "split-right",
-            ref: notebookRef
-          });
-        }
+        app.shell.add(snapshotPanel, "right", { rank: 1000 });
       }
+      labShell.expandRight();
       app.shell.activateById(PANEL_ID);
     };
 
@@ -717,7 +708,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
   autoStart: true,
   id: PLUGIN_ID,
   optional: [ISettingRegistry],
-  requires: [INotebookTracker, ICommandPalette]
+  requires: [INotebookTracker, ICommandPalette, ILabShell]
 };
 
 export default plugin;
