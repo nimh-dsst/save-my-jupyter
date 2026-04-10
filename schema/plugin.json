@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "description": "User preferences for Save My Jupyter.",
+  "jupyter.lab.setting-deprecated": false,
+  "properties": {
+    "defaultCommitMode": {
+      "default": "prompt",
+      "description": "Default commit behavior for new snapshot actions.",
+      "enum": ["prompt", "always", "never"],
+      "title": "Default Commit Mode",
+      "type": "string"
+    },
+    "defaultExperimentContext": {
+      "default": null,
+      "description": "Default experiment context to prefill in the snapshot panel.",
+      "title": "Default Experiment Context",
+      "type": ["string", "null"]
+    },
+    "defaultRunLabel": {
+      "default": null,
+      "description": "Default run label to prefill in the snapshot panel.",
+      "title": "Default Run Label",
+      "type": ["string", "null"]
+    },
+    "defaultTags": {
+      "default": [],
+      "description": "Default snapshot tags.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Default Tags",
+      "type": "array"
+    },
+    "rememberCommitChoice": {
+      "default": false,
+      "description": "Persist the next prompt decision as the default commit mode.",
+      "title": "Remember Commit Choice",
+      "type": "boolean"
+    }
+  },
+  "title": "Save My Jupyter",
+  "type": "object"
+}

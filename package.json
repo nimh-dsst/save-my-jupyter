@@ -5,6 +5,7 @@
   "license": "UNLICENSED",
   "files": [
     "lib/**/*",
+    "schema/**/*",
     "style/**/*"
   ],
   "sideEffects": [
@@ -62,6 +63,7 @@
   },
   "jupyterlab": {
     "extension": "lib/index.js",
-    "outputDir": "save_my_jupyter/labextension"
+    "outputDir": "save_my_jupyter/labextension",
+    "schemaDir": "schema"
   }
 }
