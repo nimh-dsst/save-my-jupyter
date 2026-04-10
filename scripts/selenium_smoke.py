@@ -37,6 +37,7 @@ class SmokeResult:
     right_sidebar_visible: bool
     panel_visible_after_click: bool
     panel_header: str | None
+    panel_toolbar_visible: bool
     panel_contains_trigger_controls: bool
     selected_cell_label: str | None
     trigger_button_label: str | None
@@ -247,6 +248,22 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
         """,
         panel,
     )
+    panel_toolbar_visible = bool(
+        driver.execute_script(
+            """
+            const panel = arguments[0];
+            const toolbar = panel?.querySelector('.smj-SnapshotPanel__toolbar');
+            if (!toolbar) {
+              return false;
+            }
+            const rect = toolbar.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0 &&
+              toolbar.textContent.includes('Snapshot now') &&
+              toolbar.textContent.includes('Refresh');
+            """,
+            panel,
+        )
+    )
     panel_contains_trigger_controls = bool(
         driver.execute_script(
             """
@@ -256,7 +273,10 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
             }
             return panel.textContent.includes('Trigger cells') &&
               panel.textContent.includes('Selected cell') &&
-              panel.textContent.includes('Mark selected cell');
+              (
+                panel.textContent.includes('Mark selected cell') ||
+                panel.textContent.includes('Unmark selected cell')
+              );
             """,
             panel,
         )
@@ -450,6 +470,7 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
         right_sidebar_visible=right_sidebar_visible,
         panel_visible_after_click=True,
         panel_header=panel_header,
+        panel_toolbar_visible=panel_toolbar_visible,
         panel_contains_trigger_controls=panel_contains_trigger_controls,
         selected_cell_label=selected_cell_label,
         trigger_button_label=trigger_button_label,

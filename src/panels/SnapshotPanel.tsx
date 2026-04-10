@@ -83,6 +83,8 @@ function SnapshotPanelBody({
   const repoConfigButtonLabel = viewState.effectiveState?.repoConfigLoaded
     ? "Ensure config exists"
     : "Create starter config";
+  const pathRuleLabel = viewState.effectiveState?.pathRule?.name ?? "(none)";
+  const gitLabel = viewState.effectiveState?.repo?.repoRoot ?? "(no repository detected)";
 
   const statusClassName =
     viewState.statusKind === null
@@ -107,17 +109,56 @@ function SnapshotPanelBody({
       <div className="jp-SidePanel-header">
         <span className="smj-SnapshotPanel__headerTitle">Save My Jupyter</span>
       </div>
+      <div className="jp-SidePanel-toolbar smj-SnapshotPanel__toolbar">
+        <button
+          className="jp-mod-styled jp-mod-accept smj-SnapshotPanel__toolbarButton"
+          type="button"
+          disabled={!snapshotAvailability.enabled}
+          onClick={() => {
+            callbacks.onSnapshot();
+          }}
+        >
+          Snapshot now
+        </button>
+        <button
+          className="jp-mod-styled smj-SnapshotPanel__toolbarButton"
+          type="button"
+          onClick={() => {
+            callbacks.onRefresh();
+          }}
+        >
+          Refresh
+        </button>
+      </div>
       <section className="jp-SidePanel-content smj-SnapshotPanel__content">
         <div className="smj-SnapshotPanel__body">
           <div className="smj-SnapshotPanel__summary">
+            <span className="smj-SnapshotPanel__summaryLabel">Notebook</span>
             <p className="smj-SnapshotPanel__summaryPath">
               {viewState.notebookPath ?? "Open a notebook to configure snapshots."}
             </p>
+            <dl className="smj-SnapshotPanel__summaryFacts">
+              <div>
+                <dt>LabArchives</dt>
+                <dd>{authLabel}</dd>
+              </div>
+              <div>
+                <dt>Path rule</dt>
+                <dd>{pathRuleLabel}</dd>
+              </div>
+              <div>
+                <dt>Git</dt>
+                <dd>{gitLabel}</dd>
+              </div>
+            </dl>
           </div>
+          <p className="smj-SnapshotPanel__hint smj-SnapshotPanel__availability">
+            {snapshotAvailability.message}
+          </p>
 
           <section className="smj-SnapshotPanel__section">
             <div className="smj-SnapshotPanel__sectionHeader">
-              <strong>LabArchives</strong>
+              <h3 className="smj-SnapshotPanel__sectionTitle">LabArchives</h3>
               <button
                 className="jp-mod-styled smj-SnapshotPanel__button"
                 type="button"
@@ -144,7 +185,7 @@ function SnapshotPanelBody({
 
           <section className="smj-SnapshotPanel__section">
             <div className="smj-SnapshotPanel__sectionHeader">
-              <strong>Project config</strong>
+              <h3 className="smj-SnapshotPanel__sectionTitle">Project config</h3>
               <button
                 className="jp-mod-styled smj-SnapshotPanel__button"
                 type="button"
@@ -177,16 +218,7 @@ function SnapshotPanelBody({
 
           <section className="smj-SnapshotPanel__section">
             <div className="smj-SnapshotPanel__sectionHeader">
-              <strong>Snapshot</strong>
-              <button
-                className="jp-mod-styled smj-SnapshotPanel__button"
-                type="button"
-                onClick={() => {
-                  callbacks.onRefresh();
-                }}
-              >
-                Refresh
-              </button>
+              <h3 className="smj-SnapshotPanel__sectionTitle">Snapshot</h3>
             </div>
             <label className="smj-SnapshotPanel__field">
               <span>Commit mode</span>
@@ -225,7 +257,7 @@ function SnapshotPanelBody({
           </section>
 
           <section className="smj-SnapshotPanel__section">
-            <strong>Trigger cells</strong>
+            <h3 className="smj-SnapshotPanel__sectionTitle">Trigger cells</h3>
             <dl className="smj-SnapshotPanel__facts">
               <div>
                 <dt>Selected cell</dt>
@@ -253,7 +285,7 @@ function SnapshotPanelBody({
           </section>
 
           <section className="smj-SnapshotPanel__section">
-            <strong>Watched paths</strong>
+            <h3 className="smj-SnapshotPanel__sectionTitle">Watched paths</h3>
             <div className="smj-SnapshotPanel__inlineForm">
               <input
                 className="jp-mod-styled"
@@ -275,29 +307,33 @@ function SnapshotPanelBody({
                 Add
               </button>
             </div>
-            <ul className="smj-SnapshotPanel__list">
-              {viewState.metadata.watched_paths.map(path => (
-                <li key={path}>
-                  <code>{path}</code>
-                  <button
-                    className="jp-mod-styled smj-SnapshotPanel__button"
-                    type="button"
-                    onClick={() => {
-                      callbacks.onRemoveWatchedPath(path);
-                    }}
-                  >
-                    Remove
-                  </button>
-                </li>
-              ))}
-            </ul>
+            {viewState.metadata.watched_paths.length === 0 ? (
+              <p className="smj-SnapshotPanel__hint">No watched paths yet.</p>
+            ) : (
+              <ul className="smj-SnapshotPanel__list">
+                {viewState.metadata.watched_paths.map(path => (
+                  <li key={path}>
+                    <code>{path}</code>
+                    <button
+                      className="jp-mod-styled smj-SnapshotPanel__button"
+                      type="button"
+                      onClick={() => {
+                        callbacks.onRemoveWatchedPath(path);
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
             <p className="smj-SnapshotPanel__hint">
               Effective: {watchedPathSummary.join(", ") || "(none)"}
             </p>
           </section>
 
           <section className="smj-SnapshotPanel__section">
-            <strong>Metadata</strong>
+            <h3 className="smj-SnapshotPanel__sectionTitle">Metadata</h3>
             <label className="smj-SnapshotPanel__field">
               <span>Tags</span>
               <input
@@ -345,7 +381,7 @@ function SnapshotPanelBody({
           </section>
 
           <section className="smj-SnapshotPanel__section">
-            <strong>Context</strong>
+            <h3 className="smj-SnapshotPanel__sectionTitle">Context</h3>
             <dl className="smj-SnapshotPanel__facts">
               <div>
                 <dt>Repo config</dt>
@@ -353,28 +389,14 @@ function SnapshotPanelBody({
               </div>
               <div>
                 <dt>Path rule</dt>
-                <dd>{viewState.effectiveState?.pathRule?.name ?? "(none)"}</dd>
+                <dd>{pathRuleLabel}</dd>
               </div>
               <div>
                 <dt>Git</dt>
-                <dd>{viewState.effectiveState?.repo?.repoRoot ?? "(no repository detected)"}</dd>
+                <dd>{gitLabel}</dd>
               </div>
             </dl>
           </section>
-
-          <div className="smj-SnapshotPanel__actions">
-            <button
-              className="jp-mod-styled jp-mod-accept"
-              type="button"
-              disabled={!snapshotAvailability.enabled}
-              onClick={() => {
-                callbacks.onSnapshot();
-              }}
-            >
-              Snapshot now
-            </button>
-          </div>
-          <p className="smj-SnapshotPanel__hint">{snapshotAvailability.message}</p>
 
           {viewState.statusMessage !== null ? (
             <p
