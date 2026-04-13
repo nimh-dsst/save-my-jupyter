@@ -7,7 +7,7 @@ import {
   type NotebookPanel
 } from "@jupyterlab/notebook";
 import { ISettingRegistry } from "@jupyterlab/settingregistry";
-import { historyIcon, tagIcon } from "@jupyterlab/ui-components";
+import { circleEmptyIcon, circleIcon, historyIcon } from "@jupyterlab/ui-components";
 
 import { ApiClient } from "./apiClient";
 import { NotebookMetadataStore } from "./metadata";
@@ -392,22 +392,11 @@ class SnapshotPanelModel {
       return;
     }
 
-    const metadata = await this.metadataStore.setCellTriggerForPanel(
+    await this.setCellTriggerForCell(
       panel,
       activeCell,
       enabled
     );
-    this.decoratePanelCells(panel);
-    this.updateViewState(current => ({
-      ...current,
-      activeCellId: activeCell.model.id,
-      activeCellIsTrigger: enabled,
-      metadata,
-      statusKind: "success",
-      statusMessage: enabled
-        ? `Marked ${activeCell.model.id} as a trigger cell.`
-        : `Removed ${activeCell.model.id} from trigger cells.`
-    }));
   }
 
   async toggleSelectedCellTrigger(): Promise<void> {
@@ -591,20 +580,6 @@ class SnapshotPanelModel {
         tooltip: "Open Save My Jupyter"
       })
     );
-
-    panel.toolbar.insertItem(
-      11,
-      "save-my-jupyter:toggle-trigger",
-      new ToolbarButton({
-        className: "smj-ToolbarButton smj-ToolbarButton--trigger",
-        icon: tagIcon,
-        label: "Trigger",
-        onClick: () => {
-          void this.toggleSelectedCellTrigger();
-        },
-        tooltip: "Mark or unmark the selected cell as a trigger"
-      })
-    );
   }
 
   private observePanel(panel: NotebookPanel): void {
@@ -638,12 +613,84 @@ class SnapshotPanelModel {
   private decorateCell(cell: Cell): void {
     const isTrigger = this.metadataStore.readCellMetadata(cell).trigger;
     cell.node.classList.toggle("smj-Cell--trigger", isTrigger);
+    this.syncCellTriggerButton(cell, isTrigger);
     if (isTrigger) {
       cell.node.dataset["smjTrigger"] = "true";
       return;
     }
 
     delete cell.node.dataset["smjTrigger"];
+  }
+
+  private syncCellTriggerButton(cell: Cell, isTrigger: boolean): void {
+    const header = cell.node.querySelector<HTMLElement>(".jp-CellHeader, .jp-Cell-header");
+    if (header === null) {
+      return;
+    }
+
+    header.classList.add("smj-CellHeader");
+    let button = header.querySelector<HTMLButtonElement>(".smj-CellTriggerButton");
+    if (button === null) {
+      button = document.createElement("button");
+      button.className = "jp-Button jp-mod-minimal smj-CellTriggerButton";
+      button.type = "button";
+      button.addEventListener("click", event => {
+        event.preventDefault();
+        event.stopPropagation();
+        void this.toggleCellTriggerFromButton(cell);
+      });
+      header.appendChild(button);
+    }
+
+    const title = isTrigger ? "Unmark cell as a trigger" : "Mark cell as a trigger";
+    button.replaceChildren(
+      (isTrigger ? circleIcon : circleEmptyIcon).element({
+        tag: "span",
+        title
+      })
+    );
+    button.classList.toggle("smj-CellTriggerButton--active", isTrigger);
+    button.setAttribute("aria-label", title);
+    button.title = title;
+  }
+
+  private async toggleCellTriggerFromButton(cell: Cell): Promise<void> {
+    const panel = this.tracker.currentWidget;
+    if (panel === null) {
+      return;
+    }
+
+    const cellIndex = panel.content.widgets.indexOf(cell);
+    if (cellIndex === -1) {
+      return;
+    }
+
+    panel.content.activeCellIndex = cellIndex;
+    const isTrigger = this.metadataStore.readCellMetadata(cell).trigger;
+    await this.setCellTriggerForCell(panel, cell, !isTrigger);
+  }
+
+  private async setCellTriggerForCell(
+    panel: NotebookPanel,
+    cell: Cell,
+    enabled: boolean
+  ): Promise<void> {
+    const metadata = await this.metadataStore.setCellTriggerForPanel(
+      panel,
+      cell,
+      enabled
+    );
+    this.decoratePanelCells(panel);
+    this.updateViewState(current => ({
+      ...current,
+      activeCellId: cell.model.id,
+      activeCellIsTrigger: enabled,
+      metadata,
+      statusKind: "success",
+      statusMessage: enabled
+        ? `Marked ${cell.model.id} as a trigger cell.`
+        : `Removed ${cell.model.id} from trigger cells.`
+    }));
   }
 
   private resolveCommitMode(actionLabel: string): CommitMode {
@@ -794,9 +841,6 @@ const plugin: JupyterFrontEndPlugin<void> = {
       },
       onTagsChange: value => {
         panelModel.setTags(value);
-      },
-      onToggleSelectedCellTrigger: () => {
-        void panelModel.toggleSelectedCellTrigger();
       },
       onToggleAllCells: value => {
         void panelModel.setAllCellsTrigger(value);

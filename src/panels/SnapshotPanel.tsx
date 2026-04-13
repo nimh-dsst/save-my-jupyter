@@ -42,7 +42,6 @@ export interface SnapshotPanelCallbacks {
   onRunLabelChange(value: string): void;
   onSnapshot(): void;
   onTagsChange(value: string): void;
-  onToggleSelectedCellTrigger(): void;
   onToggleAllCells(value: boolean): void;
   onWatchPathSubmit(path: string): void;
 }
@@ -74,9 +73,6 @@ function SnapshotPanelBody({
         ? "Authentication pending"
         : "Not authenticated";
   const selectedCellLabel = viewState.activeCellId ?? "No selected cell";
-  const triggerButtonLabel = viewState.activeCellIsTrigger
-    ? "Unmark selected cell"
-    : "Mark selected cell";
   const repoConfigPath =
     viewState.effectiveState?.repoConfigPath ?? "Open a notebook to choose a config location.";
   const repoConfigButtonLabel = viewState.effectiveState?.repoConfigLoaded
@@ -266,18 +262,9 @@ function SnapshotPanelBody({
                 <dd>{viewState.activeCellIsTrigger ? "Marked" : "Not marked"}</dd>
               </div>
             </dl>
-            <button
-              className="jp-mod-styled smj-SnapshotPanel__button"
-              type="button"
-              disabled={viewState.activeCellId === null}
-              onClick={() => {
-                callbacks.onToggleSelectedCellTrigger();
-              }}
-            >
-              {triggerButtonLabel}
-            </button>
             <p className="smj-SnapshotPanel__hint">
-              Trigger cells in this notebook:{" "}
+              Use the cell action button to mark trigger cells. Trigger cells in this
+              notebook:{" "}
               {viewState.metadata.trigger_cell_ids.join(", ") || "(none)"}
             </p>
             <div className="smj-SnapshotPanel__subsection">

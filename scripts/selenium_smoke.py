@@ -33,7 +33,8 @@ class SmokeResult:
     current_url: str
     toolbar_entries: list[dict[str, str]]
     save_button_found: bool
-    trigger_button_found: bool
+    notebook_toolbar_trigger_button_found: bool
+    cell_trigger_button_found: bool
     right_sidebar_visible: bool
     panel_visible_after_click: bool
     panel_header: str | None
@@ -212,7 +213,7 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
         )
         for button in toolbar_buttons
     )
-    trigger_button_found = any(
+    notebook_toolbar_trigger_button_found = any(
         "smj-ToolbarButton--trigger" in (button["className"] or "")
         and (
             "Trigger" in (button["text"] or "")
@@ -274,10 +275,7 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
             }
             return panel.textContent.includes('Trigger cells') &&
               panel.textContent.includes('Selected cell') &&
-              (
-                panel.textContent.includes('Mark selected cell') ||
-                panel.textContent.includes('Unmark selected cell')
-              );
+              panel.textContent.includes('Use the cell action button');
             """,
             panel,
         )
@@ -321,15 +319,16 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
         panel,
     )
     trigger_toggle = wait.until(
-        expected_conditions.presence_of_element_located(
-            (
-                By.XPATH,
-                "//button[contains(normalize-space(.), 'Mark selected cell') or "
-                "contains(normalize-space(.), 'Unmark selected cell')]",
-            )
+        lambda browser: browser.execute_script(
+            """
+            return document.querySelector(
+              '.jp-Cell.jp-mod-active .smj-CellTriggerButton'
+            );
+            """
         )
     )
-    trigger_button_label = trigger_toggle.text.strip() or None
+    cell_trigger_button_found = trigger_toggle is not None
+    trigger_button_label = trigger_toggle.get_attribute("title") or None
     driver.execute_script("arguments[0].click();", trigger_toggle)
 
     wait.until(
@@ -478,7 +477,8 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
         current_url=driver.current_url,
         toolbar_entries=toolbar_buttons,
         save_button_found=save_button_found,
-        trigger_button_found=trigger_button_found,
+        notebook_toolbar_trigger_button_found=notebook_toolbar_trigger_button_found,
+        cell_trigger_button_found=cell_trigger_button_found,
         right_sidebar_visible=right_sidebar_visible,
         panel_visible_after_click=True,
         panel_header=panel_header,
