@@ -2,34 +2,9 @@ import { ReactWidget } from "@jupyterlab/apputils";
 import React from "react";
 
 import { getSnapshotAvailability } from "../panelBehavior";
+import type { SnapshotPanelViewState } from "../panelState";
 import { formatTagsInput } from "../tags";
-import type {
-  AuthState,
-  CommitMode,
-  EffectiveState,
-  NotebookExtensionMetadata,
-  SnapshotUserMetadata
-} from "../types";
-
-export interface SnapshotPanelViewState {
-  activeCellId: string | null;
-  activeCellIsTrigger: boolean;
-  auth: AuthState;
-  authStatusKind: "error" | "info" | "success" | "warning" | null;
-  authStatusMessage: string | null;
-  configStatusKind: "error" | "info" | "success" | "warning" | null;
-  configStatusMessage: string | null;
-  effectiveState: EffectiveState | null;
-  isBusy: boolean;
-  metadata: NotebookExtensionMetadata;
-  notebookPath: string | null;
-  rememberCommitChoice: boolean;
-  selectedCommitMode: CommitMode;
-  statusKind: "error" | "info" | "success" | "warning" | null;
-  statusMessage: string | null;
-  tagsInput: string;
-  userMetadata: SnapshotUserMetadata;
-}
+import type { CommitMode } from "../types";
 
 export interface SnapshotPanelCallbacks {
   onAuthenticate(): void;

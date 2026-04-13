@@ -7,10 +7,11 @@ import {
   type NotebookPanel
 } from "@jupyterlab/notebook";
 import { ISettingRegistry } from "@jupyterlab/settingregistry";
-import { circleEmptyIcon, circleIcon, historyIcon } from "@jupyterlab/ui-components";
+import { historyIcon } from "@jupyterlab/ui-components";
 
 import { ApiClient } from "./apiClient";
 import { NotebookMetadataStore } from "./metadata";
+import { syncCellTriggerDecoration } from "./notebook/cellTriggerButtons";
 import { validateWatchedPath } from "./notebook/pathValidation";
 import {
   buildManualSnapshotPayload,
@@ -19,17 +20,23 @@ import {
 import { ExecutionObserver } from "./notebook/triggerHooks";
 import { requiresPanelSetup } from "./panelBehavior";
 import {
-  type SnapshotPanelViewState,
   SnapshotPanel
 } from "./panels/SnapshotPanel";
+import {
+  buildDetachedViewState,
+  buildLoadedViewState,
+  buildLoadErrorViewState,
+  createInitialViewState,
+  normalizeUserMetadata,
+  type SnapshotPanelViewState
+} from "./panelState";
 import { UserPreferencesStore } from "./settings";
-import { formatTagsInput, parseTagsInput } from "./tags";
+import { parseTagsInput } from "./tags";
 import type {
   CommitMode,
   NotebookExtensionMetadata,
   SnapshotSubmissionResult,
-  SnapshotUserMetadata,
-  UserPreferences
+  SnapshotUserMetadata
 } from "./types";
 
 const PLUGIN_ID = "@save-my-jupyter/extension:plugin";
@@ -43,33 +50,6 @@ const COMMAND_IDS = {
   toggleAllCells: "save-my-jupyter:toggle-all-cells",
   unmarkCellAsTrigger: "save-my-jupyter:unmark-cell-as-trigger"
 } as const;
-
-const DEFAULT_METADATA: NotebookExtensionMetadata = {
-  all_cells_trigger: false,
-  default_metadata: {},
-  enabled: true,
-  labarchives_target_notebook: null,
-  labarchives_target_root_path: null,
-  trigger_cell_ids: [],
-  watched_paths: []
-};
-
-const DEFAULT_USER_METADATA: SnapshotUserMetadata = {
-  experiment_context: null,
-  extra_fields: {},
-  notes: null,
-  run_label: null,
-  tags: []
-};
-
-function normalizeUserMetadata(
-  metadata: SnapshotUserMetadata
-): SnapshotUserMetadata {
-  return {
-    ...metadata,
-    experiment_context: null
-  };
-}
 
 interface RightSidebarShell {
   expandRight?(): void;
@@ -92,44 +72,9 @@ function toStatusMessage(result: SnapshotSubmissionResult): string {
   }
 }
 
-function mergeMetadataDefaults(
-  metadata: NotebookExtensionMetadata,
-  preferences: UserPreferences
-): SnapshotUserMetadata {
-  return normalizeUserMetadata({
-    experiment_context: null,
-    extra_fields: metadata.default_metadata,
-    notes: null,
-    run_label: preferences.defaultRunLabel,
-    tags: preferences.defaultTags
-  });
-}
-
 class SnapshotPanelModel {
   private readonly observedPanels = new WeakSet<NotebookPanel>();
-  private viewState: SnapshotPanelViewState = {
-    activeCellId: null,
-    activeCellIsTrigger: false,
-    auth: {
-      pendingRequestId: null,
-      status: "unauthenticated",
-      userEmail: null
-    },
-    authStatusKind: null,
-    authStatusMessage: null,
-    configStatusKind: null,
-    configStatusMessage: null,
-    effectiveState: null,
-    isBusy: false,
-    metadata: DEFAULT_METADATA,
-    notebookPath: null,
-    rememberCommitChoice: false,
-    selectedCommitMode: "prompt",
-    statusKind: null,
-    statusMessage: null,
-    tagsInput: formatTagsInput([]),
-    userMetadata: DEFAULT_USER_METADATA
-  };
+  private viewState = createInitialViewState();
 
   constructor(
     private readonly apiClient: ApiClient,
@@ -168,26 +113,7 @@ class SnapshotPanelModel {
     const panel = this.tracker.currentWidget;
     const preferences = await this.preferencesStore.load();
     if (panel === null) {
-      this.updateViewState(() => ({
-        ...this.viewState,
-        activeCellId: null,
-        activeCellIsTrigger: false,
-        auth: this.viewState.auth,
-        authStatusKind: this.viewState.authStatusKind,
-        authStatusMessage: this.viewState.authStatusMessage,
-        configStatusKind: this.viewState.configStatusKind,
-        configStatusMessage: this.viewState.configStatusMessage,
-        effectiveState: null,
-        isBusy: false,
-        metadata: DEFAULT_METADATA,
-        notebookPath: null,
-        rememberCommitChoice: preferences.rememberCommitChoice,
-        selectedCommitMode: preferences.defaultCommitMode,
-        statusKind: null,
-        statusMessage: null,
-        tagsInput: formatTagsInput(preferences.defaultTags),
-        userMetadata: mergeMetadataDefaults(DEFAULT_METADATA, preferences)
-      }));
+      this.setViewState(buildDetachedViewState(this.viewState, preferences));
       return;
     }
 
@@ -197,71 +123,30 @@ class SnapshotPanelModel {
       const metadata =
         state.notebookMetadata ?? this.metadataStore.readNotebookMetadata(panel);
       const activeCellState = this.metadataStore.readActiveCellTriggerState(panel);
-      const shouldPreserveDrafts = this.viewState.notebookPath === panel.context.path;
-      const nextViewState: SnapshotPanelViewState = {
-        activeCellId: activeCellState.cellId,
-        activeCellIsTrigger: activeCellState.isTrigger,
-        auth: state.auth,
-        authStatusKind: shouldPreserveDrafts
-          ? this.viewState.authStatusKind
-          : null,
-        authStatusMessage: shouldPreserveDrafts
-          ? this.viewState.authStatusMessage
-          : null,
-        configStatusKind: shouldPreserveDrafts
-          ? this.viewState.configStatusKind
-          : null,
-        configStatusMessage: shouldPreserveDrafts
-          ? this.viewState.configStatusMessage
-          : null,
-        effectiveState: state,
-        isBusy: false,
+      const nextViewState = buildLoadedViewState({
+        activeCell: activeCellState,
+        current: this.viewState,
         metadata,
         notebookPath: panel.context.path,
-        rememberCommitChoice: shouldPreserveDrafts
-          ? this.viewState.rememberCommitChoice
-          : preferences.rememberCommitChoice,
-        selectedCommitMode: shouldPreserveDrafts
-          ? this.viewState.selectedCommitMode
-          : preferences.defaultCommitMode,
-        statusKind: shouldPreserveDrafts ? this.viewState.statusKind : null,
-        statusMessage: shouldPreserveDrafts ? this.viewState.statusMessage : null,
-        tagsInput: shouldPreserveDrafts
-          ? this.viewState.tagsInput
-          : formatTagsInput(
-              mergeMetadataDefaults(metadata, preferences).tags
-            ),
-        userMetadata: shouldPreserveDrafts
-          ? normalizeUserMetadata(this.viewState.userMetadata)
-          : mergeMetadataDefaults(metadata, preferences)
-      };
+        preferences,
+        state
+      });
       this.setViewState(nextViewState);
       this.decoratePanelCells(panel);
       await this.syncWatchRegistration(panel, nextViewState, { silent: true });
     } catch (error: unknown) {
       const metadata = this.metadataStore.readNotebookMetadata(panel);
-      this.setViewState({
-        activeCellId: this.metadataStore.readActiveCellTriggerState(panel).cellId,
-        activeCellIsTrigger: this.metadataStore.readActiveCellTriggerState(panel).isTrigger,
-        auth: this.viewState.auth,
-        authStatusKind: this.viewState.authStatusKind,
-        authStatusMessage: this.viewState.authStatusMessage,
-        configStatusKind: this.viewState.configStatusKind,
-        configStatusMessage: this.viewState.configStatusMessage,
-        effectiveState: null,
-        isBusy: false,
-        metadata,
-        notebookPath: panel.context.path,
-        rememberCommitChoice: preferences.rememberCommitChoice,
-        selectedCommitMode: preferences.defaultCommitMode,
-        statusKind: "error",
-        statusMessage:
-          error instanceof Error
-            ? error.message
-            : "Failed to load Save My Jupyter state.",
-        tagsInput: formatTagsInput(mergeMetadataDefaults(metadata, preferences).tags),
-        userMetadata: mergeMetadataDefaults(metadata, preferences)
-      });
+      const activeCellState = this.metadataStore.readActiveCellTriggerState(panel);
+      this.setViewState(
+        buildLoadErrorViewState({
+          activeCell: activeCellState,
+          current: this.viewState,
+          error,
+          metadata,
+          notebookPath: panel.context.path,
+          preferences
+        })
+      );
     }
   }
 
@@ -612,46 +497,12 @@ class SnapshotPanelModel {
 
   private decorateCell(cell: Cell): void {
     const isTrigger = this.metadataStore.readCellMetadata(cell).trigger;
-    cell.node.classList.toggle("smj-Cell--trigger", isTrigger);
-    this.syncCellTriggerButton(cell, isTrigger);
-    if (isTrigger) {
-      cell.node.dataset["smjTrigger"] = "true";
-      return;
-    }
-
-    delete cell.node.dataset["smjTrigger"];
-  }
-
-  private syncCellTriggerButton(cell: Cell, isTrigger: boolean): void {
-    const header = cell.node.querySelector<HTMLElement>(".jp-CellHeader, .jp-Cell-header");
-    if (header === null) {
-      return;
-    }
-
-    header.classList.add("smj-CellHeader");
-    let button = header.querySelector<HTMLButtonElement>(".smj-CellTriggerButton");
-    if (button === null) {
-      button = document.createElement("button");
-      button.className = "jp-Button jp-mod-minimal smj-CellTriggerButton";
-      button.type = "button";
-      button.addEventListener("click", event => {
-        event.preventDefault();
-        event.stopPropagation();
-        void this.toggleCellTriggerFromButton(cell);
-      });
-      header.appendChild(button);
-    }
-
-    const title = isTrigger ? "Unmark cell as a trigger" : "Mark cell as a trigger";
-    button.replaceChildren(
-      (isTrigger ? circleIcon : circleEmptyIcon).element({
-        tag: "span",
-        title
-      })
-    );
-    button.classList.toggle("smj-CellTriggerButton--active", isTrigger);
-    button.setAttribute("aria-label", title);
-    button.title = title;
+    syncCellTriggerDecoration(cell, {
+      isTrigger,
+      onToggle: targetCell => {
+        void this.toggleCellTriggerFromButton(targetCell);
+      }
+    });
   }
 
   private async toggleCellTriggerFromButton(cell: Cell): Promise<void> {
