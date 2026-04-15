@@ -15,8 +15,9 @@ from urllib.parse import quote
 from urllib.request import urlopen
 
 from selenium import webdriver
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import ElementNotInteractableException, TimeoutException
 from selenium.webdriver import ChromeOptions
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions
@@ -47,12 +48,22 @@ class SmokeResult:
     trigger_pill_visible_after_click: bool
     connect_error_message: str | None
     connect_error_scoped_to_labarchives: bool
+    tags_input_interactable: bool
     tags_input_accepts_commas: bool
     tags_input_value_after_typing: str | None
     config_path_hint: str | None
     config_status_message: str | None
     config_status_scoped_to_project_config: bool
     config_file_exists_after_click: bool
+
+
+@dataclass(slots=True)
+class SmokeValidation:
+    failures: list[str]
+
+    @property
+    def ok(self) -> bool:
+        return self.failures == []
 
 
 def parse_args() -> argparse.Namespace:
@@ -177,6 +188,18 @@ def find_setup_action(panel: Any, test_id: str, driver: WebDriver) -> Any | None
         panel,
         test_id,
     )
+
+
+def focus_text_input(driver: WebDriver, element: Any) -> None:
+    driver.execute_script(
+        """
+        const input = arguments[0];
+        input?.scrollIntoView({ block: 'center', inline: 'nearest' });
+        input?.focus();
+        """,
+        element,
+    )
+    ActionChains(driver).move_to_element(element).click().perform()
 
 
 def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
@@ -310,11 +333,24 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
             if (!panel) {
               return false;
             }
-            const shell = panel.closest(
-              '.jp-SideBar, .jp-right-stack, .jp-LabShell, .jp-SplitPanel'
+            const panelRect = panel.getBoundingClientRect();
+            const viewportWidth = window.innerWidth;
+            const notebookPanel = document.querySelector('.jp-NotebookPanel');
+            const notebookRect = notebookPanel?.getBoundingClientRect() ?? null;
+            const isDockedRight = panelRect.left >= viewportWidth * 0.65;
+            const hasSidebarWidth =
+              panelRect.width > 180 &&
+              panelRect.width < viewportWidth * 0.4;
+            const isSeparatedFromNotebook = notebookRect === null
+              ? true
+              : panelRect.left >= notebookRect.right - 4;
+            return (
+              panelRect.width > 0 &&
+              panelRect.height > 0 &&
+              isDockedRight &&
+              hasSidebarWidth &&
+              isSeparatedFromNotebook
             );
-            const rect = panel.getBoundingClientRect();
-            return rect.width > 0 && rect.height > 0 && shell !== null;
             """,
             panel,
         )
@@ -432,10 +468,17 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
             panel,
         )
     )
-    tags_input.send_keys(Keys.CONTROL, "a", Keys.BACKSPACE)
-    tags_input.send_keys("baseline, follow-up,")
+    focus_text_input(driver, tags_input)
+    tags_input_interactable = True
+    try:
+        tags_input.send_keys(Keys.CONTROL, "a", Keys.BACKSPACE)
+        tags_input.send_keys("baseline, follow-up,")
+    except ElementNotInteractableException:
+        tags_input_interactable = False
     tags_input_value_after_typing = tags_input.get_attribute("value")
-    tags_input_accepts_commas = tags_input_value_after_typing == "baseline, follow-up,"
+    tags_input_accepts_commas = (
+        tags_input_value_after_typing == "baseline, follow-up,"
+    )
 
     config_path_hint: str | None = None
     if args.check_connect:
@@ -533,6 +576,7 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
         trigger_pill_visible_after_click=bool(trigger_decoration["pillVisible"]),
         connect_error_message=connect_error_message,
         connect_error_scoped_to_labarchives=connect_error_scoped_to_labarchives,
+        tags_input_interactable=tags_input_interactable,
         tags_input_accepts_commas=tags_input_accepts_commas,
         tags_input_value_after_typing=tags_input_value_after_typing,
         config_path_hint=config_path_hint,
@@ -542,11 +586,54 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
     )
 
 
+def validate_result(result: SmokeResult) -> SmokeValidation:
+    failures: list[str] = []
+
+    if not result.save_button_found:
+        failures.append("Notebook toolbar Save button is missing.")
+    if result.notebook_toolbar_trigger_button_found:
+        failures.append("Legacy notebook-toolbar Trigger button should not exist.")
+    if not result.cell_trigger_button_found:
+        failures.append("Per-cell trigger action button is missing.")
+    if not result.right_sidebar_visible:
+        failures.append("Save My Jupyter panel is not visible in the right sidebar.")
+    if not result.panel_visible_after_click:
+        failures.append("Save My Jupyter panel did not open after clicking Save.")
+    if result.panel_header != "Save My Jupyter":
+        failures.append("Save My Jupyter sidebar header is incorrect.")
+    if not result.panel_toolbar_visible:
+        failures.append("Sidebar toolbar is missing Snapshot now / Refresh controls.")
+    if not result.panel_contains_trigger_controls:
+        failures.append("Sidebar does not show trigger controls.")
+    if result.experiment_context_field_present:
+        failures.append("Experiment context field should not be present.")
+    if (
+        result.trigger_button_label is None
+        or "trigger" not in result.trigger_button_label.lower()
+    ):
+        failures.append("Per-cell trigger button does not expose a trigger label.")
+    if not result.trigger_left_highlight_present:
+        failures.append("Marked trigger cell is missing the left highlight.")
+    if result.trigger_pill_visible_after_click:
+        failures.append("Inline trigger pill should not be visible.")
+    if not result.tags_input_interactable:
+        failures.append("Tags input is not interactable.")
+    if not result.tags_input_accepts_commas:
+        failures.append("Tags input does not preserve comma-separated tags.")
+    if result.tags_input_value_after_typing != "baseline, follow-up,":
+        failures.append(
+            "Tags input value does not match the typed comma-separated text."
+        )
+
+    return SmokeValidation(failures=failures)
+
+
 def main() -> int:
     args = parse_args()
     process, stdout_path, stderr_path, workspaces_dir = start_jupyter(args)
     driver: WebDriver | None = None
     profile_dir: Path | None = None
+    terminated_by_harness = False
     try:
         ready_url = (
             f"http://127.0.0.1:{args.port}/lab?token={args.token}"
@@ -556,13 +643,28 @@ def main() -> int:
         wait_for_http_ready(ready_url)
         driver, profile_dir = build_driver()
         result = run_smoke(driver, args)
+        validation = validate_result(result)
         output_path = Path(args.output_json)
         output_path.write_text(
-            json.dumps(asdict(result), indent=2),
+            json.dumps(
+                {
+                    "result": asdict(result),
+                    "validation": asdict(validation),
+                },
+                indent=2,
+            ),
             encoding="utf-8",
         )
-        print(json.dumps(asdict(result), indent=2))
-        return 0
+        print(
+            json.dumps(
+                {
+                    "result": asdict(result),
+                    "validation": asdict(validation),
+                },
+                indent=2,
+            )
+        )
+        return 0 if validation.ok else 1
     finally:
         if driver is not None:
             driver.quit()
@@ -571,6 +673,8 @@ def main() -> int:
                 ["cmd", "/c", "rmdir", "/s", "/q", str(profile_dir)],
                 check=False,
             )
+        if process.poll() is None:
+            terminated_by_harness = True
         process.terminate()
         try:
             process.wait(timeout=10)
@@ -581,7 +685,7 @@ def main() -> int:
             ["cmd", "/c", "rmdir", "/s", "/q", str(workspaces_dir)],
             check=False,
         )
-        if process.returncode not in (0, None):
+        if process.returncode not in (0, None) and not terminated_by_harness:
             print(
                 (
                     "Jupyter exited with code "
