@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import mimetypes
 from pathlib import Path
 
 from save_my_jupyter.domain import (
@@ -12,10 +13,27 @@ from save_my_jupyter.domain import (
     MimeType,
     NotebookArtifact,
     RelativeRepoPath,
+    RelativeWatchPath,
     ResolvedSnapshotPlan,
 )
 from save_my_jupyter.errors import ArtifactCollectionError
 from save_my_jupyter.parsing import normalize_relative_path_text
+
+_BINARY_FIGURE_MIME_TYPES: dict[str, str] = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+}
+_PREFERRED_SUMMARY_MIME_TYPES: tuple[str, ...] = ("text/plain",)
+_SPECIAL_FILE_MIME_TYPES: dict[str, str] = {
+    ".csv": "text/csv",
+    ".json": "application/json",
+    ".svg": "image/svg+xml",
+    ".tsv": "text/tab-separated-values",
+    ".txt": "text/plain",
+}
+_TEXT_FIGURE_MIME_TYPES: dict[str, str] = {
+    "image/svg+xml": "svg",
+}
 
 
 class DocumentArtifactCollector:
@@ -37,42 +55,18 @@ class DocumentArtifactCollector:
         self,
         plan: ResolvedSnapshotPlan,
     ) -> tuple[FigureArtifact, ...]:
-        notebook_path = Path(plan.request.notebook_context.notebook_path).resolve()
-        try:
-            notebook_model = json.loads(notebook_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise ArtifactCollectionError(
-                "Unable to read notebook for figure extraction.",
-                code="notebook_figure_parse_failed",
-                context={"path": str(notebook_path)},
-            ) from exc
-
         figures: list[FigureArtifact] = []
         figure_index = 1
-        for cell in notebook_model.get("cells", []):
-            if not isinstance(cell, dict):
+        for output in _iter_notebook_outputs(plan):
+            data = _normalize_object_dict(output.get("data"))
+            if data is None:
                 continue
-            outputs = cell.get("outputs", [])
-            if not isinstance(outputs, list):
+
+            figure = _extract_figure_artifact(data, figure_index)
+            if figure is None:
                 continue
-            for output in outputs:
-                if not isinstance(output, dict):
-                    continue
-                data = output.get("data")
-                if not isinstance(data, dict):
-                    continue
-                image_data = data.get("image/png")
-                if not isinstance(image_data, str):
-                    continue
-                figures.append(
-                    FigureArtifact(
-                        display_name=f"figure-{figure_index:03}.png",
-                        mime_type=MimeType("image/png"),
-                        figure_index=figure_index,
-                        bytes_payload=base64.b64decode(image_data),
-                    )
-                )
-                figure_index += 1
+            figures.append(figure)
+            figure_index += 1
 
         return tuple(figures)
 
@@ -80,32 +74,27 @@ class DocumentArtifactCollector:
         self,
         plan: ResolvedSnapshotPlan,
     ) -> tuple[FileArtifact, ...]:
-        request = plan.request
-        if not hasattr(request, "watched_path_event"):
+        if not plan.effective_config.watched_paths:
             return ()
 
-        repo_root = (
-            Path(plan.repo.repo_root).resolve()
-            if plan.repo.repo_root is not None
-            else Path(request.notebook_context.notebook_path).resolve().parent
-        )
-        changed_path = repo_root / str(request.watched_path_event.relative_path)
-        if not changed_path.exists() or not changed_path.is_file():
-            return ()
-
-        relative_path = RelativeRepoPath(
-            normalize_relative_path_text(
-                str(changed_path.relative_to(repo_root)).replace("\\", "/")
+        capture_root = _resolve_capture_root(plan)
+        file_artifacts: dict[str, FileArtifact] = {}
+        for file_path in _iter_watched_files(plan, capture_root):
+            normalized_relative_path = normalize_relative_path_text(
+                str(file_path.relative_to(capture_root)).replace("\\", "/")
             )
-        )
-        return (
-            FileArtifact(
-                display_name=changed_path.name,
-                mime_type=MimeType("application/octet-stream"),
-                local_path=changed_path,
+            relative_path = _make_file_relative_path(
+                normalized_relative_path,
+                has_repo_root=plan.repo.repo_root is not None,
+            )
+            file_artifacts[normalized_relative_path] = FileArtifact(
+                display_name=file_path.name,
+                mime_type=MimeType(_guess_file_mime_type(file_path)),
+                local_path=file_path,
                 relative_path=relative_path,
-            ),
-        )
+            )
+
+        return tuple(file_artifacts[key] for key in sorted(file_artifacts))
 
     def collect_diff_artifact(self, diff_text: str | None) -> DiffArtifact | None:
         if diff_text is None or diff_text == "":
@@ -117,25 +106,14 @@ class DocumentArtifactCollector:
         )
 
     def collect_value_summary(self, plan: ResolvedSnapshotPlan) -> str | None:
-        notebook_path = Path(plan.request.notebook_context.notebook_path).resolve()
-        try:
-            notebook_model = json.loads(notebook_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return None
-
-        for cell in reversed(notebook_model.get("cells", [])):
-            if not isinstance(cell, dict):
-                continue
-            outputs = cell.get("outputs")
-            if not isinstance(outputs, list):
-                continue
-            for output in reversed(outputs):
-                if not isinstance(output, dict):
-                    continue
-                text = _extract_output_text(output)
-                if text:
-                    return text[:5000]
-        return None
+        fallback_text: str | None = None
+        for output in reversed(tuple(_iter_notebook_outputs(plan))):
+            text = _extract_preferred_output_text(output)
+            if text is not None:
+                return text[:5000]
+            if fallback_text is None:
+                fallback_text = _extract_output_text(output)
+        return fallback_text[:5000] if fallback_text is not None else None
 
     def collect_all(
         self,
@@ -154,14 +132,150 @@ class DocumentArtifactCollector:
         return tuple(artifacts)
 
 
+def _extract_figure_artifact(
+    data: dict[str, object],
+    figure_index: int,
+) -> FigureArtifact | None:
+    for mime_type, extension in _BINARY_FIGURE_MIME_TYPES.items():
+        payload = _normalize_string_payload(data.get(mime_type))
+        if payload is None:
+            continue
+        return FigureArtifact(
+            display_name=f"figure-{figure_index:03}.{extension}",
+            mime_type=MimeType(mime_type),
+            figure_index=figure_index,
+            bytes_payload=base64.b64decode(payload),
+        )
+
+    for mime_type, extension in _TEXT_FIGURE_MIME_TYPES.items():
+        payload = _normalize_string_payload(data.get(mime_type))
+        if payload is None:
+            continue
+        return FigureArtifact(
+            display_name=f"figure-{figure_index:03}.{extension}",
+            mime_type=MimeType(mime_type),
+            figure_index=figure_index,
+            bytes_payload=payload.encode("utf-8"),
+        )
+
+    return None
+
+
 def _extract_output_text(output: dict[str, object]) -> str | None:
+    text = output.get("text")
+    if isinstance(text, str):
+        return text
     if "text" in output and isinstance(output["text"], list):
         return "".join(line for line in output["text"] if isinstance(line, str))
-    data = output.get("data")
-    if isinstance(data, dict):
+    data = _normalize_object_dict(output.get("data"))
+    if data is not None:
         text_data = data.get("text/plain")
         if isinstance(text_data, str):
             return text_data
         if isinstance(text_data, list):
             return "".join(line for line in text_data if isinstance(line, str))
     return None
+
+
+def _extract_preferred_output_text(output: dict[str, object]) -> str | None:
+    data = _normalize_object_dict(output.get("data"))
+    if data is None:
+        return None
+    for mime_type in _PREFERRED_SUMMARY_MIME_TYPES:
+        text = _normalize_string_payload(data.get(mime_type))
+        if text is not None:
+            return text
+    return None
+
+
+def _normalize_object_dict(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    return {str(key): nested_value for key, nested_value in value.items()}
+
+
+def _normalize_string_payload(value: object) -> str | None:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        string_parts = [part for part in value if isinstance(part, str)]
+        if len(string_parts) != len(value):
+            return None
+        return "".join(string_parts)
+    return None
+
+
+def _load_notebook_model(plan: ResolvedSnapshotPlan) -> dict[str, object]:
+    notebook_path = Path(plan.request.notebook_context.notebook_path).resolve()
+    try:
+        loaded = json.loads(notebook_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ArtifactCollectionError(
+            "Unable to read notebook artifacts.",
+            code="notebook_artifact_parse_failed",
+            context={"path": str(notebook_path)},
+        ) from exc
+    return _normalize_object_dict(loaded) or {}
+
+
+def _iter_notebook_outputs(
+    plan: ResolvedSnapshotPlan,
+) -> tuple[dict[str, object], ...]:
+    notebook_model = _load_notebook_model(plan)
+    outputs: list[dict[str, object]] = []
+    cells = notebook_model.get("cells")
+    if not isinstance(cells, list):
+        return ()
+    for cell in cells:
+        cell_dict = _normalize_object_dict(cell)
+        if cell_dict is None:
+            continue
+        cell_outputs = cell_dict.get("outputs")
+        if not isinstance(cell_outputs, list):
+            continue
+        for output in cell_outputs:
+            output_dict = _normalize_object_dict(output)
+            if output_dict is not None:
+                outputs.append(output_dict)
+    return tuple(outputs)
+
+
+def _resolve_capture_root(plan: ResolvedSnapshotPlan) -> Path:
+    if plan.repo.repo_root is not None:
+        return Path(plan.repo.repo_root).resolve()
+    return Path(plan.request.notebook_context.notebook_path).resolve().parent
+
+
+def _iter_watched_files(
+    plan: ResolvedSnapshotPlan,
+    capture_root: Path,
+) -> tuple[Path, ...]:
+    watched_files: dict[str, Path] = {}
+    for watch_path in plan.effective_config.watched_paths:
+        absolute_path = capture_root / str(watch_path)
+        if absolute_path.is_file():
+            watched_files[str(absolute_path.resolve())] = absolute_path.resolve()
+            continue
+        if absolute_path.is_dir():
+            for child in absolute_path.rglob("*"):
+                if child.is_file():
+                    watched_files[str(child.resolve())] = child.resolve()
+    return tuple(watched_files[key] for key in sorted(watched_files))
+
+
+def _make_file_relative_path(
+    normalized_relative_path: str,
+    *,
+    has_repo_root: bool,
+) -> RelativeRepoPath | RelativeWatchPath:
+    if has_repo_root:
+        return RelativeRepoPath(normalized_relative_path)
+    return RelativeWatchPath(normalized_relative_path)
+
+
+def _guess_file_mime_type(file_path: Path) -> str:
+    suffix = file_path.suffix.lower()
+    if suffix in _SPECIAL_FILE_MIME_TYPES:
+        return _SPECIAL_FILE_MIME_TYPES[suffix]
+    guessed_mime_type, _encoding = mimetypes.guess_type(file_path.name)
+    return guessed_mime_type or "application/octet-stream"

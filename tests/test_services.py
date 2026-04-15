@@ -18,17 +18,68 @@ from save_my_jupyter.domain import (
     ManualSnapshotRequest,
     NotebookContext,
     NotebookPath,
+    PathEventType,
+    RelativeWatchPath,
     RepoHost,
     ResolvedRepoContext,
     ResolvedSnapshotPlan,
     RunFingerprint,
     TriggerCellSnapshotRequest,
     UserMetadata,
+    WatchedPathEvent,
+    WatchedPathSnapshotRequest,
 )
 from save_my_jupyter.git.parsers import parse_commit_hash, parse_git_remote
 from save_my_jupyter.services.artifacts import DocumentArtifactCollector
 from save_my_jupyter.services.coordinator import SnapshotCoordinator
 from save_my_jupyter.services.run_fingerprint import RunFingerprintService
+
+
+def _artifact_plan(
+    notebook_path: Path,
+    *,
+    request: ManualSnapshotRequest | WatchedPathSnapshotRequest | None = None,
+    watched_paths: tuple[RelativeWatchPath, ...] = (),
+) -> ResolvedSnapshotPlan:
+    resolved_request = request
+    if resolved_request is None:
+        resolved_request = ManualSnapshotRequest(
+            notebook_context=NotebookContext(
+                notebook_path=NotebookPath(str(notebook_path)),
+                notebook_name=notebook_path.name,
+            ),
+            commit_mode=CommitMode.NEVER,
+            user_metadata=UserMetadata(),
+        )
+
+    return ResolvedSnapshotPlan(
+        request=resolved_request,
+        repo=ResolvedRepoContext(
+            repo_root=None,
+            relative_notebook_path=None,
+            remote_url=None,
+            repo_host=RepoHost.UNKNOWN,
+            head_commit=None,
+            is_dirty=False,
+        ),
+        path_rule=None,
+        effective_config=EffectiveConfig(
+            all_cells_trigger=False,
+            commit_mode=CommitMode.NEVER,
+            watched_paths=watched_paths,
+            include_notebook_file=True,
+            include_diff_when_dirty=True,
+            target=LabArchivesTarget(
+                notebook_name=LabArchivesNotebookName("Snapshots"),
+                root_path=LabArchivesRootPath("Runs"),
+            ),
+            metadata_template={},
+            stage_notebook_on_commit=True,
+            stage_watched_paths_on_commit=False,
+            commit_message_template="snapshot",
+        ),
+        run_fingerprint=RunFingerprint("fingerprint-2"),
+    )
 
 
 def test_parse_git_helpers() -> None:
@@ -197,6 +248,19 @@ def test_document_artifact_collector_collects_figures_and_summary() -> None:
                                         ).decode("utf-8"),
                                         "text/plain": "42",
                                     }
+                                },
+                                {
+                                    "data": {
+                                        "image/svg+xml": [
+                                            "<svg xmlns=\"http://www.w3.org/2000/svg\">",
+                                            "<rect width=\"10\" height=\"10\" />",
+                                            "</svg>",
+                                        ]
+                                    }
+                                },
+                                {
+                                    "output_type": "stream",
+                                    "text": "stream output",
                                 }
                             ],
                         }
@@ -205,48 +269,96 @@ def test_document_artifact_collector_collects_figures_and_summary() -> None:
             ),
             encoding="utf-8",
         )
-        plan = ResolvedSnapshotPlan(
-            request=ManualSnapshotRequest(
-                notebook_context=NotebookContext(
-                    notebook_path=NotebookPath(str(notebook_path)),
-                    notebook_name="example.ipynb",
-                ),
-                commit_mode=CommitMode.NEVER,
-                user_metadata=UserMetadata(),
-            ),
-            repo=ResolvedRepoContext(
-                repo_root=None,
-                relative_notebook_path=None,
-                remote_url=None,
-                repo_host=RepoHost.UNKNOWN,
-                head_commit=None,
-                is_dirty=False,
-            ),
-            path_rule=None,
-            effective_config=EffectiveConfig(
-                all_cells_trigger=False,
-                commit_mode=CommitMode.NEVER,
-                watched_paths=(),
-                include_notebook_file=True,
-                include_diff_when_dirty=True,
-                target=LabArchivesTarget(
-                    notebook_name=LabArchivesNotebookName("Snapshots"),
-                    root_path=LabArchivesRootPath("Runs"),
-                ),
-                metadata_template={},
-                stage_notebook_on_commit=True,
-                stage_watched_paths_on_commit=False,
-                commit_message_template="snapshot",
-            ),
-            run_fingerprint=RunFingerprint("fingerprint-2"),
-        )
+        plan = _artifact_plan(notebook_path)
 
         collector = DocumentArtifactCollector()
         figures = collector.collect_figure_artifacts(plan)
         summary = collector.collect_value_summary(plan)
 
-        assert len(figures) == 1
+        assert len(figures) == 2
         assert figures[0].bytes_payload == b"png-bytes"
+        assert str(figures[0].mime_type) == "image/png"
+        assert figures[1].bytes_payload.startswith(b"<svg")
+        assert str(figures[1].mime_type) == "image/svg+xml"
         assert summary == "42"
+    finally:
+        shutil.rmtree(test_root, ignore_errors=True)
+
+
+def test_document_artifact_collector_collects_watched_files() -> None:
+    test_root = Path.cwd() / ".test_artifact_watch_repo"
+    shutil.rmtree(test_root, ignore_errors=True)
+    test_root.mkdir(parents=True, exist_ok=True)
+    try:
+        notebook_path = test_root / "example.ipynb"
+        notebook_path.write_text('{"cells":[]}', encoding="utf-8")
+        outputs_root = test_root / "outputs"
+        outputs_root.mkdir()
+        csv_path = outputs_root / "result.csv"
+        csv_path.write_text("value\n1\n", encoding="utf-8")
+        png_path = outputs_root / "figure.png"
+        png_path.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+        plan = _artifact_plan(
+            notebook_path,
+            watched_paths=(RelativeWatchPath("outputs"),),
+        )
+
+        collector = DocumentArtifactCollector()
+        file_artifacts = collector.collect_file_artifacts(plan)
+
+        assert [artifact.display_name for artifact in file_artifacts] == [
+            "figure.png",
+            "result.csv",
+        ]
+        assert [str(artifact.relative_path) for artifact in file_artifacts] == [
+            "outputs/figure.png",
+            "outputs/result.csv",
+        ]
+        assert [str(artifact.mime_type) for artifact in file_artifacts] == [
+            "image/png",
+            "text/csv",
+        ]
+    finally:
+        shutil.rmtree(test_root, ignore_errors=True)
+
+
+def test_document_artifact_collector_collects_watched_request_file() -> None:
+    test_root = Path.cwd() / ".test_artifact_watch_event_repo"
+    shutil.rmtree(test_root, ignore_errors=True)
+    test_root.mkdir(parents=True, exist_ok=True)
+    try:
+        notebook_path = test_root / "example.ipynb"
+        notebook_path.write_text('{"cells":[]}', encoding="utf-8")
+        outputs_root = test_root / "outputs"
+        outputs_root.mkdir()
+        file_path = outputs_root / "result.txt"
+        file_path.write_text("payload", encoding="utf-8")
+
+        request = WatchedPathSnapshotRequest(
+            notebook_context=NotebookContext(
+                notebook_path=NotebookPath(str(notebook_path)),
+                notebook_name="example.ipynb",
+            ),
+            commit_mode=CommitMode.NEVER,
+            user_metadata=UserMetadata(),
+            watched_path_event=WatchedPathEvent(
+                relative_path=RelativeWatchPath("outputs/result.txt"),
+                event_type=PathEventType.MODIFIED,
+            ),
+        )
+        plan = _artifact_plan(
+            notebook_path,
+            request=request,
+            watched_paths=(RelativeWatchPath("outputs"),),
+        )
+
+        collector = DocumentArtifactCollector()
+        file_artifacts = collector.collect_file_artifacts(plan)
+
+        assert [artifact.display_name for artifact in file_artifacts] == ["result.txt"]
+        assert [str(artifact.relative_path) for artifact in file_artifacts] == [
+            "outputs/result.txt"
+        ]
     finally:
         shutil.rmtree(test_root, ignore_errors=True)
