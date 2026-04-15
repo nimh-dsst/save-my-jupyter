@@ -26,23 +26,49 @@ function syncCellTriggerButton(
   isTrigger: boolean,
   onToggle: (cell: Cell) => void
 ): void {
-  const header = cell.node.querySelector<HTMLElement>(".jp-CellHeader, .jp-Cell-header");
-  if (header === null) {
+  const container = resolveTriggerButtonContainer(cell);
+  if (container === null) {
     return;
   }
 
-  header.classList.add("smj-CellHeader");
-  let button = header.querySelector<HTMLButtonElement>(".smj-CellTriggerButton");
+  const inCellToolbar = container.matches(".jp-cell-toolbar");
+  container.classList.toggle("smj-CellHeader", !inCellToolbar);
+  container.classList.toggle("smj-CellToolbar", inCellToolbar);
+
+  const existingButton = cell.node.querySelector<HTMLButtonElement>(
+    ".smj-CellTriggerButton"
+  );
+  if (existingButton !== null && !container.contains(existingButton)) {
+    const existingToolbarItem = existingButton.closest<HTMLElement>(
+      ".smj-CellTriggerToolbarItem"
+    );
+    if (existingToolbarItem !== null) {
+      existingToolbarItem.remove();
+    } else {
+      existingButton.remove();
+    }
+  }
+
+  let button = container.querySelector<HTMLButtonElement>(".smj-CellTriggerButton");
   if (button === null) {
     button = document.createElement("button");
-    button.className = "jp-Button jp-mod-minimal smj-CellTriggerButton";
+    button.className = inCellToolbar
+      ? "jp-ToolbarButtonComponent smj-CellTriggerButton"
+      : "jp-Button jp-mod-minimal smj-CellTriggerButton";
     button.type = "button";
     button.addEventListener("click", event => {
       event.preventDefault();
       event.stopPropagation();
       onToggle(cell);
     });
-    header.appendChild(button);
+    if (inCellToolbar) {
+      const toolbarItem = document.createElement("div");
+      toolbarItem.className = "lm-Widget jp-Toolbar-item smj-CellTriggerToolbarItem";
+      toolbarItem.appendChild(button);
+      container.appendChild(toolbarItem);
+    } else {
+      container.appendChild(button);
+    }
   }
 
   const title = isTrigger ? "Unmark cell as a trigger" : "Mark cell as a trigger";
@@ -55,4 +81,11 @@ function syncCellTriggerButton(
   button.classList.toggle("smj-CellTriggerButton--active", isTrigger);
   button.setAttribute("aria-label", title);
   button.title = title;
+}
+
+function resolveTriggerButtonContainer(cell: Cell): HTMLElement | null {
+  return (
+    cell.node.querySelector<HTMLElement>(".jp-cell-toolbar") ??
+    cell.node.querySelector<HTMLElement>(".jp-CellHeader, .jp-Cell-header")
+  );
 }

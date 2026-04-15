@@ -10,15 +10,20 @@ export default tseslint.config(
   {
     ignores: [
       ".uv-cache/**",
+      ".venv/**",
       ".venv_pkgtest/**",
       ".pytest_tmp/**",
+      ".selenium-cache/**",
+      ".selenium-venv/**",
       "dist/**",
       "eslint.config.mjs",
+      "jupyter-workspaces-*/**",
       "lib/**",
       "node_modules/**",
       "pytest-cache-files*/**",
       "save_my_jupyter/labextension/**",
       "scripts/**",
+      "selenium-profile-*/**",
       "test-dist/**",
       "tmp*/**"
     ]

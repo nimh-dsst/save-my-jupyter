@@ -476,6 +476,11 @@ class SnapshotPanelModel {
 
     this.observedPanels.add(panel);
     this.decoratePanelCells(panel);
+    window.requestAnimationFrame(() => {
+      if (!panel.isDisposed) {
+        this.decoratePanelCells(panel);
+      }
+    });
     panel.content.activeCellChanged.connect(() => {
       if (this.tracker.currentWidget !== panel) {
         return;

@@ -36,6 +36,8 @@ class SmokeResult:
     save_button_found: bool
     notebook_toolbar_trigger_button_found: bool
     cell_trigger_button_found: bool
+    cell_trigger_button_in_toolbar: bool
+    cell_trigger_button_overlaps_builtin_controls: bool
     right_sidebar_visible: bool
     panel_visible_after_click: bool
     panel_header: str | None
@@ -166,6 +168,20 @@ def find_visible_notebook_panel(driver: WebDriver) -> Any | None:
     return driver.execute_script(script)
 
 
+def find_active_cell_trigger_button(driver: WebDriver) -> Any | None:
+    script = """
+    const buttons = Array.from(
+      document.querySelectorAll('.jp-Cell.jp-mod-active .smj-CellTriggerButton')
+    );
+    return (
+      buttons.find((button) => button.closest('.jp-cell-toolbar') !== null) ??
+      buttons[0] ??
+      null
+    );
+    """
+    return driver.execute_script(script)
+
+
 def find_visible_snapshot_panel(driver: WebDriver) -> Any | None:
     script = """
     return Array.from(document.querySelectorAll('.smj-SnapshotPanel')).find(
@@ -200,6 +216,54 @@ def focus_text_input(driver: WebDriver, element: Any) -> None:
         element,
     )
     ActionChains(driver).move_to_element(element).click().perform()
+
+
+def set_text_input_value(
+    driver: WebDriver,
+    element: Any,
+    text: str,
+) -> bool:
+    attempts = (
+        lambda: _send_keys_directly(element, text),
+        lambda: _send_keys_with_actions(driver, element, text),
+    )
+    for attempt in attempts:
+        focus_text_input(driver, element)
+        if not attempt():
+            continue
+        if element.get_attribute("value") == text:
+            return True
+    return False
+
+
+def _send_keys_directly(element: Any, text: str) -> bool:
+    try:
+        element.send_keys(Keys.CONTROL, "a", Keys.BACKSPACE)
+        element.send_keys(text)
+    except ElementNotInteractableException:
+        return False
+    return True
+
+
+def _send_keys_with_actions(
+    driver: WebDriver,
+    element: Any,
+    text: str,
+) -> bool:
+    try:
+        (
+            ActionChains(driver)
+            .click(element)
+            .key_down(Keys.CONTROL)
+            .send_keys("a")
+            .key_up(Keys.CONTROL)
+            .send_keys(Keys.BACKSPACE)
+            .send_keys(text)
+            .perform()
+        )
+    except ElementNotInteractableException:
+        return False
+    return True
 
 
 def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
@@ -367,16 +431,41 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
         panel,
     )
     trigger_toggle = wait.until(
-        lambda browser: browser.execute_script(
-            """
-            return document.querySelector(
-              '.jp-Cell.jp-mod-active .smj-CellTriggerButton'
-            );
-            """
-        )
+        lambda browser: find_active_cell_trigger_button(browser)
     )
     cell_trigger_button_found = trigger_toggle is not None
     trigger_button_label = trigger_toggle.get_attribute("title") or None
+    cell_trigger_layout = driver.execute_script(
+        """
+        const button = arguments[0];
+        if (!button) {
+          return {
+            inToolbar: false,
+            overlapsBuiltins: false,
+          };
+        }
+        const toolbar = button.closest('.jp-cell-toolbar');
+        const buttonRect = button.getBoundingClientRect();
+        const overlapsBuiltins = Array.from(
+          toolbar?.querySelectorAll('.jp-ToolbarButtonComponent') ?? []
+        )
+          .filter((candidate) => candidate !== button)
+          .some((candidate) => {
+            const rect = candidate.getBoundingClientRect();
+            return !(
+              buttonRect.right <= rect.left ||
+              buttonRect.left >= rect.right ||
+              buttonRect.bottom <= rect.top ||
+              buttonRect.top >= rect.bottom
+            );
+          });
+        return {
+          inToolbar: toolbar !== null,
+          overlapsBuiltins,
+        };
+        """,
+        trigger_toggle,
+    )
     active_cell_was_trigger = bool(
         driver.execute_script(
             """
@@ -385,6 +474,9 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
             )?.classList.contains('smj-Cell--trigger') ?? false;
             """
         )
+    )
+    trigger_toggle = wait.until(
+        lambda browser: find_active_cell_trigger_button(browser)
     )
     driver.execute_script("arguments[0].click();", trigger_toggle)
 
@@ -416,13 +508,7 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
     )
     if not active_cell_is_trigger:
         trigger_toggle = wait.until(
-            lambda browser: browser.execute_script(
-                """
-                return document.querySelector(
-                  '.jp-Cell.jp-mod-active .smj-CellTriggerButton'
-                );
-                """
-            )
+            lambda browser: find_active_cell_trigger_button(browser)
         )
         driver.execute_script("arguments[0].click();", trigger_toggle)
         wait.until(
@@ -468,13 +554,11 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
             panel,
         )
     )
-    focus_text_input(driver, tags_input)
-    tags_input_interactable = True
-    try:
-        tags_input.send_keys(Keys.CONTROL, "a", Keys.BACKSPACE)
-        tags_input.send_keys("baseline, follow-up,")
-    except ElementNotInteractableException:
-        tags_input_interactable = False
+    tags_input_interactable = set_text_input_value(
+        driver,
+        tags_input,
+        "baseline, follow-up,",
+    )
     tags_input_value_after_typing = tags_input.get_attribute("value")
     tags_input_accepts_commas = (
         tags_input_value_after_typing == "baseline, follow-up,"
@@ -564,6 +648,10 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
         save_button_found=save_button_found,
         notebook_toolbar_trigger_button_found=notebook_toolbar_trigger_button_found,
         cell_trigger_button_found=cell_trigger_button_found,
+        cell_trigger_button_in_toolbar=bool(cell_trigger_layout["inToolbar"]),
+        cell_trigger_button_overlaps_builtin_controls=bool(
+            cell_trigger_layout["overlapsBuiltins"]
+        ),
         right_sidebar_visible=right_sidebar_visible,
         panel_visible_after_click=True,
         panel_header=panel_header,
@@ -595,6 +683,12 @@ def validate_result(result: SmokeResult) -> SmokeValidation:
         failures.append("Legacy notebook-toolbar Trigger button should not exist.")
     if not result.cell_trigger_button_found:
         failures.append("Per-cell trigger action button is missing.")
+    if not result.cell_trigger_button_in_toolbar:
+        failures.append(
+            "Per-cell trigger action is not inside the Jupyter cell toolbar."
+        )
+    if result.cell_trigger_button_overlaps_builtin_controls:
+        failures.append("Per-cell trigger action overlaps the built-in cell controls.")
     if not result.right_sidebar_visible:
         failures.append("Save My Jupyter panel is not visible in the right sidebar.")
     if not result.panel_visible_after_click:

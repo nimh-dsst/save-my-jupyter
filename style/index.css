@@ -319,16 +319,11 @@
   font-weight: 600;
 }
 
-.jp-Notebook .jp-Cell .jp-CellHeader.smj-CellHeader {
-  align-items: center;
-  display: flex;
-  height: 0;
-  justify-content: flex-end;
-  overflow: visible;
-  pointer-events: none;
-  position: relative;
+.jp-Notebook .jp-Cell .jp-cell-toolbar.smj-CellToolbar .smj-CellTriggerToolbarItem {
+  order: 999;
 }
 
+.jp-Notebook .jp-Cell .jp-cell-toolbar.smj-CellToolbar .smj-CellTriggerButton,
 .jp-Notebook .jp-Cell .jp-CellHeader.smj-CellHeader .smj-CellTriggerButton {
   align-items: center;
   background: transparent;
@@ -339,14 +334,34 @@
   cursor: pointer;
   display: inline-flex;
   justify-content: center;
-  margin-right: 8px;
   min-height: 22px;
   min-width: 22px;
   opacity: 0;
   padding: 2px;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+
+.jp-Notebook .jp-Cell .jp-cell-toolbar.smj-CellToolbar .smj-CellTriggerButton {
+  margin: 0;
+  opacity: 1;
+  pointer-events: auto;
+  position: static;
+  transform: none;
+}
+
+.jp-Notebook .jp-Cell .jp-CellHeader.smj-CellHeader {
+  align-items: center;
+  display: flex;
+  justify-content: flex-end;
+  min-height: 0;
+  overflow: visible;
+  padding-right: 8px;
+  pointer-events: none;
+}
+
+.jp-Notebook .jp-Cell .jp-CellHeader.smj-CellHeader .smj-CellTriggerButton {
   pointer-events: none;
   transform: translateY(6px);
-  transition: opacity 120ms ease, color 120ms ease;
 }
 
 .jp-Notebook .jp-Cell:hover .jp-CellHeader.smj-CellHeader .smj-CellTriggerButton,
