@@ -82,6 +82,8 @@ export function createInitialViewState(): SnapshotPanelViewState {
     auth: {
       pendingRequestId: null,
       status: "unauthenticated",
+      storedNotebookNames: [],
+      storedUserEmail: null,
       userEmail: null
     },
     authStatusKind: null,

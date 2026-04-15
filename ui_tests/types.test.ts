@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  parseAuthState,
   parseConfigInitResponse,
   parseEffectiveState,
   parseAuthStartResponse,
@@ -84,6 +85,23 @@ void test("parseAuthStartResponse parses auth bootstrap payloads", () => {
   });
 
   assert.equal(result.status, "pending");
+});
+
+void test("parseAuthState preserves stored profile details", () => {
+  const result = parseAuthState({
+    pendingRequestId: null,
+    status: "unauthenticated",
+    storedNotebookNames: ["Primary Notebook", "Reference Notes"],
+    storedUserEmail: "user@example.com",
+    userEmail: null
+  });
+
+  assert.equal(result.status, "unauthenticated");
+  assert.deepEqual(result.storedNotebookNames, [
+    "Primary Notebook",
+    "Reference Notes"
+  ]);
+  assert.equal(result.storedUserEmail, "user@example.com");
 });
 
 void test("parseConfigInitResponse parses starter config responses", () => {

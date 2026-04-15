@@ -12,16 +12,8 @@ authors = [{ name = "Save My Jupyter Contributors" }]
 dependencies = [
   "jupyter-server>=2.15,<3",
   "jupyterlab>=4.5,<5",
+  "keyring>=25,<26",
   "traitlets>=5.14,<6",
-]
-
-[project.optional-dependencies]
-dev = [
-  "mypy>=1.18.2",
-  "pre-commit>=4.3.0",
-  "pytest>=8.4.2",
-  "pytest-cov>=7.0.0",
-  "ruff>=0.13.2",
 ]
 
 [project.scripts]
@@ -56,18 +48,6 @@ build_cmd = "install:extension"
 build_dir = "save_my_jupyter/labextension"
 npm = ["npm"]
 source_dir = "src"
-
-[tool.mypy]
-python_version = "3.12"
-strict = true
-warn_redundant_casts = true
-warn_return_any = true
-warn_unused_ignores = true
-exclude = ["^save_my_jupyter/labextension/"]
-
-[[tool.mypy.overrides]]
-module = ["jupyter_server.*", "tornado.*"]
-ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 addopts = ["-ra", "--strict-markers", "--strict-config"]
@@ -112,3 +92,20 @@ ignore = ["EM101", "EM102", "RUF012", "TC001", "TC003", "TC006"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101"]
+
+[dependency-groups]
+dev = [
+  "build>=1.3.0",
+  "pre-commit>=4.3.0",
+  "pytest>=8.4.2",
+  "pytest-cov>=7.0.0",
+  "ruff>=0.13.2",
+  "ty>=0.0.29",
+]
+
+[tool.ty.environment]
+python-version = "3.12"
+
+[tool.ty.src]
+include = ["save_my_jupyter", "tests"]
+exclude = ["save_my_jupyter/labextension/**"]

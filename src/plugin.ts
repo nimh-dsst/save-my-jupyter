@@ -305,6 +305,8 @@ class SnapshotPanelModel {
         auth: {
           pendingRequestId: result.requestId,
           status: "pending",
+          storedNotebookNames: current.auth.storedNotebookNames,
+          storedUserEmail: current.auth.storedUserEmail,
           userEmail: current.auth.userEmail
         },
         authStatusKind: "info",

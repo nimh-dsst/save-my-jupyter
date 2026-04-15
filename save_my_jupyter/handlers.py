@@ -367,6 +367,8 @@ def _load_notebook_extension_metadata(
 def _serialize_auth_status(auth_status: Any) -> dict[str, object]:
     return {
         "pendingRequestId": auth_status.pending_request_id,
+        "storedNotebookNames": list(auth_status.stored_notebook_names),
+        "storedUserEmail": auth_status.stored_user_email,
         "status": auth_status.status,
         "userEmail": auth_status.user_email,
     }

@@ -131,6 +131,8 @@ function SnapshotPanelBody({
       ? `Authenticated as ${viewState.auth.userEmail ?? "unknown"}`
       : viewState.auth.status === "pending"
         ? "Authentication pending"
+        : viewState.auth.storedUserEmail !== null
+          ? `Not authenticated. Previously connected as ${viewState.auth.storedUserEmail}`
         : "Not authenticated";
   const selectedCellLabel = viewState.activeCellId ?? "No selected cell";
   const repoConfigPath =

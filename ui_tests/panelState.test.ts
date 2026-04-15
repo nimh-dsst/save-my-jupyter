@@ -118,6 +118,8 @@ void test("buildLoadedViewState preserves drafts for the same notebook", () => {
       auth: {
         pendingRequestId: null,
         status: "authenticated",
+        storedNotebookNames: [],
+        storedUserEmail: null,
         userEmail: "user@example.com"
       },
       effectiveConfig: null,

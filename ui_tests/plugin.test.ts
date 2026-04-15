@@ -11,6 +11,8 @@ void test("requiresPanelSetup blocks unauthenticated states", () => {
     requiresPanelSetup({
       pendingRequestId: null,
       status: "unauthenticated",
+      storedNotebookNames: [],
+      storedUserEmail: null,
       userEmail: null
     }),
     true
@@ -19,6 +21,8 @@ void test("requiresPanelSetup blocks unauthenticated states", () => {
     requiresPanelSetup({
       pendingRequestId: "pending-request",
       status: "pending",
+      storedNotebookNames: [],
+      storedUserEmail: null,
       userEmail: null
     }),
     true
@@ -30,6 +34,8 @@ void test("requiresPanelSetup allows authenticated state", () => {
     requiresPanelSetup({
       pendingRequestId: null,
       status: "authenticated",
+      storedNotebookNames: [],
+      storedUserEmail: null,
       userEmail: "user@example.com"
     }),
     false
@@ -42,6 +48,8 @@ void test("getSnapshotAvailability explains disabled states", () => {
       {
         pendingRequestId: null,
         status: "unauthenticated",
+        storedNotebookNames: [],
+        storedUserEmail: null,
         userEmail: null
       },
       "analysis/notebook.ipynb",
@@ -57,6 +65,8 @@ void test("getSnapshotAvailability explains disabled states", () => {
       {
         pendingRequestId: null,
         status: "authenticated",
+        storedNotebookNames: [],
+        storedUserEmail: null,
         userEmail: "user@example.com"
       },
       null,
@@ -72,6 +82,8 @@ void test("getSnapshotAvailability explains disabled states", () => {
       {
         pendingRequestId: null,
         status: "authenticated",
+        storedNotebookNames: [],
+        storedUserEmail: null,
         userEmail: "user@example.com"
       },
       "analysis/notebook.ipynb",
@@ -90,6 +102,8 @@ void test("getSnapshotAvailability allows ready snapshots", () => {
       {
         pendingRequestId: null,
         status: "authenticated",
+        storedNotebookNames: [],
+        storedUserEmail: null,
         userEmail: "user@example.com"
       },
       "analysis/notebook.ipynb",

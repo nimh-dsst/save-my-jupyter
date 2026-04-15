@@ -88,6 +88,8 @@ export const repoStateSchema = z.object({
 export const authStateSchema = z.object({
   pendingRequestId: z.string().nullable().default(null),
   status: z.enum(["authenticated", "pending", "unauthenticated"]),
+  storedNotebookNames: z.array(z.string()).default([]),
+  storedUserEmail: z.string().nullable().default(null),
   userEmail: z.string().nullable().default(null)
 });
 

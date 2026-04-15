@@ -60,12 +60,44 @@ class FakeLabApiClient:
     def generate_auth_url(self, callback_url: str) -> str:
         return f"https://auth.example.test?callback={callback_url}"
 
-    def login(self, email: str, auth_code: str) -> SimpleNamespace:
-        return SimpleNamespace(email=email, auth_code=auth_code)
+    def login(self, email: str, auth_code: str) -> FakeLabApiUser:
+        return FakeLabApiUser(email=email, auth_code=auth_code)
 
 
 class FakeLabApiAuthError(Exception):
     pass
+
+
+class FakeLabApiTlsError(Exception):
+    pass
+
+
+class FakeLabApiNotebook:
+    def __init__(self, notebook_id: str, notebook_name: str, is_default: bool) -> None:
+        self.id = notebook_id
+        self.name = notebook_name
+        self.is_default = is_default
+
+
+class FakeLabApiNotebookCollection:
+    def __init__(self, notebooks: tuple[FakeLabApiNotebook, ...]) -> None:
+        self._notebooks = notebooks
+
+    def all_values(self) -> list[FakeLabApiNotebook]:
+        return list(self._notebooks)
+
+
+class FakeLabApiUser:
+    def __init__(self, *, email: str, auth_code: str) -> None:
+        self.auth_code = auth_code
+        self.email = email
+        self.id = "labarchives-user-123"
+        self.notebooks = FakeLabApiNotebookCollection(
+            (
+                FakeLabApiNotebook("nb-1", "Primary Notebook", True),
+                FakeLabApiNotebook("nb-2", "Reference Notes", False),
+            )
+        )
 
 
 class FailingLabApiModule:
@@ -75,6 +107,35 @@ class FailingLabApiModule:
         raise self.AuthenticationError(
             "ACCESS_KEYID or ACCESS_PWD environment variables not set.",
         )
+
+
+class TlsFailingLabApiClient(FakeLabApiClient):
+    def login(self, email: str, auth_code: str) -> FakeLabApiUser:
+        del email, auth_code
+        raise FakeLabApiTlsError(
+            "Could not find a suitable TLS CA certificate bundle, "
+            "invalid path: C:/broken/cacert.pem",
+        )
+
+
+class TlsFailingLabApiModule:
+    AuthenticationError = FakeLabApiAuthError
+
+    def Client(self) -> FakeLabApiClient:  # noqa: N802
+        return TlsFailingLabApiClient()
+
+
+class LoginFailingLabApiClient(FakeLabApiClient):
+    def login(self, email: str, auth_code: str) -> FakeLabApiUser:
+        del email, auth_code
+        raise RuntimeError("unexpected login failure")
+
+
+class LoginFailingLabApiModule:
+    AuthenticationError = FakeLabApiAuthError
+
+    def Client(self) -> FakeLabApiClient:  # noqa: N802
+        return LoginFailingLabApiClient()
 
 
 class FakeAttachment:
@@ -111,6 +172,20 @@ class FakeLabApiModule:
 
     def Client(self) -> FakeLabApiClient:  # noqa: N802
         return FakeLabApiClient()
+
+
+class FakeKeyringBackend:
+    def __init__(self) -> None:
+        self.passwords: dict[tuple[str, str], str] = {}
+
+    def get_password(self, service_name: str, username: str) -> str | None:
+        return self.passwords.get((service_name, username))
+
+    def set_password(self, service_name: str, username: str, password: str) -> None:
+        self.passwords[(service_name, username)] = password
+
+    def delete_password(self, service_name: str, username: str) -> None:
+        self.passwords.pop((service_name, username), None)
 
 
 class FakeEntries:
@@ -217,11 +292,12 @@ def _manual_plan(
 def test_auth_service_can_start_and_complete_auth(
     monkeypatch: MonkeyPatch,
 ) -> None:
+    keyring_backend = FakeKeyringBackend()
     monkeypatch.setattr(
         "save_my_jupyter.services.auth.load_labapi",
         lambda: FakeLabApiModule(),
     )
-    service = AuthServiceImpl()
+    service = AuthServiceImpl(keyring_backend=keyring_backend)
 
     start_result = service.start_auth(
         "user-1",
@@ -238,7 +314,37 @@ def test_auth_service_can_start_and_complete_auth(
         auth_code="secret",
     )
     assert session.user_email == "user@example.com"
-    assert service.get_auth_status("user-1").status == "authenticated"
+    active_status = service.get_auth_status("user-1")
+    assert active_status.status == "authenticated"
+    assert active_status.stored_user_email == "user@example.com"
+    assert active_status.stored_notebook_names == (
+        "Primary Notebook",
+        "Reference Notes",
+    )
+
+    reloaded_service = AuthServiceImpl(keyring_backend=keyring_backend)
+    stored_profile = reloaded_service.get_stored_profile("user-1")
+    assert stored_profile is not None
+    assert stored_profile.user_email == "user@example.com"
+    assert stored_profile.labarchives_user_id == "labarchives-user-123"
+    assert tuple(notebook.notebook_name for notebook in stored_profile.notebooks) == (
+        "Primary Notebook",
+        "Reference Notes",
+    )
+
+    reloaded_status = reloaded_service.get_auth_status("user-1")
+    assert reloaded_status.status == "unauthenticated"
+    assert reloaded_status.stored_user_email == "user@example.com"
+    assert reloaded_status.stored_notebook_names == (
+        "Primary Notebook",
+        "Reference Notes",
+    )
+
+    reloaded_start = reloaded_service.start_auth(
+        "user-1",
+        "http://localhost/save-my-jupyter/auth/callback",
+    )
+    assert "Previously connected as user@example.com." in reloaded_start.message
 
 
 def test_auth_service_reports_missing_server_credentials(
@@ -258,6 +364,55 @@ def test_auth_service_reports_missing_server_credentials(
 
     assert exc_info.value.code == "missing_labarchives_credentials"
     assert "ACCESS_KEYID" in str(exc_info.value)
+
+
+def test_auth_service_reports_invalid_tls_bundle_during_login(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "save_my_jupyter.services.auth.load_labapi",
+        lambda: TlsFailingLabApiModule(),
+    )
+    service = AuthServiceImpl()
+
+    start_result = service.start_auth(
+        "user-1",
+        "http://localhost/save-my-jupyter/auth/callback",
+    )
+
+    with pytest.raises(LabArchivesWriteError) as exc_info:
+        service.complete_auth(
+            start_result.request_id or "",
+            email="user@example.com",
+            auth_code="secret",
+        )
+
+    assert exc_info.value.code == "invalid_tls_ca_bundle"
+    assert "REQUESTS_CA_BUNDLE" in str(exc_info.value)
+
+
+def test_auth_service_wraps_unexpected_login_failures(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "save_my_jupyter.services.auth.load_labapi",
+        lambda: LoginFailingLabApiModule(),
+    )
+    service = AuthServiceImpl()
+
+    start_result = service.start_auth(
+        "user-1",
+        "http://localhost/save-my-jupyter/auth/callback",
+    )
+
+    with pytest.raises(LabArchivesWriteError) as exc_info:
+        service.complete_auth(
+            start_result.request_id or "",
+            email="user@example.com",
+            auth_code="secret",
+        )
+
+    assert exc_info.value.code == "labarchives_authentication_failed"
 
 
 def test_watch_service_polls_files_and_emits_requests() -> None:
