@@ -2,8 +2,11 @@ import { ReactWidget } from "@jupyterlab/apputils";
 import React from "react";
 
 import { getSnapshotAvailability } from "../panelBehavior";
-import type { SnapshotPanelViewState } from "../panelState";
-import { formatTagsInput } from "../tags";
+import {
+  createInitialViewState,
+  type SnapshotPanelViewState,
+  type StatusKind
+} from "../panelState";
 import type { CommitMode } from "../types";
 
 export interface SnapshotPanelCallbacks {
@@ -26,6 +29,89 @@ export interface SnapshotPanelProps {
   viewState: SnapshotPanelViewState;
 }
 
+interface SetupActionRowProps {
+  buttonDisabled?: boolean;
+  buttonLabel: string;
+  description: string;
+  extraHint?: string;
+  onClick: () => void;
+  statusKind: StatusKind;
+  statusMessage: string | null;
+  testId: string;
+  title: string;
+}
+
+function getStatusClassName(kind: StatusKind): string {
+  return kind === null
+    ? "smj-SnapshotPanel__status"
+    : `smj-SnapshotPanel__status smj-SnapshotPanel__status--${kind}`;
+}
+
+function StatusMessage({
+  kind,
+  message
+}: {
+  kind: StatusKind;
+  message: string | null;
+}): React.JSX.Element | null {
+  if (message === null) {
+    return null;
+  }
+
+  return (
+    <p
+      aria-live="polite"
+      className={getStatusClassName(kind)}
+      role="status"
+    >
+      {message}
+    </p>
+  );
+}
+
+function SetupActionRow({
+  buttonDisabled = false,
+  buttonLabel,
+  description,
+  extraHint,
+  onClick,
+  statusKind,
+  statusMessage,
+  testId,
+  title
+}: SetupActionRowProps): React.JSX.Element {
+  return (
+    <div
+      className="smj-SnapshotPanel__actionRow"
+      data-smj-action={testId}
+    >
+      <div className="smj-SnapshotPanel__row">
+        <div className="smj-SnapshotPanel__rowCopy">
+          <strong className="smj-SnapshotPanel__rowTitle">{title}</strong>
+          <p className="smj-SnapshotPanel__hint">{description}</p>
+        </div>
+        <button
+          className="jp-mod-styled smj-SnapshotPanel__button"
+          type="button"
+          disabled={buttonDisabled}
+          onClick={() => {
+            onClick();
+          }}
+        >
+          {buttonLabel}
+        </button>
+      </div>
+      {extraHint === undefined ? null : (
+        <p className="smj-SnapshotPanel__hint">{extraHint}</p>
+      )}
+      <StatusMessage
+        kind={statusKind}
+        message={statusMessage}
+      />
+    </div>
+  );
+}
+
 function SnapshotPanelBody({
   callbacks,
   viewState
@@ -40,7 +126,6 @@ function SnapshotPanelBody({
     viewState.effectiveState?.effectiveConfig?.watchedPaths ??
     viewState.metadata.watched_paths;
 
-  const tagsValue = viewState.tagsInput;
   const authLabel =
     viewState.auth.status === "authenticated"
       ? `Authenticated as ${viewState.auth.userEmail ?? "unknown"}`
@@ -55,19 +140,6 @@ function SnapshotPanelBody({
     : "Create starter config";
   const pathRuleLabel = viewState.effectiveState?.pathRule?.name ?? "(none)";
   const gitLabel = viewState.effectiveState?.repo?.repoRoot ?? "(no repository detected)";
-
-  const statusClassName =
-    viewState.statusKind === null
-      ? null
-      : `smj-SnapshotPanel__status smj-SnapshotPanel__status--${viewState.statusKind}`;
-  const authStatusClassName =
-    viewState.authStatusKind === null
-      ? null
-      : `smj-SnapshotPanel__status smj-SnapshotPanel__status--${viewState.authStatusKind}`;
-  const configStatusClassName =
-    viewState.configStatusKind === null
-      ? null
-      : `smj-SnapshotPanel__status smj-SnapshotPanel__status--${viewState.configStatusKind}`;
   const snapshotAvailability = getSnapshotAvailability(
     viewState.auth,
     viewState.notebookPath,
@@ -109,10 +181,6 @@ function SnapshotPanelBody({
             </p>
             <dl className="smj-SnapshotPanel__summaryFacts">
               <div>
-                <dt>LabArchives</dt>
-                <dd>{authLabel}</dd>
-              </div>
-              <div>
                 <dt>Path rule</dt>
                 <dd>{pathRuleLabel}</dd>
               </div>
@@ -128,64 +196,34 @@ function SnapshotPanelBody({
 
           <section className="smj-SnapshotPanel__section">
             <h3 className="smj-SnapshotPanel__sectionTitle">Setup</h3>
-            <div className="smj-SnapshotPanel__row">
-              <div className="smj-SnapshotPanel__rowCopy">
-                <strong className="smj-SnapshotPanel__rowTitle">LabArchives</strong>
-                <p className="smj-SnapshotPanel__hint">{authLabel}</p>
-              </div>
-              <button
-                className="jp-mod-styled smj-SnapshotPanel__button"
-                type="button"
-                onClick={() => {
-                  callbacks.onAuthenticate();
-                }}
-              >
-                Connect
-              </button>
-            </div>
-            {viewState.authStatusMessage !== null ? (
-              <p
-                aria-live="polite"
-                className={
-                  authStatusClassName ?? "smj-SnapshotPanel__status"
-                }
-                role="status"
-              >
-                {viewState.authStatusMessage}
-              </p>
-            ) : null}
-            <div className="smj-SnapshotPanel__row">
-              <div className="smj-SnapshotPanel__rowCopy">
-                <strong className="smj-SnapshotPanel__rowTitle">Project config</strong>
-                <p className="smj-SnapshotPanel__hint">{repoConfigPath}</p>
-              </div>
-              <button
-                className="jp-mod-styled smj-SnapshotPanel__button"
-                type="button"
-                disabled={viewState.notebookPath === null}
-                onClick={() => {
-                  callbacks.onGenerateRepoConfig();
-                }}
-              >
-                {repoConfigButtonLabel}
-              </button>
-            </div>
-            <p className="smj-SnapshotPanel__hint">
-              {viewState.effectiveState?.repoConfigLoaded
-                ? "This config is already available for the current notebook."
-                : "Create a starter .save-my-jupyter.toml to share defaults for this workspace."}
-            </p>
-            {viewState.configStatusMessage !== null ? (
-              <p
-                aria-live="polite"
-                className={
-                  configStatusClassName ?? "smj-SnapshotPanel__status"
-                }
-                role="status"
-              >
-                {viewState.configStatusMessage}
-              </p>
-            ) : null}
+            <SetupActionRow
+              buttonLabel="Connect"
+              description={authLabel}
+              onClick={() => {
+                callbacks.onAuthenticate();
+              }}
+              statusKind={viewState.authStatusKind}
+              statusMessage={viewState.authStatusMessage}
+              testId="auth"
+              title="LabArchives"
+            />
+            <SetupActionRow
+              buttonDisabled={viewState.notebookPath === null}
+              buttonLabel={repoConfigButtonLabel}
+              description={repoConfigPath}
+              extraHint={
+                viewState.effectiveState?.repoConfigLoaded
+                  ? "This config is already available for the current notebook."
+                  : "Create a starter .save-my-jupyter.toml to share defaults for this workspace."
+              }
+              onClick={() => {
+                callbacks.onGenerateRepoConfig();
+              }}
+              statusKind={viewState.configStatusKind}
+              statusMessage={viewState.configStatusMessage}
+              testId="config"
+              title="Project config"
+            />
           </section>
 
           <section className="smj-SnapshotPanel__section">
@@ -298,7 +336,7 @@ function SnapshotPanelBody({
               <input
                 className="jp-mod-styled"
                 type="text"
-                value={tagsValue}
+                value={viewState.tagsInput}
                 placeholder="baseline, experiment-1"
                 onChange={event => {
                   callbacks.onTagsChange(event.target.value);
@@ -328,15 +366,10 @@ function SnapshotPanelBody({
             </label>
           </section>
 
-          {viewState.statusMessage !== null ? (
-            <p
-              aria-live="polite"
-              className={statusClassName ?? "smj-SnapshotPanel__status"}
-              role="status"
-            >
-              {viewState.statusMessage}
-            </p>
-          ) : null}
+          <StatusMessage
+            kind={viewState.statusKind}
+            message={viewState.statusMessage}
+          />
         </div>
       </section>
     </>
@@ -348,43 +381,7 @@ export class SnapshotPanel extends ReactWidget {
 
   constructor(private readonly callbacks: SnapshotPanelCallbacks) {
     super();
-    this.viewState = {
-      activeCellId: null,
-      activeCellIsTrigger: false,
-      auth: {
-        pendingRequestId: null,
-        status: "unauthenticated",
-        userEmail: null
-      },
-      authStatusKind: null,
-      authStatusMessage: null,
-      configStatusKind: null,
-      configStatusMessage: null,
-      effectiveState: null,
-      isBusy: false,
-      metadata: {
-        all_cells_trigger: false,
-        default_metadata: {},
-        enabled: true,
-        labarchives_target_notebook: null,
-        labarchives_target_root_path: null,
-        trigger_cell_ids: [],
-        watched_paths: []
-      },
-      notebookPath: null,
-      rememberCommitChoice: false,
-      selectedCommitMode: "prompt",
-      statusKind: null,
-      statusMessage: null,
-      tagsInput: formatTagsInput([]),
-      userMetadata: {
-        experiment_context: null,
-        extra_fields: {},
-        notes: null,
-        run_label: null,
-        tags: []
-      }
-    };
+    this.viewState = createInitialViewState();
     this.addClass("jp-SidePanel");
     this.addClass("smj-SnapshotPanel");
   }

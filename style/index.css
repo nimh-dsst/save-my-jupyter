@@ -127,6 +127,11 @@
   padding: 12px 0;
 }
 
+.smj-SnapshotPanel__actionRow {
+  display: grid;
+  gap: 6px;
+}
+
 .smj-SnapshotPanel__section .smj-SnapshotPanel__hint,
 .smj-SnapshotPanel__section .smj-SnapshotPanel__status {
   margin: 0;

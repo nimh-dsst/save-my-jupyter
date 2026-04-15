@@ -167,6 +167,18 @@ def find_visible_snapshot_panel(driver: WebDriver) -> Any | None:
     return driver.execute_script(script)
 
 
+def find_setup_action(panel: Any, test_id: str, driver: WebDriver) -> Any | None:
+    return driver.execute_script(
+        """
+        const panel = arguments[0];
+        const testId = arguments[1];
+        return panel?.querySelector(`[data-smj-action="${testId}"]`) ?? null;
+        """,
+        panel,
+        test_id,
+    )
+
+
 def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
     notebook_url = (
         f"http://127.0.0.1:{args.port}/lab/tree/{quote(args.notebook)}?token={args.token}"
@@ -329,21 +341,69 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
     )
     cell_trigger_button_found = trigger_toggle is not None
     trigger_button_label = trigger_toggle.get_attribute("title") or None
+    active_cell_was_trigger = bool(
+        driver.execute_script(
+            """
+            return document.querySelector(
+              '.jp-Cell.jp-mod-active'
+            )?.classList.contains('smj-Cell--trigger') ?? false;
+            """
+        )
+    )
     driver.execute_script("arguments[0].click();", trigger_toggle)
 
     wait.until(
         lambda browser: bool(
             browser.execute_script(
-                "return document.querySelector("
-                "'.jp-Notebook .jp-Cell.smj-Cell--trigger'"
-                ") !== null;",
+                """
+                const activeCell = document.querySelector('.jp-Cell.jp-mod-active');
+                if (!activeCell) {
+                  return false;
+                }
+                return (
+                  activeCell.classList.contains('smj-Cell--trigger') !== arguments[0]
+                );
+                """,
+                active_cell_was_trigger,
             )
         )
     )
 
+    active_cell_is_trigger = bool(
+        driver.execute_script(
+            """
+            return document.querySelector(
+              '.jp-Cell.jp-mod-active'
+            )?.classList.contains('smj-Cell--trigger') ?? false;
+            """
+        )
+    )
+    if not active_cell_is_trigger:
+        trigger_toggle = wait.until(
+            lambda browser: browser.execute_script(
+                """
+                return document.querySelector(
+                  '.jp-Cell.jp-mod-active .smj-CellTriggerButton'
+                );
+                """
+            )
+        )
+        driver.execute_script("arguments[0].click();", trigger_toggle)
+        wait.until(
+            lambda browser: bool(
+                browser.execute_script(
+                    """
+                    return document.querySelector(
+                      '.jp-Cell.jp-mod-active'
+                    )?.classList.contains('smj-Cell--trigger') ?? false;
+                    """
+                )
+            )
+        )
+
     trigger_decoration = driver.execute_script(
         """
-        const cell = document.querySelector('.jp-Notebook .jp-Cell.smj-Cell--trigger');
+        const cell = document.querySelector('.jp-Cell.jp-mod-active');
         if (!cell) {
           return { hasLeftHighlight: false, pillVisible: false };
         }
@@ -351,7 +411,8 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
         const afterStyle = window.getComputedStyle(cell, '::after');
         const content = afterStyle.content || '';
         return {
-          hasLeftHighlight: cellStyle.boxShadow !== 'none',
+          hasLeftHighlight: cell.classList.contains('smj-Cell--trigger') &&
+            cellStyle.boxShadow !== 'none',
           pillVisible: content !== 'none' && content !== 'normal' && content !== '""'
         };
         """
@@ -378,16 +439,7 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
 
     config_path_hint: str | None = None
     if args.check_connect:
-        labarchives_section = driver.execute_script(
-            """
-            const panel = arguments[0];
-            return Array.from(
-              panel?.querySelectorAll('.smj-SnapshotPanel__section') || []
-            )
-              .find((section) => section.textContent.includes('LabArchives'));
-            """,
-            panel,
-        )
+        labarchives_section = find_setup_action(panel, "auth", driver)
         connect_button = wait.until(
             lambda browser: browser.execute_script(
                 """
@@ -419,22 +471,12 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
     config_status_scoped_to_project_config = False
     config_file_exists_after_click = False
     if args.check_config_init:
-        config_section = driver.execute_script(
-            """
-            const panel = arguments[0];
-            return Array.from(
-              panel?.querySelectorAll('.smj-SnapshotPanel__section') || []
-            )
-              .find((section) => section.textContent.includes('Project config'));
-            """,
-            panel,
-        )
+        config_section = find_setup_action(panel, "config", driver)
         config_button = wait.until(
             lambda browser: browser.execute_script(
                 """
                 const section = arguments[0];
-                return Array.from(section?.querySelectorAll('button') || [])
-                  .find((button) => button.textContent.includes('config'));
+                return section?.querySelector('button');
                 """,
                 config_section,
             )
@@ -459,10 +501,10 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
         config_path = driver.execute_script(
             """
             const section = arguments[0];
-            const hints = Array.from(
-              section?.querySelectorAll('.smj-SnapshotPanel__hint') || []
-            );
-            return hints.length > 0 ? (hints[0].textContent || '').trim() : null;
+            return section?.querySelector(
+              '.smj-SnapshotPanel__rowCopy .smj-SnapshotPanel__hint'
+            )
+              ?.textContent?.trim() ?? null;
             """,
             config_section,
         )
