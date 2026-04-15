@@ -4,6 +4,7 @@ import shutil
 import subprocess
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
@@ -13,8 +14,11 @@ import pytest
 from save_my_jupyter.adapters.labarchives import LabArchivesAdapter
 from save_my_jupyter.adapters.path_templates import render_root_path_template
 from save_my_jupyter.domain import (
+    CellId,
+    CommitHash,
     CommitMode,
     EffectiveConfig,
+    FigureArtifact,
     FileArtifact,
     LabArchivesNotebookName,
     LabArchivesRootPath,
@@ -73,6 +77,20 @@ class FailingLabApiModule:
         )
 
 
+class FakeAttachment:
+    def __init__(
+        self,
+        payload: BytesIO,
+        mime_type: str,
+        display_name: str,
+        description: str,
+    ) -> None:
+        self.description = description
+        self.display_name = display_name
+        self.mime_type = mime_type
+        self.payload = payload
+
+
 class FakeLabApiModule:
     class InsertBehavior:
         Raise = "raise"
@@ -89,18 +107,7 @@ class FakeLabApiModule:
     class AttachmentEntry:
         pass
 
-    class Attachment:
-        def __init__(
-            self,
-            payload: object,
-            mime_type: str,
-            display_name: str,
-            description: str,
-        ) -> None:
-            self.description = description
-            self.display_name = display_name
-            self.mime_type = mime_type
-            self.payload = payload
+    Attachment = FakeAttachment
 
     def Client(self) -> FakeLabApiClient:  # noqa: N802
         return FakeLabApiClient()
@@ -108,9 +115,13 @@ class FakeLabApiModule:
 
 class FakeEntries:
     def __init__(self) -> None:
-        self.created: list[tuple[type[object], object]] = []
+        self.created: list[tuple[type[object], str | FakeAttachment]] = []
 
-    def create(self, entry_type: type[object], payload: object) -> object:
+    def create(
+        self,
+        entry_type: type[object],
+        payload: str | FakeAttachment,
+    ) -> str | FakeAttachment:
         self.created.append((entry_type, payload))
         return payload
 
@@ -309,6 +320,7 @@ def test_labarchives_adapter_writes_snapshot_page(
     try:
         file_path = root / "artifact.txt"
         file_path.write_text("payload", encoding="utf-8")
+        figure_bytes = b"\x89PNG\r\n\x1a\nfigure"
         session = LabArchivesSession(
             user_email="user@example.com",
             user=SimpleNamespace(notebooks={"Snapshots": notebook}),
@@ -329,15 +341,15 @@ def test_labarchives_adapter_writes_snapshot_page(
                 relative_notebook_path=RelativeRepoPath("analysis/notebook.ipynb"),
                 remote_url=None,
                 repo_host=RepoHost.UNKNOWN,
-                head_commit=None,
+                head_commit=CommitHash("abc1234"),
                 is_dirty=True,
             ),
             path_rule_name="analysis",
-            commit_hash=None,
-            commit_url=None,
+            commit_hash=CommitHash("def5678"),
+            commit_url="https://git.example.test/commit/def5678",
             dirty_diff="diff --git a/notebook.ipynb b/notebook.ipynb",
             run_fingerprint=RunFingerprint("run-1"),
-            trigger_cell_ids=(),
+            trigger_cell_ids=(CellId("cell-1"),),
             executed_cell_ids=(),
             produced_value_summary="42",
             artifacts=(
@@ -353,6 +365,12 @@ def test_labarchives_adapter_writes_snapshot_page(
                     mime_type=MimeType("text/plain"),
                     local_path=file_path,
                     relative_path=RelativeRepoPath("outputs/artifact.txt"),
+                ),
+                FigureArtifact(
+                    display_name="figure-001.png",
+                    mime_type=MimeType("image/png"),
+                    figure_index=1,
+                    bytes_payload=figure_bytes,
                 ),
             ),
             metadata=UserMetadata(run_label="baseline", tags=("baseline",)),
@@ -373,7 +391,70 @@ def test_labarchives_adapter_writes_snapshot_page(
             .children["baseline"]
         )
         page = next(iter(target_root.pages.values()))
-        assert len(page.entries.created) == 7
+        created_entry_types = [
+            entry_type.__name__ for entry_type, _payload in page.entries.created
+        ]
+        assert created_entry_types == [
+            "TextEntry",
+            "PlainTextEntry",
+            "PlainTextEntry",
+            "PlainTextEntry",
+            "PlainTextEntry",
+            "AttachmentEntry",
+            "AttachmentEntry",
+            "AttachmentEntry",
+        ]
+
+        summary_entry = _entry_text(page.entries.created[0][1])
+        assert "Notebook:</strong> notebook.ipynb" in summary_entry
+        assert "Source:</strong> manual" in summary_entry
+        assert "Snapshot ID:</strong> snapshot-1" in summary_entry
+
+        metadata_entry = _entry_text(page.entries.created[1][1])
+        assert '"commit_hash": "def5678"' in metadata_entry
+        assert '"dirty": true' in metadata_entry
+        assert '"run_label": "baseline"' in metadata_entry
+        assert '"tags": [' in metadata_entry
+        assert '"trigger_cell_ids": [' in metadata_entry
+
+        git_info_entry = _entry_text(page.entries.created[2][1])
+        assert "head_commit=abc1234" in git_info_entry
+        assert "snapshot_commit=def5678" in git_info_entry
+        assert "commit_url=https://git.example.test/commit/def5678" in git_info_entry
+
+        execution_entry = _entry_text(page.entries.created[3][1])
+        assert execution_entry == "42"
+
+        diff_entry = _entry_text(page.entries.created[4][1])
+        assert diff_entry == "diff --git a/notebook.ipynb b/notebook.ipynb"
+
+        attachments = [
+            _entry_attachment(payload)
+            for _entry_type, payload in page.entries.created[5:]
+        ]
+        assert [attachment.display_name for attachment in attachments] == [
+            "notebook.ipynb",
+            "artifact.txt",
+            "figure-001.png",
+        ]
+        assert [attachment.description for attachment in attachments] == [
+            "Notebook snapshot",
+            "File artifact",
+            "Generated figure 1",
+        ]
+        assert [attachment.mime_type for attachment in attachments] == [
+            "application/x-ipynb+json",
+            "text/plain",
+            "image/png",
+        ]
+        attachment_payloads = [
+            _attachment_bytes(attachment.payload) for attachment in attachments
+        ]
+        assert attachment_payloads == [
+            b"{}",
+            b"payload",
+            figure_bytes,
+        ]
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
@@ -501,3 +582,17 @@ def _make_workspace_temp_dir() -> Path:
     root = Path.cwd() / f"tmp-runtime-{uuid4().hex}"
     root.mkdir(parents=True)
     return root
+
+
+def _entry_text(payload: str | FakeAttachment) -> str:
+    assert isinstance(payload, str)
+    return payload
+
+
+def _entry_attachment(payload: str | FakeAttachment) -> FakeAttachment:
+    assert isinstance(payload, FakeAttachment)
+    return payload
+
+
+def _attachment_bytes(payload: BytesIO) -> bytes:
+    return payload.getvalue()
