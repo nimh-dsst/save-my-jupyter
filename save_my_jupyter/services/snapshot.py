@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -9,6 +10,7 @@ from save_my_jupyter.config.service import ConfigService
 from save_my_jupyter.domain import (
     CommitHash,
     CommitMode,
+    ResolvedRepoContext,
     ResolvedSnapshotPlan,
     SnapshotId,
     SnapshotPersistenceResult,
@@ -76,18 +78,25 @@ class SnapshotService:
         user_id: UserId,
     ) -> SnapshotRecord:
         commit_hash = self._resolve_commit_hash(plan)
+        resolved_repo = self._resolve_repo_state(plan)
+        resolved_plan = replace(plan, repo=resolved_repo)
+        remote_url = (
+            str(resolved_repo.remote_url)
+            if resolved_repo.remote_url is not None
+            else None
+        )
         commit_url = self._git_service.build_commit_url(
-            str(plan.repo.remote_url) if plan.repo.remote_url is not None else None,
+            remote_url,
             commit_hash,
         )
         dirty_diff = None
-        if (commit_hash is None and plan.effective_config.include_diff_when_dirty) or (
-            plan.repo.is_dirty and plan.effective_config.include_diff_when_dirty
-        ):
-            dirty_diff = self._git_service.generate_diff(plan)
+        if resolved_repo.is_dirty and plan.effective_config.include_diff_when_dirty:
+            dirty_diff = self._git_service.generate_diff(resolved_plan)
 
-        artifacts = self._artifact_collector.collect_all(plan, dirty_diff)
-        produced_value_summary = self._artifact_collector.collect_value_summary(plan)
+        artifacts = self._artifact_collector.collect_all(resolved_plan, dirty_diff)
+        produced_value_summary = self._artifact_collector.collect_value_summary(
+            resolved_plan
+        )
 
         return SnapshotRecord(
             snapshot_id=SnapshotId(uuid4().hex),
@@ -95,7 +104,7 @@ class SnapshotService:
             source=plan.request.source,
             user_id=user_id,
             notebook_context=plan.request.notebook_context,
-            repo=plan.repo,
+            repo=resolved_repo,
             path_rule_name=plan.path_rule.rule_name
             if plan.path_rule is not None
             else None,
@@ -133,3 +142,13 @@ class SnapshotService:
         if plan.effective_config.commit_mode is CommitMode.NEVER:
             return None
         return self._git_service.create_commit(plan)
+
+    def _resolve_repo_state(
+        self,
+        plan: ResolvedSnapshotPlan,
+    ) -> ResolvedRepoContext:
+        if plan.repo.repo_root is None:
+            return plan.repo
+        return self._git_service.resolve_repo(
+            plan.request.notebook_context.notebook_path
+        )
