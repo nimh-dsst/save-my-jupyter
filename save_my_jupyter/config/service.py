@@ -21,7 +21,6 @@ from save_my_jupyter.domain import (
     RepoConfig,
     ResolvedPathRule,
     SnapshotRequest,
-    UserId,
     UserSettingsConfig,
 )
 from save_my_jupyter.errors import ConfigValidationError
@@ -33,6 +32,15 @@ class RepoConfigBootstrapResult:
     config_path: Path
     root_directory: Path
     status: Literal["created", "exists"]
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedConfig:
+    repo_config: RepoConfig | None
+    notebook_metadata: NotebookMetadataConfig
+    user_settings: UserSettingsConfig
+    path_rule: ResolvedPathRule | None
+    effective_config: EffectiveConfig
 
 
 class ConfigService:
@@ -108,14 +116,10 @@ class ConfigService:
             if notebook.parent != config_root
             else Path()
         )
-        match_path = normalize_path(
-            str(relative_parent).replace("\\", "/")
-        )
+        match_path = normalize_path(str(relative_parent).replace("\\", "/"))
         project_name = config_root.name or "save-my-jupyter"
         rule_name = (
-            notebook.parent.name
-            if notebook.parent != config_root
-            else "workspace"
+            notebook.parent.name if notebook.parent != config_root else "workspace"
         )
         lines = [
             "# Save My Jupyter starter config",
@@ -283,26 +287,16 @@ class ConfigService:
             return None
         notebook = Path(notebook_path).resolve()
         return RelativeRepoPath(
-            normalize_path(
-                str(notebook.relative_to(repo_root)).replace("\\", "/")
-            )
+            normalize_path(str(notebook.relative_to(repo_root)).replace("\\", "/"))
         )
 
     def resolve_effective_config(
         self,
         *,
         request: SnapshotRequest,
-        user_id: UserId,
         user_settings: Mapping[str, object] | None = None,
         notebook_metadata: Mapping[str, object] | None = None,
-    ) -> tuple[
-        RepoConfig | None,
-        NotebookMetadataConfig,
-        UserSettingsConfig,
-        ResolvedPathRule | None,
-        EffectiveConfig,
-    ]:
-        del user_id
+    ) -> ResolvedConfig:
         repo_config = self.load_repo_config(request.notebook_context.notebook_path)
         resolved_notebook_metadata = self.load_notebook_metadata(notebook_metadata)
         resolved_user_settings = self.load_user_settings(user_settings)
@@ -324,12 +318,12 @@ class ConfigService:
             path_rule=path_rule,
             request_commit_mode=request.commit_mode,
         )
-        return (
-            repo_config,
-            resolved_notebook_metadata,
-            resolved_user_settings,
-            path_rule,
-            effective_config,
+        return ResolvedConfig(
+            repo_config=repo_config,
+            notebook_metadata=resolved_notebook_metadata,
+            user_settings=resolved_user_settings,
+            path_rule=path_rule,
+            effective_config=effective_config,
         )
 
 

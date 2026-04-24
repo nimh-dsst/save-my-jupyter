@@ -91,7 +91,6 @@ class StateHandler(BaseSaveMyJupyterHandler):
                 self.services,
                 auth_status=auth_status,
                 notebook_path=NotebookPath(notebook_path_arg),
-                user_id=user_id,
             ),
             status=HTTPStatus.OK,
         )
@@ -127,7 +126,6 @@ class WatchSyncHandler(BaseSaveMyJupyterHandler):
             plan = _plan_watch_registration(
                 self.services,
                 registration_request=registration_request,
-                user_id=self.user_id,
             )
         except SaveMyJupyterError as exc:
             self.write_error_response(exc)
@@ -240,7 +238,7 @@ def process_snapshot_request(
     snapshot_request: SnapshotRequest,
     user_id: UserId,
 ) -> SnapshotAccepted | SnapshotRejected:
-    plan = services.snapshot_service.plan_snapshot(snapshot_request, user_id)
+    plan = services.snapshot_service.plan_snapshot(snapshot_request)
 
     result = services.snapshot_coordinator.submit(plan)
     if isinstance(result, SnapshotRejected):
@@ -259,19 +257,11 @@ def _resolve_state_payload(
     *,
     auth_status: AuthStatusResult,
     notebook_path: NotebookPath,
-    user_id: UserId,
 ) -> dict[str, object]:
     snapshot_request = _build_state_snapshot_request(notebook_path)
     notebook_metadata = load_notebook_extension_metadata(notebook_path)
-    (
-        repo_config,
-        resolved_notebook_metadata,
-        _resolved_user_settings,
-        path_rule,
-        effective_config,
-    ) = services.config_service.resolve_effective_config(
+    resolved_config = services.config_service.resolve_effective_config(
         request=snapshot_request,
-        user_id=user_id,
         notebook_metadata=notebook_metadata,
     )
     repo = services.git_service.resolve_repo(notebook_path)
@@ -281,11 +271,11 @@ def _resolve_state_payload(
     )
     return build_state_payload(
         auth_status=auth_status,
-        effective_config=effective_config,
-        notebook_metadata=resolved_notebook_metadata,
-        path_rule=path_rule,
+        effective_config=resolved_config.effective_config,
+        notebook_metadata=resolved_config.notebook_metadata,
+        path_rule=resolved_config.path_rule,
         repo=repo,
-        repo_config_loaded=repo_config is not None,
+        repo_config_loaded=resolved_config.repo_config is not None,
         repo_config_path=repo_config_path,
     )
 
@@ -305,7 +295,6 @@ def _plan_watch_registration(
     services: ServiceContainer,
     *,
     registration_request: WatchRegistrationRequest,
-    user_id: UserId,
 ) -> ResolvedSnapshotPlan:
     return services.snapshot_service.plan_snapshot(
         ManualSnapshotRequest(
@@ -313,7 +302,6 @@ def _plan_watch_registration(
             commit_mode=registration_request.commit_mode,
             user_metadata=registration_request.user_metadata,
         ),
-        user_id,
         notebook_metadata={
             "watched_paths": [str(path) for path in registration_request.watch_paths]
         },

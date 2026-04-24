@@ -71,7 +71,6 @@ def test_execute_snapshot_records_dirty_trigger_snapshot_artifacts() -> None:
 
         plan = service.plan_snapshot(
             request,
-            UserId("user-1"),
             notebook_metadata={"watched_paths": ["outputs"]},
         )
         record = service.execute_snapshot(plan, UserId("user-1"))
@@ -160,7 +159,6 @@ def test_execute_snapshot_records_remaining_watch_diff_after_commit() -> None:
 
         plan = service.plan_snapshot(
             request,
-            UserId("user-1"),
             notebook_metadata={"watched_paths": ["outputs"]},
         )
         record = service.execute_snapshot(plan, UserId("user-1"))
@@ -217,7 +215,6 @@ def test_execute_snapshot_omits_diff_after_committing_watched_paths() -> None:
 
         plan = service.plan_snapshot(
             request,
-            UserId("user-1"),
             notebook_metadata={"watched_paths": ["outputs"]},
         )
         record = service.execute_snapshot(plan, UserId("user-1"))
@@ -258,7 +255,6 @@ def test_execute_snapshot_handles_deleted_watch_file_and_truncates_summary() -> 
 
         plan = service.plan_snapshot(
             request,
-            UserId("user-1"),
             notebook_metadata={"watched_paths": ["outputs/deleted.txt"]},
         )
         record = service.execute_snapshot(plan, UserId("user-1"))

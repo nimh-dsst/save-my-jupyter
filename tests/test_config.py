@@ -6,7 +6,13 @@ from pathlib import Path
 import pytest
 from save_my_jupyter.config.parsers import parse_notebook_metadata, parse_repo_config
 from save_my_jupyter.config.service import ConfigService
-from save_my_jupyter.domain import NotebookPath
+from save_my_jupyter.domain import (
+    CommitMode,
+    ManualSnapshotRequest,
+    NotebookContext,
+    NotebookPath,
+    UserMetadata,
+)
 from save_my_jupyter.errors import ConfigValidationError
 
 
@@ -138,8 +144,7 @@ def test_config_service_creates_starter_repo_config() -> None:
         assert str(repo_config.path_rules[0].match_paths[0]) == "analysis"
         starter_config = result.config_path.read_text(encoding="utf-8")
         assert (
-            'target_root_path = "Notebook Log/{user_id}/{scope_path}"'
-            in starter_config
+            'target_root_path = "Notebook Log/{user_id}/{scope_path}"' in starter_config
         )
         assert "{path_rule_name}" in starter_config
     finally:
@@ -212,3 +217,32 @@ name = "parent"
         )
     finally:
         shutil.rmtree(repo_root, ignore_errors=True)
+
+
+def test_config_service_resolve_effective_config_returns_named_result() -> None:
+    root = Path.cwd() / ".test_resolved_config"
+    shutil.rmtree(root, ignore_errors=True)
+    try:
+        notebook_path = root / "analysis.ipynb"
+        notebook_path.parent.mkdir(parents=True)
+        notebook_path.write_text("{}", encoding="utf-8")
+
+        service = ConfigService()
+        resolved_config = service.resolve_effective_config(
+            request=ManualSnapshotRequest(
+                notebook_context=NotebookContext(
+                    notebook_path=NotebookPath(str(notebook_path)),
+                    notebook_name=notebook_path.name,
+                ),
+                commit_mode=CommitMode.PROMPT,
+                user_metadata=UserMetadata(),
+            ),
+            notebook_metadata={"watched_paths": ["outputs"]},
+        )
+
+        assert resolved_config.repo_config is None
+        assert str(resolved_config.notebook_metadata.watched_paths[0]) == "outputs"
+        assert resolved_config.path_rule is None
+        assert str(resolved_config.effective_config.watched_paths[0]) == "outputs"
+    finally:
+        shutil.rmtree(root, ignore_errors=True)

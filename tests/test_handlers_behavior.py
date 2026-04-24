@@ -95,16 +95,15 @@ class FakeSnapshotService:
         self._plan = plan
         self._record = record
         self._persistence_result = persistence_result
-        self.plan_calls: list[tuple[object, UserId]] = []
+        self.plan_calls: list[object] = []
         self.execute_calls: list[tuple[ResolvedSnapshotPlan, UserId]] = []
         self.persist_calls: list[tuple[SnapshotRecord, UserId]] = []
 
     def plan_snapshot(
         self,
         snapshot_request: object,
-        user_id: UserId,
     ) -> ResolvedSnapshotPlan:
-        self.plan_calls.append((snapshot_request, user_id))
+        self.plan_calls.append(snapshot_request)
         return self._plan
 
     def execute_snapshot(
@@ -159,7 +158,7 @@ def test_process_snapshot_request_executes_and_persists_accepted_snapshot() -> N
         )
 
         assert result.status == "accepted"
-        assert snapshot_service.plan_calls == [(plan.request, UserId("user-1"))]
+        assert snapshot_service.plan_calls == [plan.request]
         assert snapshot_service.execute_calls == [(plan, UserId("user-1"))]
         assert snapshot_service.persist_calls == [(record, UserId("user-1"))]
         assert queue.finished == [(plan.run_fingerprint, True)]

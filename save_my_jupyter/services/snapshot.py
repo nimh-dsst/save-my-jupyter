@@ -45,21 +45,13 @@ class SnapshotService:
     def plan_snapshot(
         self,
         request: SnapshotRequest,
-        user_id: UserId,
         *,
         notebook_metadata: Mapping[str, object] | None = None,
         user_settings: Mapping[str, object] | None = None,
     ) -> ResolvedSnapshotPlan:
         repo = self._git_service.resolve_repo(request.notebook_context.notebook_path)
-        (
-            _repo_config,
-            _notebook_metadata,
-            _user_settings,
-            path_rule,
-            effective_config,
-        ) = self._config_service.resolve_effective_config(
+        resolved_config = self._config_service.resolve_effective_config(
             request=request,
-            user_id=user_id,
             notebook_metadata=notebook_metadata,
             user_settings=user_settings,
         )
@@ -67,8 +59,8 @@ class SnapshotService:
         return ResolvedSnapshotPlan(
             request=request,
             repo=repo,
-            path_rule=path_rule,
-            effective_config=effective_config,
+            path_rule=resolved_config.path_rule,
+            effective_config=resolved_config.effective_config,
             run_fingerprint=self._run_fingerprint_service.compute(request),
         )
 
