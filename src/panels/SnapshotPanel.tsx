@@ -2,11 +2,8 @@ import { ReactWidget } from "@jupyterlab/apputils";
 import React from "react";
 
 import { getSnapshotAvailability } from "../panelBehavior";
-import {
-  createInitialViewState,
-  type SnapshotPanelViewState,
-  type StatusKind
-} from "../panelState";
+import { type SnapshotPanelViewState, type StatusKind } from "../panelState";
+import type { ReadableSignal } from "../signals";
 import type { CommitMode } from "../types";
 
 export interface SnapshotPanelCallbacks {
@@ -26,7 +23,7 @@ export interface SnapshotPanelCallbacks {
 
 export interface SnapshotPanelProps {
   callbacks: SnapshotPanelCallbacks;
-  viewState: SnapshotPanelViewState;
+  viewStateSignal: ReadableSignal<SnapshotPanelViewState>;
 }
 
 interface SetupActionRowProps {
@@ -114,8 +111,13 @@ function SetupActionRow({
 
 function SnapshotPanelBody({
   callbacks,
-  viewState
+  viewStateSignal
 }: SnapshotPanelProps): React.JSX.Element {
+  const viewState = React.useSyncExternalStore(
+    viewStateSignal.subscribe,
+    viewStateSignal.get,
+    viewStateSignal.get
+  );
   const [watchPathInput, setWatchPathInput] = React.useState("");
 
   React.useEffect(() => {
@@ -379,23 +381,21 @@ function SnapshotPanelBody({
 }
 
 export class SnapshotPanel extends ReactWidget {
-  private viewState: SnapshotPanelViewState;
-
-  constructor(private readonly callbacks: SnapshotPanelCallbacks) {
+  constructor(
+    private readonly callbacks: SnapshotPanelCallbacks,
+    private readonly viewStateSignal: ReadableSignal<SnapshotPanelViewState>
+  ) {
     super();
-    this.viewState = createInitialViewState();
     this.addClass("jp-SidePanel");
     this.addClass("smj-SnapshotPanel");
   }
 
-  setViewState(viewState: SnapshotPanelViewState): void {
-    this.viewState = viewState;
-    this.update();
-  }
-
   render(): React.JSX.Element {
     return (
-      <SnapshotPanelBody callbacks={this.callbacks} viewState={this.viewState} />
+      <SnapshotPanelBody
+        callbacks={this.callbacks}
+        viewStateSignal={this.viewStateSignal}
+      />
     );
   }
 }
