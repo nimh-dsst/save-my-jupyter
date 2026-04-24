@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 from .enums import (
     ArtifactKind,
     CommitMode,
@@ -7,17 +11,11 @@ from .enums import (
 from .models import (
     ArtifactRef,
     DiffArtifact,
-    EffectiveConfig,
     FigureArtifact,
     FileArtifact,
-    LabArchivesTarget,
     ManualSnapshotRequest,
     NotebookArtifact,
     NotebookContext,
-    NotebookMetadataConfig,
-    PathRuleConfig,
-    RepoConfig,
-    ResolvedPathRule,
     ResolvedRepoContext,
     ResolvedSnapshotPlan,
     SnapshotAccepted,
@@ -30,7 +28,6 @@ from .models import (
     SnapshotSubmissionResult,
     TriggerCellSnapshotRequest,
     UserMetadata,
-    UserSettingsConfig,
     WatchRegistrationRequest,
 )
 from .types import (
@@ -50,6 +47,27 @@ from .types import (
     SnapshotId,
     UserId,
 )
+
+if TYPE_CHECKING:
+    from save_my_jupyter.config.models import (
+        EffectiveConfig,
+        LabArchivesTarget,
+        NotebookMetadataConfig,
+        PathRuleConfig,
+        RepoConfig,
+        ResolvedPathRule,
+        UserSettingsConfig,
+    )
+
+_CONFIG_EXPORTS = {
+    "EffectiveConfig",
+    "LabArchivesTarget",
+    "NotebookMetadataConfig",
+    "PathRuleConfig",
+    "RepoConfig",
+    "ResolvedPathRule",
+    "UserSettingsConfig",
+}
 
 __all__ = [
     "ArtifactKind",
@@ -99,3 +117,11 @@ __all__ = [
     "UserSettingsConfig",
     "WatchRegistrationRequest",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    if name in _CONFIG_EXPORTS:
+        from save_my_jupyter.config import models as config_models
+
+        return getattr(config_models, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

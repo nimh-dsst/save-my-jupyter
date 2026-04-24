@@ -1,46 +1,29 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
 
+from save_my_jupyter.config.models import (
+    EffectiveConfig,
+    NotebookMetadataConfig,
+    PathRuleConfig,
+    RepoConfig,
+    RepoConfigBootstrapResult,
+    ResolvedConfig,
+    ResolvedPathRule,
+    UserSettingsConfig,
+)
 from save_my_jupyter.config.parsers import (
     merge_effective_config,
     parse_notebook_metadata,
     parse_repo_config_file,
     parse_user_settings,
 )
-from save_my_jupyter.domain import (
-    CommitMode,
-    EffectiveConfig,
-    NotebookMetadataConfig,
-    NotebookPath,
-    PathRuleConfig,
-    RelativeRepoPath,
-    RepoConfig,
-    ResolvedPathRule,
-    SnapshotRequest,
-    UserSettingsConfig,
-)
+from save_my_jupyter.domain.enums import CommitMode
+from save_my_jupyter.domain.models import SnapshotRequest
+from save_my_jupyter.domain.types import NotebookPath, RelativeRepoPath
 from save_my_jupyter.errors import ConfigValidationError
 from save_my_jupyter.parsing import normalize_path
-
-
-@dataclass(frozen=True, slots=True)
-class RepoConfigBootstrapResult:
-    config_path: Path
-    root_directory: Path
-    status: Literal["created", "exists"]
-
-
-@dataclass(frozen=True, slots=True)
-class ResolvedConfig:
-    repo_config: RepoConfig | None
-    notebook_metadata: NotebookMetadataConfig
-    user_settings: UserSettingsConfig
-    path_rule: ResolvedPathRule | None
-    effective_config: EffectiveConfig
 
 
 class ConfigService:

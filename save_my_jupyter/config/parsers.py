@@ -5,9 +5,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Literal, cast
 
-from save_my_jupyter.domain import (
-    CellId,
-    CommitMode,
+from save_my_jupyter.config.models import (
     EffectiveConfig,
     LabArchivesNotebookName,
     LabArchivesRootPath,
@@ -17,9 +15,10 @@ from save_my_jupyter.domain import (
     RelativeRepoPath,
     RelativeWatchPath,
     RepoConfig,
-    TriggerMode,
     UserSettingsConfig,
 )
+from save_my_jupyter.domain.enums import CommitMode, TriggerMode
+from save_my_jupyter.domain.types import CellId
 from save_my_jupyter.errors import ConfigParseError, ConfigValidationError
 from save_my_jupyter.parsing import (
     expect,

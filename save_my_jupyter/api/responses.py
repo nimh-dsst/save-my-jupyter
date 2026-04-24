@@ -6,12 +6,14 @@ from pathlib import Path
 
 from tornado.escape import xhtml_escape
 
-from save_my_jupyter.config.service import RepoConfigBootstrapResult
-from save_my_jupyter.domain import (
+from save_my_jupyter.config.models import (
     EffectiveConfig,
     LabArchivesTarget,
     NotebookMetadataConfig,
+    RepoConfigBootstrapResult,
     ResolvedPathRule,
+)
+from save_my_jupyter.domain import (
     ResolvedRepoContext,
     SnapshotAccepted,
     SnapshotSubmissionResult,

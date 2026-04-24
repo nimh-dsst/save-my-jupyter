@@ -1,3 +1,14 @@
+from .models import (
+    EffectiveConfig,
+    LabArchivesTarget,
+    NotebookMetadataConfig,
+    PathRuleConfig,
+    RepoConfig,
+    RepoConfigBootstrapResult,
+    ResolvedConfig,
+    ResolvedPathRule,
+    UserSettingsConfig,
+)
 from .parsers import (
     merge_effective_config,
     parse_notebook_metadata,
@@ -5,11 +16,19 @@ from .parsers import (
     parse_repo_config_file,
     parse_user_settings,
 )
-from .service import ConfigService, ResolvedConfig
+from .service import ConfigService
 
 __all__ = [
     "ConfigService",
+    "EffectiveConfig",
+    "LabArchivesTarget",
+    "NotebookMetadataConfig",
+    "PathRuleConfig",
+    "RepoConfig",
+    "RepoConfigBootstrapResult",
     "ResolvedConfig",
+    "ResolvedPathRule",
+    "UserSettingsConfig",
     "merge_effective_config",
     "parse_notebook_metadata",
     "parse_repo_config",
