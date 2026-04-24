@@ -1,8 +1,6 @@
 from .enums import (
     ArtifactKind,
     CommitMode,
-    PathEventType,
-    RepoHost,
     SnapshotSource,
     TriggerMode,
 )
@@ -33,8 +31,6 @@ from .models import (
     TriggerCellSnapshotRequest,
     UserMetadata,
     UserSettingsConfig,
-    WatchedPathEvent,
-    WatchedPathSnapshotRequest,
     WatchRegistrationRequest,
 )
 from .types import (
@@ -76,13 +72,11 @@ __all__ = [
     "NotebookContext",
     "NotebookMetadataConfig",
     "NotebookPath",
-    "PathEventType",
     "PathRuleConfig",
     "RelativeRepoPath",
     "RelativeWatchPath",
     "RemoteUrl",
     "RepoConfig",
-    "RepoHost",
     "RepoRootPath",
     "ResolvedPathRule",
     "ResolvedRepoContext",
@@ -104,6 +98,4 @@ __all__ = [
     "UserMetadata",
     "UserSettingsConfig",
     "WatchRegistrationRequest",
-    "WatchedPathEvent",
-    "WatchedPathSnapshotRequest",
 ]

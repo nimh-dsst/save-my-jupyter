@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -9,8 +8,6 @@ from typing import Literal
 from .enums import (
     ArtifactKind,
     CommitMode,
-    PathEventType,
-    RepoHost,
     SnapshotSource,
     TriggerMode,
 )
@@ -29,8 +26,17 @@ from .types import (
     RepoRootPath,
     RunFingerprint,
     SnapshotId,
+    StringMap,
     UserId,
 )
+
+type RelativeRepoPaths = tuple[RelativeRepoPath, ...]
+type RelativeWatchPaths = tuple[RelativeWatchPath, ...]
+type ArtifactRelativePath = RelativeRepoPath | RelativeWatchPath | None
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -39,14 +45,7 @@ class UserMetadata:
     notes: str | None = None
     run_label: str | None = None
     experiment_context: str | None = None
-    extra_fields: Mapping[str, str] = field(default_factory=dict)
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class WatchedPathEvent:
-    relative_path: RelativeWatchPath
-    event_type: PathEventType
-    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+    extra_fields: StringMap = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -64,7 +63,6 @@ class ResolvedRepoContext:
     repo_root: RepoRootPath | None
     relative_notebook_path: RelativeRepoPath | None
     remote_url: RemoteUrl | None
-    repo_host: RepoHost
     head_commit: CommitHash | None
     is_dirty: bool
 
@@ -76,25 +74,23 @@ class LabArchivesTarget:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class PathRuleConfig:
-    name: str
-    match_paths: tuple[RelativeRepoPath, ...]
-    watch_paths: tuple[RelativeWatchPath, ...] = ()
-    include_paths: tuple[RelativeWatchPath, ...] = ()
-    exclude_paths: tuple[RelativeWatchPath, ...] = ()
+class _PathRuleBase:
+    match_paths: RelativeRepoPaths
+    watch_paths: RelativeWatchPaths = ()
+    include_paths: RelativeWatchPaths = ()
+    exclude_paths: RelativeWatchPaths = ()
     target: LabArchivesTarget | None = None
-    metadata_template: Mapping[str, str] = field(default_factory=dict)
+    metadata_template: StringMap = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ResolvedPathRule:
+class PathRuleConfig(_PathRuleBase):
+    name: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ResolvedPathRule(_PathRuleBase):
     rule_name: str
-    match_paths: tuple[RelativeRepoPath, ...]
-    watch_paths: tuple[RelativeWatchPath, ...]
-    include_paths: tuple[RelativeWatchPath, ...]
-    exclude_paths: tuple[RelativeWatchPath, ...]
-    target: LabArchivesTarget | None
-    metadata_template: Mapping[str, str]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -102,10 +98,10 @@ class NotebookMetadataConfig:
     enabled: bool = True
     trigger_mode: TriggerMode = TriggerMode.MARKED_CELLS
     trigger_cell_ids: frozenset[CellId] = frozenset()
-    watched_paths: tuple[RelativeWatchPath, ...] = ()
+    watched_paths: RelativeWatchPaths = ()
     labarchives_target_notebook: LabArchivesNotebookName | None = None
     labarchives_target_root_path: LabArchivesRootPath | None = None
-    default_metadata: Mapping[str, str] = field(default_factory=dict)
+    default_metadata: StringMap = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -123,7 +119,7 @@ class RepoConfig:
     repo_root_strategy: Literal["git", "fixed"]
     default_all_cells_trigger: bool = False
     default_commit_mode: CommitMode = CommitMode.PROMPT
-    default_watch_paths: tuple[RelativeWatchPath, ...] = ()
+    default_watch_paths: RelativeWatchPaths = ()
     include_notebook_file: bool = True
     include_diff_when_dirty: bool = True
     default_target: LabArchivesTarget | None = None
@@ -137,96 +133,84 @@ class RepoConfig:
 class EffectiveConfig:
     all_cells_trigger: bool
     commit_mode: CommitMode
-    watched_paths: tuple[RelativeWatchPath, ...]
+    watched_paths: RelativeWatchPaths
     include_notebook_file: bool
     include_diff_when_dirty: bool
     target: LabArchivesTarget
-    metadata_template: Mapping[str, str]
+    metadata_template: StringMap
     stage_notebook_on_commit: bool
     stage_watched_paths_on_commit: bool
     commit_message_template: str
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ManualSnapshotRequest:
+class _NotebookRequestBase:
     notebook_context: NotebookContext
     commit_mode: CommitMode
     user_metadata: UserMetadata
-    client_timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _SnapshotRequestBase(_NotebookRequestBase):
+    client_timestamp: datetime = field(default_factory=_utc_now)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ManualSnapshotRequest(_SnapshotRequestBase):
     source: Literal[SnapshotSource.MANUAL] = SnapshotSource.MANUAL
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class TriggerCellSnapshotRequest:
-    notebook_context: NotebookContext
-    commit_mode: CommitMode
-    user_metadata: UserMetadata
-    client_timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+class TriggerCellSnapshotRequest(_SnapshotRequestBase):
     source: Literal[SnapshotSource.TRIGGER_CELL] = SnapshotSource.TRIGGER_CELL
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class WatchedPathSnapshotRequest:
-    notebook_context: NotebookContext
-    commit_mode: CommitMode
-    user_metadata: UserMetadata
-    watched_path_event: WatchedPathEvent
-    client_timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
-    source: Literal[SnapshotSource.WATCHED_PATH] = SnapshotSource.WATCHED_PATH
-
-
-type SnapshotRequest = (
-    ManualSnapshotRequest | TriggerCellSnapshotRequest | WatchedPathSnapshotRequest
-)
+type SnapshotRequest = ManualSnapshotRequest | TriggerCellSnapshotRequest
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class WatchRegistrationRequest:
-    notebook_context: NotebookContext
-    commit_mode: CommitMode
-    user_metadata: UserMetadata
-    watch_paths: tuple[RelativeWatchPath, ...]
+class WatchRegistrationRequest(_NotebookRequestBase):
+    watch_paths: RelativeWatchPaths
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class NotebookArtifact:
+class _ArtifactBase:
     display_name: str
     mime_type: MimeType
-    local_path: Path | None
-    relative_path: RelativeRepoPath | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _StoredArtifact(_ArtifactBase):
+    local_path: Path | None = None
+    relative_path: ArtifactRelativePath = None
     bytes_payload: bytes | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class NotebookArtifact(_StoredArtifact):
+    relative_path: RelativeRepoPath | None = None
     kind: Literal[ArtifactKind.NOTEBOOK] = ArtifactKind.NOTEBOOK
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class FigureArtifact:
-    display_name: str
-    mime_type: MimeType
+class FigureArtifact(_StoredArtifact):
     figure_index: int
     bytes_payload: bytes
-    local_path: Path | None = None
     relative_path: RelativeRepoPath | None = None
     kind: Literal[ArtifactKind.FIGURE] = ArtifactKind.FIGURE
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class FileArtifact:
-    display_name: str
-    mime_type: MimeType
+class FileArtifact(_StoredArtifact):
     local_path: Path
-    relative_path: RelativeRepoPath | RelativeWatchPath | None = None
-    bytes_payload: bytes | None = None
+    relative_path: ArtifactRelativePath = None
     kind: Literal[ArtifactKind.FILE] = ArtifactKind.FILE
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class DiffArtifact:
-    display_name: str
-    mime_type: MimeType
+class DiffArtifact(_StoredArtifact):
     diff_text: str
-    local_path: Path | None = None
     relative_path: RelativeRepoPath | None = None
-    bytes_payload: bytes | None = None
     kind: Literal[ArtifactKind.DIFF] = ArtifactKind.DIFF
 
 

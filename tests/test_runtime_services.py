@@ -30,7 +30,6 @@ from save_my_jupyter.domain import (
     NotebookPath,
     RelativeRepoPath,
     RelativeWatchPath,
-    RepoHost,
     RepoRootPath,
     ResolvedRepoContext,
     ResolvedSnapshotPlan,
@@ -44,14 +43,14 @@ from save_my_jupyter.domain import (
 from save_my_jupyter.errors import LabArchivesWriteError
 from save_my_jupyter.git.service import DefaultGitService
 from save_my_jupyter.services.auth import AuthServiceImpl, LabArchivesSession
-from save_my_jupyter.watchers.service import DefaultWatchService
 
 if TYPE_CHECKING:
     from _pytest.monkeypatch import MonkeyPatch
 
 
 class FakeLabApiClient:
-    def __init__(self) -> None:
+    def __init__(self, *, base_url: str | None = None) -> None:
+        self._base_url = base_url
         self.closed = False
 
     def close(self) -> None:
@@ -103,7 +102,11 @@ class FakeLabApiUser:
 class FailingLabApiModule:
     AuthenticationError = FakeLabApiAuthError
 
-    def Client(self) -> FakeLabApiClient:  # noqa: N802
+    def Client(  # noqa: N802
+        self,
+        base_url: str | None = None,
+    ) -> FakeLabApiClient:
+        del base_url
         raise self.AuthenticationError(
             "ACCESS_KEYID or ACCESS_PWD environment variables not set.",
         )
@@ -121,8 +124,11 @@ class TlsFailingLabApiClient(FakeLabApiClient):
 class TlsFailingLabApiModule:
     AuthenticationError = FakeLabApiAuthError
 
-    def Client(self) -> FakeLabApiClient:  # noqa: N802
-        return TlsFailingLabApiClient()
+    def Client(  # noqa: N802
+        self,
+        base_url: str | None = None,
+    ) -> FakeLabApiClient:
+        return TlsFailingLabApiClient(base_url=base_url)
 
 
 class LoginFailingLabApiClient(FakeLabApiClient):
@@ -134,8 +140,11 @@ class LoginFailingLabApiClient(FakeLabApiClient):
 class LoginFailingLabApiModule:
     AuthenticationError = FakeLabApiAuthError
 
-    def Client(self) -> FakeLabApiClient:  # noqa: N802
-        return LoginFailingLabApiClient()
+    def Client(  # noqa: N802
+        self,
+        base_url: str | None = None,
+    ) -> FakeLabApiClient:
+        return LoginFailingLabApiClient(base_url=base_url)
 
 
 class FakeAttachment:
@@ -170,8 +179,11 @@ class FakeLabApiModule:
 
     Attachment = FakeAttachment
 
-    def Client(self) -> FakeLabApiClient:  # noqa: N802
-        return FakeLabApiClient()
+    def Client(  # noqa: N802
+        self,
+        base_url: str | None = None,
+    ) -> FakeLabApiClient:
+        return FakeLabApiClient(base_url=base_url)
 
 
 class FakeKeyringBackend:
@@ -276,7 +288,6 @@ def _manual_plan(
             if repo_root is not None
             else None,
             remote_url=None,
-            repo_host=RepoHost.UNKNOWN,
             head_commit=None,
             is_dirty=True,
         ),
@@ -294,8 +305,8 @@ def test_auth_service_can_start_and_complete_auth(
 ) -> None:
     keyring_backend = FakeKeyringBackend()
     monkeypatch.setattr(
-        "save_my_jupyter.services.auth.load_labapi",
-        lambda: FakeLabApiModule(),
+        "save_my_jupyter.services.auth.labapi",
+        FakeLabApiModule(),
     )
     service = AuthServiceImpl(keyring_backend=keyring_backend)
 
@@ -351,8 +362,8 @@ def test_auth_service_reports_missing_server_credentials(
     monkeypatch: MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "save_my_jupyter.services.auth.load_labapi",
-        lambda: FailingLabApiModule(),
+        "save_my_jupyter.services.auth.labapi",
+        FailingLabApiModule(),
     )
     service = AuthServiceImpl()
 
@@ -370,8 +381,8 @@ def test_auth_service_reports_invalid_tls_bundle_during_login(
     monkeypatch: MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "save_my_jupyter.services.auth.load_labapi",
-        lambda: TlsFailingLabApiModule(),
+        "save_my_jupyter.services.auth.labapi",
+        TlsFailingLabApiModule(),
     )
     service = AuthServiceImpl()
 
@@ -395,8 +406,8 @@ def test_auth_service_wraps_unexpected_login_failures(
     monkeypatch: MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "save_my_jupyter.services.auth.load_labapi",
-        lambda: LoginFailingLabApiModule(),
+        "save_my_jupyter.services.auth.labapi",
+        LoginFailingLabApiModule(),
     )
     service = AuthServiceImpl()
 
@@ -415,59 +426,13 @@ def test_auth_service_wraps_unexpected_login_failures(
     assert exc_info.value.code == "labarchives_authentication_failed"
 
 
-def test_watch_service_polls_files_and_emits_requests() -> None:
-    root = _make_workspace_temp_dir()
-    service = DefaultWatchService(poll_interval_seconds=60.0)
-    try:
-        notebook_path = root / "analysis.ipynb"
-        notebook_path.write_text("{}", encoding="utf-8")
-        watch_root = root / "outputs"
-        watch_root.mkdir()
-
-        service.register_notebook_watch(
-            commit_mode=CommitMode.NEVER,
-            notebook_context=NotebookContext(
-                notebook_path=NotebookPath(str(notebook_path)),
-                notebook_name="analysis.ipynb",
-            ),
-            root=root,
-            user_id=UserId("user-1"),
-            user_metadata=UserMetadata(),
-            watch_paths=(RelativeWatchPath("outputs"),),
-        )
-        service.stop()
-
-        watched_file = watch_root / "result.txt"
-        watched_file.write_text("first", encoding="utf-8")
-        created_requests = service.poll_once()
-        assert len(created_requests) == 1
-        assert (
-            str(created_requests[0].watched_path_event.relative_path)
-            == "outputs/result.txt"
-        )
-        assert created_requests[0].watched_path_event.event_type.value == "created"
-
-        watched_file.write_text("second", encoding="utf-8")
-        modified_requests = service.poll_once()
-        assert len(modified_requests) == 1
-        assert modified_requests[0].watched_path_event.event_type.value == "modified"
-
-        watched_file.unlink()
-        deleted_requests = service.poll_once()
-        assert len(deleted_requests) == 1
-        assert deleted_requests[0].watched_path_event.event_type.value == "deleted"
-    finally:
-        service.stop()
-        shutil.rmtree(root, ignore_errors=True)
-
-
 def test_labarchives_adapter_writes_snapshot_page(
     monkeypatch: MonkeyPatch,
 ) -> None:
     labapi = FakeLabApiModule()
     monkeypatch.setattr(
-        "save_my_jupyter.adapters.labarchives.load_labapi",
-        lambda: labapi,
+        "save_my_jupyter.adapters.labarchives.labapi",
+        labapi,
     )
 
     notebook = FakeDirectory()
@@ -495,7 +460,6 @@ def test_labarchives_adapter_writes_snapshot_page(
                 repo_root=RepoRootPath("C:/repo"),
                 relative_notebook_path=RelativeRepoPath("analysis/notebook.ipynb"),
                 remote_url=None,
-                repo_host=RepoHost.UNKNOWN,
                 head_commit=CommitHash("abc1234"),
                 is_dirty=True,
             ),
@@ -628,7 +592,6 @@ def test_render_root_path_template_supports_snapshot_variables() -> None:
             repo_root=RepoRootPath("C:/repo"),
             relative_notebook_path=RelativeRepoPath("analysis/notebook.ipynb"),
             remote_url=None,
-            repo_host=RepoHost.UNKNOWN,
             head_commit=None,
             is_dirty=True,
         ),
@@ -700,6 +663,42 @@ def test_git_service_stages_only_snapshot_targets() -> None:
         assert diff_text is not None
         assert "analysis.ipynb" in diff_text
         assert "README.txt" not in diff_text
+    finally:
+        shutil.rmtree(repo_root, ignore_errors=True)
+
+
+def test_git_service_resolves_repo_state() -> None:
+    repo_root = _make_workspace_temp_dir()
+    try:
+        notebook_dir = repo_root / "analysis"
+        notebook_dir.mkdir()
+        notebook_path = notebook_dir / "notebook.ipynb"
+        notebook_path.write_text("{}", encoding="utf-8")
+
+        _run(["git", "init"], repo_root)
+        _run(["git", "config", "user.email", "user@example.com"], repo_root)
+        _run(["git", "config", "user.name", "Save My Jupyter"], repo_root)
+        _run(
+            ["git", "config", "remote.origin.url", "git@github.com:example/repo.git"],
+            repo_root,
+        )
+        _run(["git", "add", "."], repo_root)
+        _run(["git", "commit", "-m", "initial"], repo_root)
+
+        notebook_path.write_text('{"cells":[]}', encoding="utf-8")
+
+        repo = DefaultGitService().resolve_repo(str(notebook_path))
+
+        assert repo.repo_root == RepoRootPath(str(repo_root))
+        assert repo.relative_notebook_path == RelativeRepoPath(
+            "analysis/notebook.ipynb"
+        )
+        assert repo.remote_url == "git@github.com:example/repo.git"
+        assert repo.head_commit == _run(
+            ["git", "rev-parse", "HEAD"],
+            repo_root,
+        ).stdout.strip()
+        assert repo.is_dirty is True
     finally:
         shutil.rmtree(repo_root, ignore_errors=True)
 

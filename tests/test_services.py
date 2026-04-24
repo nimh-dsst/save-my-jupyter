@@ -18,16 +18,12 @@ from save_my_jupyter.domain import (
     ManualSnapshotRequest,
     NotebookContext,
     NotebookPath,
-    PathEventType,
     RelativeWatchPath,
-    RepoHost,
     ResolvedRepoContext,
     ResolvedSnapshotPlan,
     RunFingerprint,
     TriggerCellSnapshotRequest,
     UserMetadata,
-    WatchedPathEvent,
-    WatchedPathSnapshotRequest,
 )
 from save_my_jupyter.git.parsers import parse_commit_hash, parse_git_remote
 from save_my_jupyter.services.artifacts import DocumentArtifactCollector
@@ -38,7 +34,7 @@ from save_my_jupyter.services.run_fingerprint import RunFingerprintService
 def _artifact_plan(
     notebook_path: Path,
     *,
-    request: ManualSnapshotRequest | WatchedPathSnapshotRequest | None = None,
+    request: ManualSnapshotRequest | None = None,
     watched_paths: tuple[RelativeWatchPath, ...] = (),
 ) -> ResolvedSnapshotPlan:
     resolved_request = request
@@ -58,7 +54,6 @@ def _artifact_plan(
             repo_root=None,
             relative_notebook_path=None,
             remote_url=None,
-            repo_host=RepoHost.UNKNOWN,
             head_commit=None,
             is_dirty=False,
         ),
@@ -83,8 +78,7 @@ def _artifact_plan(
 
 
 def test_parse_git_helpers() -> None:
-    host, remote = parse_git_remote("git@github.com:example/repo.git")
-    assert host is RepoHost.GITHUB
+    remote = parse_git_remote("git@github.com:example/repo.git")
     assert str(remote) == "git@github.com:example/repo.git"
     assert parse_commit_hash("abc1234") == "abc1234"
     assert parse_commit_hash("not-a-hash") is None
@@ -122,7 +116,6 @@ def test_snapshot_coordinator_dedupes_same_run() -> None:
             repo_root=None,
             relative_notebook_path=None,
             remote_url=None,
-            repo_host=RepoHost.UNKNOWN,
             head_commit=None,
             is_dirty=False,
         ),
@@ -190,7 +183,6 @@ def test_snapshot_queue_can_clear_running_job_without_recording_run() -> None:
             repo_root=None,
             relative_notebook_path=None,
             remote_url=None,
-            repo_host=RepoHost.UNKNOWN,
             head_commit=None,
             is_dirty=False,
         ),
@@ -318,47 +310,6 @@ def test_document_artifact_collector_collects_watched_files() -> None:
         assert [str(artifact.mime_type) for artifact in file_artifacts] == [
             "image/png",
             "text/csv",
-        ]
-    finally:
-        shutil.rmtree(test_root, ignore_errors=True)
-
-
-def test_document_artifact_collector_collects_watched_request_file() -> None:
-    test_root = Path.cwd() / ".test_artifact_watch_event_repo"
-    shutil.rmtree(test_root, ignore_errors=True)
-    test_root.mkdir(parents=True, exist_ok=True)
-    try:
-        notebook_path = test_root / "example.ipynb"
-        notebook_path.write_text('{"cells":[]}', encoding="utf-8")
-        outputs_root = test_root / "outputs"
-        outputs_root.mkdir()
-        file_path = outputs_root / "result.txt"
-        file_path.write_text("payload", encoding="utf-8")
-
-        request = WatchedPathSnapshotRequest(
-            notebook_context=NotebookContext(
-                notebook_path=NotebookPath(str(notebook_path)),
-                notebook_name="example.ipynb",
-            ),
-            commit_mode=CommitMode.NEVER,
-            user_metadata=UserMetadata(),
-            watched_path_event=WatchedPathEvent(
-                relative_path=RelativeWatchPath("outputs/result.txt"),
-                event_type=PathEventType.MODIFIED,
-            ),
-        )
-        plan = _artifact_plan(
-            notebook_path,
-            request=request,
-            watched_paths=(RelativeWatchPath("outputs"),),
-        )
-
-        collector = DocumentArtifactCollector()
-        file_artifacts = collector.collect_file_artifacts(plan)
-
-        assert [artifact.display_name for artifact in file_artifacts] == ["result.txt"]
-        assert [str(artifact.relative_path) for artifact in file_artifacts] == [
-            "outputs/result.txt"
         ]
     finally:
         shutil.rmtree(test_root, ignore_errors=True)

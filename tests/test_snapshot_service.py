@@ -13,16 +13,13 @@ from save_my_jupyter.domain import (
     ArtifactKind,
     CellId,
     CommitMode,
+    ManualSnapshotRequest,
     NotebookContext,
     NotebookPath,
-    PathEventType,
-    RelativeWatchPath,
     SnapshotSource,
     TriggerCellSnapshotRequest,
     UserId,
     UserMetadata,
-    WatchedPathEvent,
-    WatchedPathSnapshotRequest,
 )
 from save_my_jupyter.git.service import DefaultGitService
 from save_my_jupyter.services.artifacts import DocumentArtifactCollector
@@ -250,17 +247,13 @@ def test_execute_snapshot_handles_deleted_watch_file_and_truncates_summary() -> 
         )
 
         service = _make_snapshot_service()
-        request = WatchedPathSnapshotRequest(
+        request = ManualSnapshotRequest(
             notebook_context=NotebookContext(
                 notebook_path=NotebookPath(str(notebook_path)),
                 notebook_name="analysis.ipynb",
             ),
             commit_mode=CommitMode.NEVER,
             user_metadata=UserMetadata(),
-            watched_path_event=WatchedPathEvent(
-                relative_path=RelativeWatchPath("outputs/deleted.txt"),
-                event_type=PathEventType.DELETED,
-            ),
         )
 
         plan = service.plan_snapshot(

@@ -10,8 +10,10 @@ readme = "README.md"
 requires-python = ">=3.12"
 authors = [{ name = "Save My Jupyter Contributors" }]
 dependencies = [
+  "dulwich>=1.1.0,<2",
   "jupyter-server>=2.15,<3",
   "jupyterlab>=4.5,<5",
+  "labapi>=1.0.3",
   "keyring>=25,<26",
   "traitlets>=5.14,<6",
 ]

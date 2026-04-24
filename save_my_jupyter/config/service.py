@@ -25,7 +25,7 @@ from save_my_jupyter.domain import (
     UserSettingsConfig,
 )
 from save_my_jupyter.errors import ConfigValidationError
-from save_my_jupyter.parsing import normalize_relative_path_text
+from save_my_jupyter.parsing import normalize_path
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,7 +108,7 @@ class ConfigService:
             if notebook.parent != config_root
             else Path()
         )
-        match_path = normalize_relative_path_text(
+        match_path = normalize_path(
             str(relative_parent).replace("\\", "/")
         )
         project_name = config_root.name or "save-my-jupyter"
@@ -283,7 +283,7 @@ class ConfigService:
             return None
         notebook = Path(notebook_path).resolve()
         return RelativeRepoPath(
-            normalize_relative_path_text(
+            normalize_path(
                 str(notebook.relative_to(repo_root)).replace("\\", "/")
             )
         )

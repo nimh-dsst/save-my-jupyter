@@ -6,14 +6,47 @@ import os
 from contextlib import suppress
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
-from typing import Any, Protocol, cast
+from typing import Any, NoReturn, Protocol, cast
 from uuid import uuid4
 
-from save_my_jupyter.errors import LabArchivesWriteError
-from save_my_jupyter.labarchives import load_labapi
+import labapi
 
+from save_my_jupyter.errors import LabArchivesWriteError
+
+_API_URL_ENV_VAR = "API_URL"
+_CURL_CA_BUNDLE_ENV_VAR = "CURL_CA_BUNDLE"
 _DEFAULT_API_URL = "https://api.labarchives.com"
 _KEYRING_SERVICE_PREFIX = "save-my-jupyter.labarchives.profile"
+_REQUESTS_CA_BUNDLE_ENV_VAR = "REQUESTS_CA_BUNDLE"
+_SSL_CERT_FILE_ENV_VAR = "SSL_CERT_FILE"
+_PROMPT_MESSAGE = "Open the LabArchives authentication page to continue."
+_START_FAILURE_CODE = "labarchives_auth_start_failed"
+_START_FAILURE_MESSAGE = "Unable to start the LabArchives authentication flow."
+_COMPLETE_FAILURE_CODE = "labarchives_authentication_failed"
+_COMPLETE_FAILURE_MESSAGE = "LabArchives authentication could not be completed."
+_MISSING_CREDENTIALS_CODE = "missing_labarchives_credentials"
+_MISSING_CREDENTIALS_MESSAGE = (
+    "LabArchives credentials are not configured for the Jupyter server. "
+    "Set ACCESS_KEYID and ACCESS_PWD in the server environment before connecting."
+)
+_INVALID_TLS_CA_BUNDLE_CODE = "invalid_tls_ca_bundle"
+_INVALID_TLS_CA_BUNDLE_MESSAGE = (
+    "The Jupyter server TLS CA bundle is not configured correctly for "
+    "LabArchives. Check REQUESTS_CA_BUNDLE, CURL_CA_BUNDLE, SSL_CERT_FILE, "
+    "or the Python certifi installation in the server environment."
+)
+_TLS_VERIFICATION_FAILED_CODE = "labarchives_tls_verification_failed"
+_TLS_VERIFICATION_FAILED_MESSAGE = (
+    "TLS verification failed while connecting to LabArchives. Check "
+    "the server CA trust configuration or the LabArchives certificate chain."
+)
+_CREDENTIAL_ERROR_MARKERS = ("access_keyid", "access_pwd")
+_TLS_CA_BUNDLE_ERROR_MARKERS = (
+    "tls ca certificate bundle",
+    "tls cacert bundle",
+    "ca cert bundle",
+    "cacert.pem",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,28 +67,130 @@ class AuthStatusResult:
 
 
 @dataclass(frozen=True, slots=True)
-class StoredLabArchivesNotebook:
+class StoredNotebook:
     notebook_id: str
     notebook_name: str
     is_default: bool
 
 
 @dataclass(frozen=True, slots=True)
-class StoredLabArchivesProfile:
+class StoredProfile:
     api_url: str
     labarchives_user_id: str
-    notebooks: tuple[StoredLabArchivesNotebook, ...]
+    notebooks: tuple[StoredNotebook, ...]
     saved_at: str
     user_email: str
     user_id: str
+
+    @property
+    def notebook_names(self) -> tuple[str, ...]:
+        return tuple(notebook.notebook_name for notebook in self.notebooks)
+
+    @classmethod
+    def from_user(
+        cls,
+        *,
+        user_id: str,
+        api_url: str,
+        client: Any,
+        user: Any,
+    ) -> StoredProfile:
+        client_api_url = getattr(client, "_base_url", None)
+        if not isinstance(client_api_url, str) or not client_api_url.strip():
+            client_api_url = api_url
+
+        notebooks = cast(
+            _NotebookCollectionLike | None,
+            getattr(user, "notebooks", None),
+        )
+        stored_notebooks: tuple[StoredNotebook, ...] = ()
+        if notebooks is not None:
+            parsed_notebooks: list[StoredNotebook] = []
+            for notebook in notebooks.all_values():
+                notebook_id = notebook.id.strip()
+                notebook_name = notebook.name.strip()
+                if notebook_id == "" or notebook_name == "":
+                    continue
+                parsed_notebooks.append(
+                    StoredNotebook(
+                        notebook_id=notebook_id,
+                        notebook_name=notebook_name,
+                        is_default=notebook.is_default,
+                    )
+                )
+            stored_notebooks = tuple(parsed_notebooks)
+
+        return cls(
+            api_url=client_api_url,
+            labarchives_user_id=str(getattr(user, "id", "")),
+            notebooks=stored_notebooks,
+            saved_at=datetime.now(UTC).isoformat(),
+            user_email=str(getattr(user, "email", "")),
+            user_id=user_id,
+        )
+
+    def to_keyring_value(self) -> str:
+        return json.dumps(asdict(self), sort_keys=True)
+
+    @classmethod
+    def from_keyring_value(cls, raw_value: str) -> StoredProfile | None:
+        try:
+            payload = json.loads(raw_value)
+        except json.JSONDecodeError:
+            return None
+
+        if not isinstance(payload, dict):
+            return None
+
+        api_url = payload.get("api_url")
+        labarchives_user_id = payload.get("labarchives_user_id")
+        notebooks = payload.get("notebooks")
+        saved_at = payload.get("saved_at")
+        user_email = payload.get("user_email")
+        user_id = payload.get("user_id")
+
+        if not all(
+            isinstance(value, str)
+            for value in (api_url, labarchives_user_id, saved_at, user_email, user_id)
+        ):
+            return None
+
+        if not isinstance(notebooks, list):
+            return None
+
+        parsed_notebooks: list[StoredNotebook] = []
+        for notebook in notebooks:
+            if not isinstance(notebook, dict):
+                return None
+            notebook_id = notebook.get("notebook_id")
+            notebook_name = notebook.get("notebook_name")
+            is_default = notebook.get("is_default")
+            if not isinstance(notebook_id, str) or not isinstance(notebook_name, str):
+                return None
+            if not isinstance(is_default, bool):
+                return None
+            parsed_notebooks.append(
+                StoredNotebook(
+                    notebook_id=notebook_id,
+                    notebook_name=notebook_name,
+                    is_default=is_default,
+                )
+            )
+
+        return cls(
+            api_url=api_url,
+            labarchives_user_id=labarchives_user_id,
+            notebooks=tuple(parsed_notebooks),
+            saved_at=saved_at,
+            user_email=user_email,
+            user_id=user_id,
+        )
 
 
 class KeyringBackend(Protocol):
     def get_password(self, service_name: str, username: str) -> str | None: ...
 
     def set_password(self, service_name: str, username: str, password: str) -> None: ...
-
-    def delete_password(self, service_name: str, username: str) -> None: ...
 
 
 class _NotebookLike(Protocol):
@@ -76,51 +211,57 @@ class LabArchivesSession:
 
 
 @dataclass(slots=True)
-class PendingAuthRequest:
+class PendingAuth:
     callback_url: str
     client: Any
-    created_at: datetime
     request_id: str
     user_id: str
 
 
-class _KeyringProfileStore:
-    def __init__(self, backend: KeyringBackend | None = None) -> None:
-        self._backend = backend if backend is not None else _load_keyring_backend()
+class _ProfileStore:
+    def __init__(self, *, api_url: str, backend: KeyringBackend | None = None) -> None:
+        self._keyring_backend = backend
+        self._service_name = f"{_KEYRING_SERVICE_PREFIX}:{api_url}"
+        if self._keyring_backend is not None:
+            return
 
-    def load(self, *, api_url: str, user_id: str) -> StoredLabArchivesProfile | None:
-        backend = self._backend
-        if backend is None:
+        try:
+            self._keyring_backend = cast(
+                KeyringBackend,
+                importlib.import_module("keyring"),
+            )
+        except ImportError:
+            self._keyring_backend = None
+
+    def load(self, *, user_id: str) -> StoredProfile | None:
+        keyring_backend = self._keyring_backend
+        if keyring_backend is None:
             return None
 
         try:
-            raw_value = backend.get_password(
-                _keyring_service_name(api_url),
-                user_id,
-            )
+            raw_value = keyring_backend.get_password(self._service_name, user_id)
         except Exception:
             return None
 
         if raw_value is None:
             return None
-        return _parse_stored_profile(raw_value)
+        return StoredProfile.from_keyring_value(raw_value)
 
     def save(
         self,
         *,
-        api_url: str,
         user_id: str,
-        profile: StoredLabArchivesProfile,
+        profile: StoredProfile,
     ) -> None:
-        backend = self._backend
-        if backend is None:
+        keyring_backend = self._keyring_backend
+        if keyring_backend is None:
             return
 
         try:
-            backend.set_password(
-                _keyring_service_name(api_url),
+            keyring_backend.set_password(
+                self._service_name,
                 user_id,
-                json.dumps(asdict(profile), sort_keys=True),
+                profile.to_keyring_value(),
             )
         except Exception:
             return
@@ -128,39 +269,46 @@ class _KeyringProfileStore:
 
 class AuthServiceImpl:
     def __init__(self, *, keyring_backend: KeyringBackend | None = None) -> None:
-        self._pending_requests: dict[str, PendingAuthRequest] = {}
+        self._api_url = os.getenv(_API_URL_ENV_VAR, _DEFAULT_API_URL).strip()
+        if self._api_url == "":
+            self._api_url = _DEFAULT_API_URL
+
+        self._pending_requests: dict[str, PendingAuth] = {}
         self._sessions: dict[str, LabArchivesSession] = {}
-        self._profile_store = _KeyringProfileStore(keyring_backend)
+        self._profile_store = _ProfileStore(
+            api_url=self._api_url,
+            backend=keyring_backend,
+        )
 
     def start_auth(self, user_id: str, callback_base_url: str) -> AuthStartResult:
         request_id = uuid4().hex
         callback_url = f"{callback_base_url.rstrip('/')}/{request_id}"
-        labapi = load_labapi()
         stored_profile = self.get_stored_profile(user_id)
         client: Any | None = None
         try:
-            client = labapi.Client()
+            client = labapi.Client(base_url=self._api_url)
             auth_url = client.generate_auth_url(callback_url)
         except Exception as exc:
             if client is not None:
                 with suppress(Exception):
                     client.close()
-            raise _translate_auth_exception(
+            _raise_auth_error(
                 exc,
-                phase="start_auth",
+                api_url=self._api_url,
+                fallback_code=_START_FAILURE_CODE,
+                fallback_message=_START_FAILURE_MESSAGE,
                 callback_url=callback_url,
-            ) from exc
+            )
 
-        message = "Open the LabArchives authentication page to continue."
+        message = _PROMPT_MESSAGE
         if stored_profile is not None:
             message = (
-                "Open the LabArchives authentication page to continue. "
-                f"Previously connected as {stored_profile.user_email}."
+                f"{_PROMPT_MESSAGE} Previously connected as "
+                f"{stored_profile.user_email}."
             )
-        self._pending_requests[request_id] = PendingAuthRequest(
+        self._pending_requests[request_id] = PendingAuth(
             callback_url=callback_url,
             client=client,
-            created_at=datetime.now(UTC),
             request_id=request_id,
             user_id=user_id,
         )
@@ -188,8 +336,8 @@ class AuthServiceImpl:
         email: str,
         auth_code: str,
     ) -> LabArchivesSession:
-        pending_request = self._pending_requests.pop(request_id, None)
-        if pending_request is None:
+        pending_auth = self._pending_requests.pop(request_id, None)
+        if pending_auth is None:
             raise LabArchivesWriteError(
                 "Authentication request was not found or has expired.",
                 code="missing_auth_request",
@@ -197,71 +345,77 @@ class AuthServiceImpl:
             )
 
         try:
-            user = pending_request.client.login(email, auth_code)
+            user = pending_auth.client.login(email, auth_code)
         except Exception as exc:
             with suppress(Exception):
-                pending_request.client.close()
-            raise _translate_auth_exception(
+                pending_auth.client.close()
+            _raise_auth_error(
                 exc,
-                phase="complete_auth",
-                callback_url=pending_request.callback_url,
+                api_url=self._api_url,
+                fallback_code=_COMPLETE_FAILURE_CODE,
+                fallback_message=_COMPLETE_FAILURE_MESSAGE,
+                callback_url=pending_auth.callback_url,
                 request_id=request_id,
                 user_email=email,
-            ) from exc
-        existing_session = self._sessions.get(pending_request.user_id)
+            )
+        existing_session = self._sessions.get(pending_auth.user_id)
         if existing_session is not None:
             existing_session.client.close()
 
         session = LabArchivesSession(
             user_email=user.email,
             user=user,
-            client=pending_request.client,
+            client=pending_auth.client,
         )
-        self._sessions[pending_request.user_id] = session
-        self._persist_profile(pending_request.user_id, pending_request.client, user)
+        self._sessions[pending_auth.user_id] = session
+        self._persist_profile(pending_auth.user_id, pending_auth.client, user)
         return session
 
     def fail_pending_auth(self, request_id: str) -> None:
-        pending_request = self._pending_requests.pop(request_id, None)
-        if pending_request is None:
+        pending_auth = self._pending_requests.pop(request_id, None)
+        if pending_auth is None:
             return
-        pending_request.client.close()
+        pending_auth.client.close()
 
     def get_auth_status(self, user_id: str) -> AuthStatusResult:
         stored_profile = self.get_stored_profile(user_id)
+        stored_user_email = (
+            stored_profile.user_email if stored_profile is not None else None
+        )
+        stored_notebook_names = (
+            stored_profile.notebook_names if stored_profile is not None else ()
+        )
 
         session = self._sessions.get(user_id)
         if session is not None:
             return AuthStatusResult(
                 status="authenticated",
                 user_email=session.user_email,
-                stored_user_email=(
-                    stored_profile.user_email if stored_profile is not None else None
-                ),
-                stored_notebook_names=_stored_notebook_names(stored_profile),
+                stored_user_email=stored_user_email,
+                stored_notebook_names=stored_notebook_names,
             )
 
-        for pending_request in self._pending_requests.values():
-            if pending_request.user_id == user_id:
-                return AuthStatusResult(
-                    status="pending",
-                    pending_request_id=pending_request.request_id,
-                    stored_user_email=(
-                        stored_profile.user_email
-                        if stored_profile is not None
-                        else None
-                    ),
-                    stored_notebook_names=_stored_notebook_names(stored_profile),
-                )
-
-        if stored_profile is not None:
+        pending_request_id = next(
+            (
+                pending_auth.request_id
+                for pending_auth in self._pending_requests.values()
+                if pending_auth.user_id == user_id
+            ),
+            None,
+        )
+        if pending_request_id is not None:
             return AuthStatusResult(
-                status="unauthenticated",
-                stored_user_email=stored_profile.user_email,
-                stored_notebook_names=_stored_notebook_names(stored_profile),
+                status="pending",
+                pending_request_id=pending_request_id,
+                stored_user_email=stored_user_email,
+                stored_notebook_names=stored_notebook_names,
             )
 
-        return AuthStatusResult(status="unauthenticated")
+        return AuthStatusResult(
+            status="unauthenticated",
+            stored_user_email=stored_user_email,
+            stored_notebook_names=stored_notebook_names,
+        )
 
     def set_authenticated_user(self, user_id: str, session: LabArchivesSession) -> None:
         existing_session = self._sessions.get(user_id)
@@ -275,218 +429,77 @@ class AuthServiceImpl:
         if session is not None:
             session.client.close()
 
-    def get_stored_profile(self, user_id: str) -> StoredLabArchivesProfile | None:
-        return self._profile_store.load(api_url=_current_api_url(), user_id=user_id)
+    def get_stored_profile(self, user_id: str) -> StoredProfile | None:
+        return self._profile_store.load(user_id=user_id)
 
     def _persist_profile(self, user_id: str, client: Any, user: Any) -> None:
-        profile = StoredLabArchivesProfile(
-            api_url=_client_base_url(client),
-            labarchives_user_id=str(getattr(user, "id", "")),
-            notebooks=_iter_notebook_infos(user),
-            saved_at=datetime.now(UTC).isoformat(),
-            user_email=str(getattr(user, "email", "")),
+        profile = StoredProfile.from_user(
             user_id=user_id,
+            api_url=self._api_url,
+            client=client,
+            user=user,
         )
         self._profile_store.save(
-            api_url=profile.api_url,
             user_id=user_id,
             profile=profile,
         )
 
 
-def _current_api_url() -> str:
-    return os.getenv("API_URL", _DEFAULT_API_URL).strip() or _DEFAULT_API_URL
-
-
-def _client_base_url(client: Any) -> str:
-    base_url = getattr(client, "_base_url", None)
-    if isinstance(base_url, str) and base_url.strip():
-        return base_url
-    return _current_api_url()
-
-
-def _stored_notebook_names(
-    profile: StoredLabArchivesProfile | None,
-) -> tuple[str, ...]:
-    if profile is None:
-        return ()
-    return tuple(notebook.notebook_name for notebook in profile.notebooks)
-
-
-def _keyring_service_name(api_url: str) -> str:
-    return f"{_KEYRING_SERVICE_PREFIX}:{api_url}"
-
-
-def _load_keyring_backend() -> KeyringBackend | None:
-    try:
-        keyring = importlib.import_module("keyring")
-    except ImportError:
-        return None
-    return cast(KeyringBackend, keyring)
-
-
-def _translate_auth_exception(
+def _raise_auth_error(
     exc: Exception,
     *,
-    phase: str,
+    api_url: str,
+    fallback_code: str,
+    fallback_message: str,
     callback_url: str,
     request_id: str | None = None,
     user_email: str | None = None,
-) -> LabArchivesWriteError:
-    message = str(exc)
-    lowered = message.lower()
-    context = _auth_error_context(
-        callback_url=callback_url,
-        request_id=request_id,
-        user_email=user_email,
-    )
-
-    if "access_keyid" in lowered or "access_pwd" in lowered:
-        return LabArchivesWriteError(
-            (
-                "LabArchives credentials are not configured for the Jupyter "
-                "server. Set ACCESS_KEYID and ACCESS_PWD in the server "
-                "environment before connecting."
-            ),
-            code="missing_labarchives_credentials",
-            context=context,
-        )
-
-    if (
-        "tls ca certificate bundle" in lowered
-        or "tls cacert bundle" in lowered
-        or "ca cert bundle" in lowered
-        or "cacert.pem" in lowered
-    ):
-        return LabArchivesWriteError(
-            (
-                "The Jupyter server TLS CA bundle is not configured correctly for "
-                "LabArchives. Check REQUESTS_CA_BUNDLE, CURL_CA_BUNDLE, "
-                "SSL_CERT_FILE, or the Python certifi installation in the server "
-                "environment."
-            ),
-            code="invalid_tls_ca_bundle",
-            context=context,
-        )
-
-    if "certificate verify failed" in lowered or exc.__class__.__name__ == "SSLError":
-        return LabArchivesWriteError(
-            (
-                "TLS verification failed while connecting to LabArchives. Check "
-                "the server CA trust configuration or the LabArchives "
-                "certificate chain."
-            ),
-            code="labarchives_tls_verification_failed",
-            context=context,
-        )
-
-    if phase == "complete_auth":
-        return LabArchivesWriteError(
-            "LabArchives authentication could not be completed.",
-            code="labarchives_authentication_failed",
-            context=context,
-        )
-
-    return LabArchivesWriteError(
-        "Unable to start the LabArchives authentication flow.",
-        code="labarchives_auth_start_failed",
-        context=context,
-    )
-
-
-def _auth_error_context(
-    *,
-    callback_url: str,
-    request_id: str | None,
-    user_email: str | None,
-) -> dict[str, str]:
+) -> NoReturn:
+    error_text = str(exc)
+    lowered_error_text = error_text.lower()
     context = {
-        "api_url": _current_api_url(),
+        "api_url": api_url,
         "callback_url": callback_url,
-        "curl_ca_bundle": os.getenv("CURL_CA_BUNDLE", ""),
-        "requests_ca_bundle": os.getenv("REQUESTS_CA_BUNDLE", ""),
-        "ssl_cert_file": os.getenv("SSL_CERT_FILE", ""),
+        "curl_ca_bundle": os.getenv(_CURL_CA_BUNDLE_ENV_VAR, ""),
+        "requests_ca_bundle": os.getenv(_REQUESTS_CA_BUNDLE_ENV_VAR, ""),
+        "ssl_cert_file": os.getenv(_SSL_CERT_FILE_ENV_VAR, ""),
     }
     if request_id is not None:
         context["request_id"] = request_id
     if user_email is not None:
         context["user_email"] = user_email
-    return context
 
-
-def _iter_notebook_infos(user: Any) -> tuple[StoredLabArchivesNotebook, ...]:
-    notebooks = cast(
-        _NotebookCollectionLike | None,
-        getattr(user, "notebooks", None),
-    )
-    if notebooks is None:
-        return ()
-
-    result: list[StoredLabArchivesNotebook] = []
-    for notebook in notebooks.all_values():
-        notebook_id = notebook.id.strip()
-        notebook_name = notebook.name.strip()
-        if notebook_id == "" or notebook_name == "":
-            continue
-        result.append(
-            StoredLabArchivesNotebook(
-                notebook_id=notebook_id,
-                notebook_name=notebook_name,
-                is_default=notebook.is_default,
-            )
-        )
-    return tuple(result)
-
-
-def _parse_stored_profile(raw_value: str) -> StoredLabArchivesProfile | None:
-    try:
-        payload = json.loads(raw_value)
-    except json.JSONDecodeError:
-        return None
-
-    if not isinstance(payload, dict):
-        return None
-
-    api_url = payload.get("api_url")
-    labarchives_user_id = payload.get("labarchives_user_id")
-    notebooks = payload.get("notebooks")
-    saved_at = payload.get("saved_at")
-    user_email = payload.get("user_email")
-    user_id = payload.get("user_id")
-
-    if not all(
-        isinstance(value, str)
-        for value in (api_url, labarchives_user_id, saved_at, user_email, user_id)
+    labapi_authentication_error = getattr(labapi, "AuthenticationError", None)
+    if (
+        isinstance(labapi_authentication_error, type)
+        and isinstance(exc, labapi_authentication_error)
+        and any(marker in lowered_error_text for marker in _CREDENTIAL_ERROR_MARKERS)
     ):
-        return None
+        raise LabArchivesWriteError(
+            _MISSING_CREDENTIALS_MESSAGE,
+            code=_MISSING_CREDENTIALS_CODE,
+            context=context,
+        ) from exc
 
-    if not isinstance(notebooks, list):
-        return None
+    if any(marker in lowered_error_text for marker in _TLS_CA_BUNDLE_ERROR_MARKERS):
+        raise LabArchivesWriteError(
+            _INVALID_TLS_CA_BUNDLE_MESSAGE,
+            code=_INVALID_TLS_CA_BUNDLE_CODE,
+            context=context,
+        ) from exc
 
-    parsed_notebooks: list[StoredLabArchivesNotebook] = []
-    for notebook in notebooks:
-        if not isinstance(notebook, dict):
-            return None
-        notebook_id = notebook.get("notebook_id")
-        notebook_name = notebook.get("notebook_name")
-        is_default = notebook.get("is_default")
-        if not isinstance(notebook_id, str) or not isinstance(notebook_name, str):
-            return None
-        if not isinstance(is_default, bool):
-            return None
-        parsed_notebooks.append(
-            StoredLabArchivesNotebook(
-                notebook_id=notebook_id,
-                notebook_name=notebook_name,
-                is_default=is_default,
-            )
-        )
+    if (
+        "certificate verify failed" in lowered_error_text
+        or exc.__class__.__name__ == "SSLError"
+    ):
+        raise LabArchivesWriteError(
+            _TLS_VERIFICATION_FAILED_MESSAGE,
+            code=_TLS_VERIFICATION_FAILED_CODE,
+            context=context,
+        ) from exc
 
-    return StoredLabArchivesProfile(
-        api_url=api_url,
-        labarchives_user_id=labarchives_user_id,
-        notebooks=tuple(parsed_notebooks),
-        saved_at=saved_at,
-        user_email=user_email,
-        user_id=user_id,
-    )
+    raise LabArchivesWriteError(
+        fallback_message,
+        code=fallback_code,
+        context=context,
+    ) from exc

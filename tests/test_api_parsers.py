@@ -3,11 +3,13 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from save_my_jupyter.api.parsers import parse_snapshot_request
+from save_my_jupyter.api.parsers import (
+    parse_snapshot_request,
+    parse_watch_registration_request,
+)
 from save_my_jupyter.domain import (
     ManualSnapshotRequest,
     TriggerCellSnapshotRequest,
-    WatchedPathSnapshotRequest,
 )
 from save_my_jupyter.errors import SnapshotParseError
 
@@ -72,21 +74,47 @@ def test_parse_trigger_snapshot_request() -> None:
     assert str(request.notebook_context.triggering_cell_id) == "cell-1"
 
 
-def test_parse_watched_path_snapshot_request() -> None:
-    request = parse_snapshot_request(
+def test_parse_snapshot_rejects_unsupported_source() -> None:
+    with pytest.raises(SnapshotParseError, match="Unsupported snapshot source"):
+        parse_snapshot_request(
+            {
+                "source": "watched_path",
+                "commit_mode": "never",
+                "notebook_context": {
+                    "notebook_path": "C:/repo/notebook.ipynb",
+                    "notebook_name": "notebook.ipynb",
+                },
+            }
+        )
+
+
+def test_parse_snapshot_rejects_invalid_commit_mode() -> None:
+    with pytest.raises(SnapshotParseError, match="Unsupported commit mode"):
+        parse_snapshot_request(
+            {
+                "source": "manual",
+                "commit_mode": "later",
+                "notebook_context": {
+                    "notebook_path": "C:/repo/notebook.ipynb",
+                    "notebook_name": "notebook.ipynb",
+                },
+            }
+        )
+
+
+def test_parse_watch_registration_request_normalizes_watch_paths() -> None:
+    request = parse_watch_registration_request(
         {
-            "source": "watched_path",
-            "commit_mode": "never",
             "notebook_context": {
                 "notebook_path": "C:/repo/notebook.ipynb",
                 "notebook_name": "notebook.ipynb",
             },
-            "watched_path_event": {
-                "relative_path": "outputs/result.csv",
-                "event_type": "modified",
-            },
+            "watch_paths": ["figures\\plot.png", "data/results.csv"],
         }
     )
 
-    assert isinstance(request, WatchedPathSnapshotRequest)
-    assert str(request.watched_path_event.relative_path) == "outputs/result.csv"
+    assert tuple(map(str, request.watch_paths)) == (
+        "figures/plot.png",
+        "data/results.csv",
+    )
+    assert request.commit_mode.value == "prompt"

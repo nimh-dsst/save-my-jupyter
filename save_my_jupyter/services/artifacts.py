@@ -17,7 +17,7 @@ from save_my_jupyter.domain import (
     ResolvedSnapshotPlan,
 )
 from save_my_jupyter.errors import ArtifactCollectionError
-from save_my_jupyter.parsing import normalize_relative_path_text
+from save_my_jupyter.parsing import normalize_path
 
 _BINARY_FIGURE_MIME_TYPES: dict[str, str] = {
     "image/jpeg": "jpg",
@@ -80,7 +80,7 @@ class DocumentArtifactCollector:
         capture_root = _resolve_capture_root(plan)
         file_artifacts: dict[str, FileArtifact] = {}
         for file_path in _iter_watched_files(plan, capture_root):
-            normalized_relative_path = normalize_relative_path_text(
+            normalized_relative_path = normalize_path(
                 str(file_path.relative_to(capture_root)).replace("\\", "/")
             )
             relative_path = _make_file_relative_path(

@@ -15,39 +15,24 @@ from save_my_jupyter.domain import (
     SnapshotSource,
     TriggerCellSnapshotRequest,
     UserMetadata,
-    WatchedPathSnapshotRequest,
     WatchRegistrationRequest,
 )
 from save_my_jupyter.errors import SnapshotParseError
 from save_my_jupyter.parsing import (
-    normalize_relative_path_text,
-    optional_mapping,
-    optional_str,
+    expect,
+    maybe,
+    normalize_path,
     parse_datetime,
-    require_mapping,
-    require_str,
-    str_tuple,
+    tuple_of,
 )
-from save_my_jupyter.watchers.parsers import parse_watch_event
 
 
 def parse_snapshot_request(raw: Mapping[str, object]) -> SnapshotRequest:
-    source = SnapshotSource(require_str(raw.get("source"), field_name="source"))
-    notebook_context = parse_notebook_context(
-        require_mapping(raw.get("notebook_context"), field_name="notebook_context")
-    )
-    commit_mode = CommitMode(
-        require_str(
-            raw.get("commit_mode", CommitMode.PROMPT.value),
-            field_name="commit_mode",
-        )
-    )
-    user_metadata = parse_user_metadata(
-        optional_mapping(raw.get("user_metadata"), field_name="user_metadata") or {}
-    )
+    source = _source(raw.get("source"))
+    notebook_context, commit_mode, user_metadata = _request_parts(raw)
     client_timestamp = parse_datetime(
         raw.get("client_timestamp"),
-        field_name="client_timestamp",
+        field="client_timestamp",
     )
 
     if source is SnapshotSource.MANUAL:
@@ -59,11 +44,7 @@ def parse_snapshot_request(raw: Mapping[str, object]) -> SnapshotRequest:
         )
 
     if source is SnapshotSource.TRIGGER_CELL:
-        if notebook_context.triggering_cell_id is None:
-            raise SnapshotParseError(
-                "Trigger cell snapshots require a triggering cell ID.",
-                code="missing_triggering_cell",
-            )
+        _require_triggering_cell(notebook_context)
         return TriggerCellSnapshotRequest(
             notebook_context=notebook_context,
             commit_mode=commit_mode,
@@ -71,91 +52,118 @@ def parse_snapshot_request(raw: Mapping[str, object]) -> SnapshotRequest:
             client_timestamp=client_timestamp,
         )
 
-    watched_path_event = parse_watch_event(
-        require_mapping(raw.get("watched_path_event"), field_name="watched_path_event")
-    )
-    return WatchedPathSnapshotRequest(
-        notebook_context=notebook_context,
-        commit_mode=commit_mode,
-        user_metadata=user_metadata,
-        watched_path_event=watched_path_event,
-        client_timestamp=client_timestamp,
+    raise SnapshotParseError(
+        "Unsupported snapshot source.",
+        code="invalid_snapshot_source",
+        context={"field": "source"},
     )
 
 
 def parse_notebook_context(raw: Mapping[str, object]) -> NotebookContext:
-    notebook_path = NotebookPath(
-        require_str(raw.get("notebook_path"), field_name="notebook_path")
-    )
-    notebook_name = require_str(raw.get("notebook_name"), field_name="notebook_name")
-    document_id = optional_str(raw.get("document_id"), field_name="document_id")
-    kernel_id = optional_str(raw.get("kernel_id"), field_name="kernel_id")
-    triggering_cell_id = optional_str(
+    document_id = maybe(raw.get("document_id"), str, field="document_id")
+    kernel_id = maybe(raw.get("kernel_id"), str, field="kernel_id")
+    triggering_cell_id = maybe(
         raw.get("triggering_cell_id"),
-        field_name="triggering_cell_id",
+        str,
+        field="triggering_cell_id",
     )
 
     return NotebookContext(
-        notebook_path=notebook_path,
-        notebook_name=notebook_name,
-        document_id=DocumentId(document_id) if document_id is not None else None,
-        kernel_id=KernelId(kernel_id) if kernel_id is not None else None,
+        notebook_path=NotebookPath(
+            expect(raw.get("notebook_path"), str, field="notebook_path")
+        ),
+        notebook_name=expect(raw.get("notebook_name"), str, field="notebook_name"),
+        document_id=None if document_id is None else DocumentId(document_id),
+        kernel_id=None if kernel_id is None else KernelId(kernel_id),
         cell_ids=tuple(
             CellId(cell_id)
-            for cell_id in str_tuple(raw.get("cell_ids"), field_name="cell_ids")
+            for cell_id in tuple_of(raw.get("cell_ids"), str, field="cell_ids")
         ),
-        triggering_cell_id=CellId(triggering_cell_id)
-        if triggering_cell_id is not None
-        else None,
+        triggering_cell_id=None
+        if triggering_cell_id is None
+        else CellId(triggering_cell_id),
     )
 
 
 def parse_user_metadata(raw: Mapping[str, object]) -> UserMetadata:
-    extra_fields = (
-        optional_mapping(raw.get("extra_fields"), field_name="extra_fields") or {}
-    )
-    normalized_extra_fields: dict[str, str] = {}
-    for key, value in extra_fields.items():
-        normalized_extra_fields[str(key)] = require_str(
-            value,
-            field_name=f"extra_fields.{key}",
-        )
+    extra_fields = maybe(raw.get("extra_fields"), Mapping, field="extra_fields") or {}
 
     return UserMetadata(
-        tags=str_tuple(raw.get("tags"), field_name="tags"),
-        notes=optional_str(raw.get("notes"), field_name="notes"),
-        run_label=optional_str(raw.get("run_label"), field_name="run_label"),
-        experiment_context=optional_str(
+        tags=tuple_of(raw.get("tags"), str, field="tags"),
+        notes=maybe(raw.get("notes"), str, field="notes"),
+        run_label=maybe(raw.get("run_label"), str, field="run_label"),
+        experiment_context=maybe(
             raw.get("experiment_context"),
-            field_name="experiment_context",
+            str,
+            field="experiment_context",
         ),
-        extra_fields=normalized_extra_fields,
+        extra_fields={
+            str(key): expect(value, str, field=f"extra_fields.{key}")
+            for key, value in extra_fields.items()
+        },
     )
 
 
 def parse_watch_registration_request(
     raw: Mapping[str, object],
 ) -> WatchRegistrationRequest:
-    notebook_context = parse_notebook_context(
-        require_mapping(raw.get("notebook_context"), field_name="notebook_context")
-    )
-    commit_mode = CommitMode(
-        require_str(
-            raw.get("commit_mode", CommitMode.PROMPT.value),
-            field_name="commit_mode",
-        )
-    )
-    user_metadata = parse_user_metadata(
-        optional_mapping(raw.get("user_metadata"), field_name="user_metadata") or {}
-    )
-    watch_paths = tuple(
-        RelativeWatchPath(normalize_relative_path_text(path))
-        for path in str_tuple(raw.get("watch_paths"), field_name="watch_paths")
-    )
+    notebook_context, commit_mode, user_metadata = _request_parts(raw)
 
     return WatchRegistrationRequest(
         notebook_context=notebook_context,
         commit_mode=commit_mode,
         user_metadata=user_metadata,
-        watch_paths=watch_paths,
+        watch_paths=tuple(
+            RelativeWatchPath(normalize_path(path))
+            for path in tuple_of(raw.get("watch_paths"), str, field="watch_paths")
+        ),
     )
+
+
+def _request_parts(
+    raw: Mapping[str, object],
+) -> tuple[NotebookContext, CommitMode, UserMetadata]:
+    return (
+        parse_notebook_context(
+            expect(raw.get("notebook_context"), Mapping, field="notebook_context")
+        ),
+        _commit_mode(
+            raw.get("commit_mode", CommitMode.PROMPT.value),
+            field="commit_mode",
+        ),
+        parse_user_metadata(
+            maybe(raw.get("user_metadata"), Mapping, field="user_metadata") or {}
+        ),
+    )
+
+
+def _commit_mode(value: object, *, field: str) -> CommitMode:
+    raw_value = expect(value, str, field=field)
+    try:
+        return CommitMode(raw_value)
+    except ValueError as exc:
+        raise SnapshotParseError(
+            f"Unsupported commit mode for {field}.",
+            code="invalid_commit_mode",
+            context={"field": field},
+        ) from exc
+
+
+def _source(value: object) -> SnapshotSource:
+    raw_value = expect(value, str, field="source")
+    try:
+        return SnapshotSource(raw_value)
+    except ValueError as exc:
+        raise SnapshotParseError(
+            "Unsupported snapshot source.",
+            code="invalid_snapshot_source",
+            context={"field": "source"},
+        ) from exc
+
+
+def _require_triggering_cell(notebook_context: NotebookContext) -> None:
+    if notebook_context.triggering_cell_id is None:
+        raise SnapshotParseError(
+            "Trigger cell snapshots require a triggering cell ID.",
+            code="missing_triggering_cell",
+        )
