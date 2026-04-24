@@ -16,7 +16,6 @@ from save_my_jupyter.api.parsers import (
 from save_my_jupyter.api.responses import (
     build_empty_state_payload,
     build_state_payload,
-    load_notebook_extension_metadata,
     serialize_auth_status,
     serialize_config_init_result,
     serialize_error,
@@ -40,6 +39,7 @@ from save_my_jupyter.domain import (
     WatchRegistrationRequest,
 )
 from save_my_jupyter.errors import LabArchivesWriteError, SaveMyJupyterError
+from save_my_jupyter.notebook import load_notebook_extension_metadata
 from save_my_jupyter.parsing import expect
 from save_my_jupyter.services.auth import AuthStartResult, AuthStatusResult
 from save_my_jupyter.services.container import ServiceContainer

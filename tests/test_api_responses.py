@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-import json
 import shutil
 from pathlib import Path
 from uuid import uuid4
 
-from save_my_jupyter.api.responses import (
-    build_state_payload,
-    load_notebook_extension_metadata,
-)
+from save_my_jupyter.api.responses import build_state_payload
 from save_my_jupyter.domain import (
     CellId,
     CommitHash,
@@ -18,7 +14,6 @@ from save_my_jupyter.domain import (
     LabArchivesRootPath,
     LabArchivesTarget,
     NotebookMetadataConfig,
-    NotebookPath,
     RelativeRepoPath,
     RelativeWatchPath,
     RemoteUrl,
@@ -28,49 +23,6 @@ from save_my_jupyter.domain import (
     TriggerMode,
 )
 from save_my_jupyter.services.auth import AuthStatusResult
-
-
-def test_load_notebook_extension_metadata_reads_extension_block(
-) -> None:
-    root = _make_workspace_temp_dir()
-    try:
-        notebook_path = root / "analysis.ipynb"
-        notebook_path.write_text(
-            json.dumps(
-                {
-                    "metadata": {
-                        "save_my_jupyter": {
-                            "enabled": False,
-                            "watched_paths": ["outputs"],
-                        }
-                    }
-                }
-            ),
-            encoding="utf-8",
-        )
-
-        metadata = load_notebook_extension_metadata(NotebookPath(str(notebook_path)))
-
-        assert metadata == {
-            "enabled": False,
-            "watched_paths": ["outputs"],
-        }
-    finally:
-        shutil.rmtree(root, ignore_errors=True)
-
-
-def test_load_notebook_extension_metadata_returns_empty_for_non_mapping_root(
-) -> None:
-    root = _make_workspace_temp_dir()
-    try:
-        notebook_path = root / "analysis.ipynb"
-        notebook_path.write_text("[]", encoding="utf-8")
-
-        metadata = load_notebook_extension_metadata(NotebookPath(str(notebook_path)))
-
-        assert metadata == {}
-    finally:
-        shutil.rmtree(root, ignore_errors=True)
 
 
 def test_build_state_payload_serializes_effective_state() -> None:

@@ -11,7 +11,6 @@ from save_my_jupyter.domain import (
     EffectiveConfig,
     LabArchivesTarget,
     NotebookMetadataConfig,
-    NotebookPath,
     ResolvedPathRule,
     ResolvedRepoContext,
     SnapshotAccepted,
@@ -22,7 +21,6 @@ from save_my_jupyter.services.auth import AuthStatusResult
 
 type JsonObject = dict[str, object]
 
-_NOTEBOOK_METADATA_KEY = "save_my_jupyter"
 _AUTH_COMPLETION_CHANNEL_NAME = "save-my-jupyter-auth"
 _AUTH_COMPLETION_STORAGE_KEY = "save-my-jupyter.auth-event"
 _RETURN_TO_JUPYTER_MESSAGE = "You can close this tab and return to JupyterLab."
@@ -62,24 +60,6 @@ def build_state_payload(
         "repoConfigPath": str(repo_config_path),
         "repoConfigLoaded": repo_config_loaded,
     }
-
-
-def load_notebook_extension_metadata(
-    notebook_path: NotebookPath,
-) -> JsonObject:
-    notebook_model = _load_json_mapping(Path(notebook_path).resolve())
-    if notebook_model is None:
-        return {}
-
-    metadata = _mapping_field(notebook_model, "metadata")
-    if metadata is None:
-        return {}
-
-    extension_metadata = _mapping_field(metadata, _NOTEBOOK_METADATA_KEY)
-    if extension_metadata is None:
-        return {}
-
-    return {str(key): value for key, value in extension_metadata.items()}
 
 
 def serialize_auth_status(auth_status: AuthStatusResult) -> JsonObject:
@@ -211,27 +191,6 @@ def serialize_config_init_result(
         "rootDirectory": str(result.root_directory),
         "status": result.status,
     }
-
-
-def _load_json_mapping(path: Path) -> Mapping[str, object] | None:
-    try:
-        raw_value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-
-    if not isinstance(raw_value, Mapping):
-        return None
-    return raw_value
-
-
-def _mapping_field(
-    mapping: Mapping[str, object],
-    field_name: str,
-) -> Mapping[str, object] | None:
-    value = mapping.get(field_name)
-    if not isinstance(value, Mapping):
-        return None
-    return {str(key): nested_value for key, nested_value in value.items()}
 
 
 def _render_auth_completion_script(
