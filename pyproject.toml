@@ -59,6 +59,12 @@ testpaths = ["tests"]
 line-length = 88
 src = ["save_my_jupyter", "tests"]
 target-version = "py312"
+extend-exclude = [
+  ".appdata-test",
+  ".pytest_tmp_verify",
+  "jupyter-workspaces-*",
+  "pytest-temp-root",
+]
 
 [tool.ruff.format]
 docstring-code-format = true

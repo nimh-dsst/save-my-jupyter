@@ -495,7 +495,9 @@ def test_labarchives_adapter_writes_snapshot_page(
             metadata=UserMetadata(run_label="baseline", tags=("baseline",)),
             labarchives_target=LabArchivesTarget(
                 notebook_name=LabArchivesNotebookName("Snapshots"),
-                root_path=LabArchivesRootPath("Runs/{user_id}/{scope_path}/{run_label}"),
+                root_path=LabArchivesRootPath(
+                    "Runs/{user_id}/{scope_path}/{run_label}"
+                ),
             ),
             extension_version="0.1.0",
         )
@@ -694,10 +696,13 @@ def test_git_service_resolves_repo_state() -> None:
             "analysis/notebook.ipynb"
         )
         assert repo.remote_url == "git@github.com:example/repo.git"
-        assert repo.head_commit == _run(
-            ["git", "rev-parse", "HEAD"],
-            repo_root,
-        ).stdout.strip()
+        assert (
+            repo.head_commit
+            == _run(
+                ["git", "rev-parse", "HEAD"],
+                repo_root,
+            ).stdout.strip()
+        )
         assert repo.is_dirty is True
     finally:
         shutil.rmtree(repo_root, ignore_errors=True)

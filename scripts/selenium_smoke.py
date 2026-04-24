@@ -135,9 +135,7 @@ def start_jupyter(
 def build_driver() -> tuple[WebDriver, Path]:
     cache_path = Path.cwd() / ".selenium-cache"
     os.environ.setdefault("SE_CACHE_PATH", str(cache_path))
-    profile_dir = Path(
-        tempfile.mkdtemp(prefix="selenium-profile-", dir=Path.cwd())
-    )
+    profile_dir = Path(tempfile.mkdtemp(prefix="selenium-profile-", dir=Path.cwd()))
 
     options = ChromeOptions()
     options.add_argument("--headless=new")
@@ -560,9 +558,7 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
         "baseline, follow-up,",
     )
     tags_input_value_after_typing = tags_input.get_attribute("value")
-    tags_input_accepts_commas = (
-        tags_input_value_after_typing == "baseline, follow-up,"
-    )
+    tags_input_accepts_commas = tags_input_value_after_typing == "baseline, follow-up,"
 
     config_path_hint: str | None = None
     if args.check_connect:

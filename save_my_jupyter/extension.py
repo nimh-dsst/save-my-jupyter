@@ -76,21 +76,15 @@ class SaveMyJupyterApp(ExtensionApp):
                 WatchSyncHandler,
             ),
             (
-                url_path_join(
-                    server_app.base_url, "save-my-jupyter", "auth", "start"
-                ),
+                url_path_join(server_app.base_url, "save-my-jupyter", "auth", "start"),
                 AuthStartHandler,
             ),
             (
-                url_path_join(
-                    server_app.base_url, "save-my-jupyter", "auth", "status"
-                ),
+                url_path_join(server_app.base_url, "save-my-jupyter", "auth", "status"),
                 AuthStatusHandler,
             ),
             (
-                url_path_join(
-                    server_app.base_url, "save-my-jupyter", "config", "init"
-                ),
+                url_path_join(server_app.base_url, "save-my-jupyter", "config", "init"),
                 ConfigInitHandler,
             ),
             (
