@@ -9,7 +9,6 @@ from save_my_jupyter.services.auth import AuthServiceImpl
 from save_my_jupyter.services.coordinator import SnapshotCoordinator
 from save_my_jupyter.services.run_fingerprint import RunFingerprintService
 from save_my_jupyter.services.snapshot import SnapshotService
-from save_my_jupyter.watchers.service import DefaultWatchService
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,4 +20,3 @@ class ServiceContainer:
     run_fingerprint_service: RunFingerprintService
     snapshot_coordinator: SnapshotCoordinator
     snapshot_service: SnapshotService
-    watch_service: DefaultWatchService
