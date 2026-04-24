@@ -11,4 +11,4 @@ def _jupyter_server_extension_points() -> list[dict[str, str]]:
 def _load_jupyter_server_extension(server_app: object) -> None:
     from .extension import SaveMyJupyterApp
 
-    SaveMyJupyterApp.load_classic_server_extension(server_app)
+    SaveMyJupyterApp.load_classic_server_extension(server_app)  # type: ignore[no-untyped-call]

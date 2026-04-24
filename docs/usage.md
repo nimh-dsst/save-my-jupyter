@@ -6,10 +6,7 @@ Make sure the Jupyter server environment has:
 
 - Python `3.12+`
 - JupyterLab `4.x` or Notebook `7.x`
-- the `save-my-jupyter` package installed
-- `labapi` importable, or a local checkout of `labarchives-api` at one of:
-  - `~/projects/labarchives-api/src`
-  - `~/Downloads/labarchives-api/src`
+- the `save-my-jupyter` package installed, which also installs `labapi`
 
 The notebook kernel does not need to install this package.
 
@@ -206,13 +203,12 @@ See [configuration.md](configuration.md) for the full format.
 
 ## Troubleshooting
 
-### `labapi is not installed`
+### `ModuleNotFoundError: No module named 'labapi'`
 
-Make sure one of these is true:
-
-- `labapi` is installed in the Jupyter server environment
-- `~/projects/labarchives-api/src` exists
-- `~/Downloads/labarchives-api/src` exists
+Reinstall `save-my-jupyter` in the same Python environment that starts Jupyter.
+`labapi` is a required dependency, so a missing import usually means the
+package was installed into a different environment or the install was
+incomplete.
 
 ### Snapshot rejected as duplicate
 

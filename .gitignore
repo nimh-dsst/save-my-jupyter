@@ -1,7 +1,10 @@
 .coverage
+.jupyter-config-test/
+.jupyter-runtime-test/
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
+.ty/
 .uv-cache/
 .venv/
 .venv_pkgtest/
@@ -14,6 +17,12 @@ test-dist/
 tsconfig.tsbuildinfo
 __pycache__/
 .pytest_tmp/
+.selenium-cache/
+.selenium-profile/
+.selenium-venv/
 pytest-cache-files*/
+tmp-selenium-jupyter*.log
 tmp*/
 wheel_install/
+tmp*.*
+selenium-profile*/

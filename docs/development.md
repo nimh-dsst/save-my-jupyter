@@ -11,7 +11,7 @@
 
 ```bash
 npm ci
-pip install -e .[dev]
+uv sync --group dev
 ```
 
 If editable install wiring fails because `jupyterlab.labextensions` is missing,
@@ -39,8 +39,8 @@ Notes:
 
 ```bash
 python -m ruff check save_my_jupyter tests
-python -m mypy save_my_jupyter tests
-python -m pytest tests -p no:cacheprovider
+uv run ty check save_my_jupyter tests
+uv run pytest tests -p no:cacheprovider
 ```
 
 ### Pre-commit
@@ -73,7 +73,7 @@ editable frontend wiring.
 
 The intended workflow is:
 
-1. keep `npm ci` and `pip install -e .[dev]` current
+1. keep `npm ci` and `uv sync --group dev` current
 2. make a small backend or frontend change
 3. add or update the corresponding unit tests immediately
 4. run the affected lint, typecheck, and test commands before moving on
@@ -115,8 +115,8 @@ Current local verification set:
 
 ```bash
 python -m ruff check save_my_jupyter tests
-python -m mypy save_my_jupyter tests
-python -m pytest tests -p no:cacheprovider
+uv run ty check save_my_jupyter tests
+uv run pytest tests -p no:cacheprovider
 npm run lint
 npm run typecheck
 npm test
@@ -143,14 +143,13 @@ It covers:
 
 ## LabArchives Development Dependency
 
-The backend tries to load `labapi` from:
+`labapi` is a required dependency declared in project metadata, so the active
+Python environment should get it automatically when you install or sync the
+project.
 
-1. the current Python environment
-2. `~/projects/labarchives-api/src`
-3. `~/Downloads/labarchives-api/src`
-
-If you are working on `labarchives-api` in parallel, keeping a local checkout at
-one of those locations is enough for local development.
+If you are working on `labarchives-api` in parallel, install it into that same
+environment, for example with an editable install, instead of relying on a
+checked-out source tree being discovered automatically.
 
 ## Project Layout
 

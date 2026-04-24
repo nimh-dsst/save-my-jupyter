@@ -65,7 +65,7 @@ pip install .
 
 ```bash
 npm ci
-pip install -e .[dev]
+uv sync --group dev
 ```
 
 Editable installs call:
@@ -103,16 +103,13 @@ This is the intended setup for teams sharing one repository.
 
 ## LabArchives Dependency
 
-The backend needs `labapi` from the `labarchives-api` project.
+`labapi` is a required package dependency for the backend. Installing
+`save-my-jupyter` into the Jupyter server environment should install it
+automatically.
 
-It will try:
-
-1. a normal `import labapi`
-2. a local checkout at `~/projects/labarchives-api/src`
-3. a local checkout at `~/Downloads/labarchives-api/src`
-
-If none of those are available, snapshot persistence will fail until `labapi`
-can be imported.
+If you see `ModuleNotFoundError: No module named 'labapi'`, the package was
+installed into a different Python environment or the install did not complete
+successfully.
 
 ## Documentation
 
@@ -143,6 +140,20 @@ Current limitations:
 - artifact capture is intentionally kernel-independent, so it only uses notebook
   document state and watched files
 - richer kernel-specific enrichment is not implemented yet
+
+## Quality Gates
+
+Python checks use:
+
+- `ruff`
+- `ty`
+- `pytest`
+
+Frontend checks use:
+
+- `eslint`
+- `tsc --noEmit`
+- frontend unit tests
 
 ## Further Reading
 

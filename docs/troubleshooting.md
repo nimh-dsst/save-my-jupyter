@@ -33,19 +33,15 @@ If that fails, the Python environment probably does not have JupyterLab
 available yet. Install JupyterLab into that environment first, then rerun:
 
 ```bash
-pip install -e .[dev]
+uv sync --group dev
 ```
 
-## `labapi` Cannot Be Imported
+## `ModuleNotFoundError: No module named 'labapi'`
 
-The backend tries:
-
-1. `import labapi`
-2. `~/projects/labarchives-api/src`
-3. `~/Downloads/labarchives-api/src`
-
-If snapshots fail with a `missing_labapi` error, make sure one of those paths is
-available to the Jupyter server process.
+Install or reinstall `save-my-jupyter` in the same Python environment that
+starts Jupyter. `labapi` is a required dependency, so this error usually means
+the package was installed into a different environment or the install was
+incomplete.
 
 ## LabArchives Auth Stays Pending
 
