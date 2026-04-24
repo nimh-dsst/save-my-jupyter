@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
@@ -11,13 +12,15 @@ from dulwich.repo import Repo
 from save_my_jupyter.domain import (
     CommitHash,
     RelativeRepoPath,
+    RemoteUrl,
     RepoRootPath,
     ResolvedRepoContext,
     ResolvedSnapshotPlan,
 )
 from save_my_jupyter.errors import CommitCreationError, GitResolutionError
-from save_my_jupyter.git.parsers import parse_commit_hash, parse_git_remote
 from save_my_jupyter.parsing import normalize_path
+
+_COMMIT_HASH_PATTERN = re.compile(r"^[0-9a-f]{7,40}$")
 
 
 class DefaultGitService:
@@ -39,9 +42,7 @@ class DefaultGitService:
             )
 
         relative_notebook_path = RelativeRepoPath(
-            normalize_path(
-                str(notebook.relative_to(repo_root)).replace("\\", "/")
-            )
+            normalize_path(str(notebook.relative_to(repo_root)).replace("\\", "/"))
         )
         return ResolvedRepoContext(
             repo_root=RepoRootPath(str(repo_root)),
@@ -128,9 +129,7 @@ class DefaultGitService:
                         "Unable to generate git diff.",
                         code="git_diff_failed",
                         context={
-                            "stderr": (
-                                "HEAD is not available for diff generation."
-                            )
+                            "stderr": ("HEAD is not available for diff generation.")
                         },
                     )
                 porcelain.diff(
@@ -244,3 +243,20 @@ class DefaultGitService:
     def _error_message(self, exc: Exception) -> str:
         message = str(exc).strip()
         return message or exc.__class__.__name__
+
+
+def parse_git_remote(raw: str | None) -> RemoteUrl | None:
+    if raw is None or raw == "":
+        return None
+
+    normalized = raw.strip()
+    return RemoteUrl(normalized)
+
+
+def parse_commit_hash(raw: str | None) -> CommitHash | None:
+    if raw is None:
+        return None
+    normalized = raw.strip()
+    if _COMMIT_HASH_PATTERN.match(normalized) is None:
+        return None
+    return CommitHash(normalized)

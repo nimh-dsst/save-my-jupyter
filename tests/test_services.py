@@ -25,7 +25,7 @@ from save_my_jupyter.domain import (
     TriggerCellSnapshotRequest,
     UserMetadata,
 )
-from save_my_jupyter.git.parsers import parse_commit_hash, parse_git_remote
+from save_my_jupyter.git import parse_commit_hash, parse_git_remote
 from save_my_jupyter.services.artifacts import DocumentArtifactCollector
 from save_my_jupyter.services.coordinator import SnapshotCoordinator
 from save_my_jupyter.services.run_fingerprint import RunFingerprintService
@@ -244,8 +244,8 @@ def test_document_artifact_collector_collects_figures_and_summary() -> None:
                                 {
                                     "data": {
                                         "image/svg+xml": [
-                                            "<svg xmlns=\"http://www.w3.org/2000/svg\">",
-                                            "<rect width=\"10\" height=\"10\" />",
+                                            '<svg xmlns="http://www.w3.org/2000/svg">',
+                                            '<rect width="10" height="10" />',
                                             "</svg>",
                                         ]
                                     }
@@ -253,7 +253,7 @@ def test_document_artifact_collector_collects_figures_and_summary() -> None:
                                 {
                                     "output_type": "stream",
                                     "text": "stream output",
-                                }
+                                },
                             ],
                         }
                     ]
