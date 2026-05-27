@@ -17,7 +17,7 @@ Each snapshot can include:
 - the saved notebook file
 - Git context, including a commit hash or a diff against `HEAD`
 - watched files that changed during the run
-- visible notebook output summaries and PNG figures already present in the
+- visible notebook output summaries and figures rendered inline from the
   notebook document
 - user-entered tags, notes, run labels, and opt-in metadata fields
 

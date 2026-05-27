@@ -17,7 +17,7 @@ NOTEBOOK_MIME_TYPE = MimeType("application/x-ipynb+json")
 _EXECUTION_SUMMARY_MAX = 5000
 _NO_SUMMARY = "(no execution summary available)"
 
-# Image outputs become figures, in this priority per output (C-CONTENT-03).
+# Fallback standalone figures use this priority when the notebook page is absent.
 _FIGURE_MIME_EXTENSIONS: tuple[tuple[str, str], ...] = (
     ("image/png", "png"),
     ("image/jpeg", "jpg"),

@@ -4,6 +4,7 @@ from save_my_jupyter.application.snapshot.plan import plan_capture
 from save_my_jupyter.domain.capture import CapturePlan, DirectiveResult, NotebookOutline
 from save_my_jupyter.domain.config import EffectiveConfig, LabArchivesTarget
 from save_my_jupyter.domain.enums import ArtifactKind, CommitMode, SnapshotSource
+from save_my_jupyter.domain.provenance import ConfigLayer
 from save_my_jupyter.domain.types import (
     LabArchivesNotebookName,
     LabArchivesRootPath,
@@ -65,8 +66,8 @@ def test_notebook_artifact_excluded_when_disabled() -> None:
 # --- figures (C-CONTENT-03) ---
 
 
-def test_figure_artifact_present_only_when_outputs_have_images() -> None:
-    with_figs = plan_capture(
+def test_figure_artifact_omitted_when_notebook_includes_images_inline() -> None:
+    with_notebook = plan_capture(
         config=_config(),
         outline=NotebookOutline(
             cell_count=2, figure_count=3, has_execution_output=True
@@ -74,7 +75,19 @@ def test_figure_artifact_present_only_when_outputs_have_images() -> None:
         source=SnapshotSource.MANUAL,
         directive=_NO_DIRECTIVE,
     )
-    assert ArtifactKind.FIGURE in _kinds(with_figs)
+    assert ArtifactKind.FIGURE not in _kinds(with_notebook)
+
+
+def test_figure_artifact_present_when_notebook_is_excluded() -> None:
+    without_notebook = plan_capture(
+        config=_config(include_notebook_file=False),
+        outline=NotebookOutline(
+            cell_count=2, figure_count=3, has_execution_output=True
+        ),
+        source=SnapshotSource.MANUAL,
+        directive=_NO_DIRECTIVE,
+    )
+    assert ArtifactKind.FIGURE in _kinds(without_notebook)
 
     without = plan_capture(
         config=_config(),
@@ -175,6 +188,7 @@ def test_ui_run_label_wins() -> None:
         ui_run_label="from-ui",
     )
     assert plan.run_label == "from-ui"
+    assert plan.run_label_provenance is ConfigLayer.REQUEST
 
 
 def test_directive_run_label_used_when_no_ui() -> None:
@@ -185,6 +199,19 @@ def test_directive_run_label_used_when_no_ui() -> None:
         directive=DirectiveResult(run_label="from-directive", tags=()),
     )
     assert plan.run_label == "from-directive"
+    assert plan.run_label_provenance is ConfigLayer.NOTEBOOK
+
+
+def test_user_default_run_label_used_when_no_ui_or_directive() -> None:
+    plan = plan_capture(
+        config=_config(),
+        outline=_OUTLINE,
+        source=SnapshotSource.MANUAL,
+        directive=_NO_DIRECTIVE,
+        default_run_label="from-user",
+    )
+    assert plan.run_label == "from-user"
+    assert plan.run_label_provenance is ConfigLayer.USER
 
 
 def test_trigger_falls_back_to_first_nonblank_line() -> None:
@@ -196,6 +223,7 @@ def test_trigger_falls_back_to_first_nonblank_line() -> None:
         triggering_cell_source="\n\n  train(model)  \n# rest",
     )
     assert plan.run_label == "train(model)"
+    assert plan.run_label_provenance is ConfigLayer.INFERRED
 
 
 def test_manual_without_directive_or_ui_has_no_run_label() -> None:

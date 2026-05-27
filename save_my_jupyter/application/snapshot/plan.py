@@ -15,6 +15,7 @@ from save_my_jupyter.domain.capture import (
 )
 from save_my_jupyter.domain.config import EffectiveConfig
 from save_my_jupyter.domain.enums import ArtifactKind, SnapshotSource
+from save_my_jupyter.domain.provenance import ConfigLayer
 
 
 def plan_capture(
@@ -28,6 +29,7 @@ def plan_capture(
     ui_tags: tuple[str, ...] = (),
     ui_run_label: str | None = None,
     default_tags: tuple[str, ...] = (),
+    default_run_label: str | None = None,
     triggering_cell_source: str | None = None,
 ) -> CapturePlan:
     artifacts: list[PlannedArtifact] = []
@@ -39,7 +41,7 @@ def plan_capture(
                 summary="Notebook (all cells, outputs, metadata)",
             )
         )
-    if outline.figure_count > 0:
+    if outline.figure_count > 0 and not config.include_notebook_file:
         suffix = "" if outline.figure_count == 1 else "s"
         artifacts.append(
             PlannedArtifact(
@@ -61,10 +63,11 @@ def plan_capture(
         )
 
     tags = merge_tags(directive.tags, ui_tags, default_tags)
-    run_label = _resolve_run_label(
+    run_label, run_label_provenance = _resolve_run_label(
         source=source,
         directive=directive,
         ui_run_label=ui_run_label,
+        default_run_label=default_run_label,
         triggering_cell_source=triggering_cell_source,
     )
 
@@ -73,6 +76,7 @@ def plan_capture(
         target=config.target,
         tags=tags,
         run_label=run_label,
+        run_label_provenance=run_label_provenance,
     )
 
 
@@ -81,15 +85,20 @@ def _resolve_run_label(
     source: SnapshotSource,
     directive: DirectiveResult,
     ui_run_label: str | None,
+    default_run_label: str | None,
     triggering_cell_source: str | None,
-) -> str | None:
+) -> tuple[str | None, ConfigLayer | None]:
     if ui_run_label is not None and ui_run_label.strip():
-        return ui_run_label.strip()
+        return ui_run_label.strip(), ConfigLayer.REQUEST
     if directive.run_label is not None:
-        return directive.run_label
+        return directive.run_label, ConfigLayer.NOTEBOOK
+    if default_run_label is not None and default_run_label.strip():
+        return default_run_label.strip(), ConfigLayer.USER
     if source is SnapshotSource.TRIGGER_CELL and triggering_cell_source is not None:
-        return _first_nonblank_line(triggering_cell_source)
-    return None
+        label = _first_nonblank_line(triggering_cell_source)
+        if label is not None:
+            return label, ConfigLayer.INFERRED
+    return None, None
 
 
 def _first_nonblank_line(source: str) -> str | None:

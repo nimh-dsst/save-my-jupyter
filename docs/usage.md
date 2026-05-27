@@ -74,7 +74,9 @@ still review your watched-paths list.
 Upload guardrails stop oversized inline saves before they are sent to
 LabArchives: notebooks are limited to 50 MiB, watched-file attachments are
 limited to 25 MiB each, and raw diff attachments are truncated at 1 MiB. Rich
-notebook diffs are still rendered separately when available.
+notebook diffs are still rendered separately when available. Figure outputs are
+rendered inside the readable notebook or notebook-diff page rather than as
+separate figure pages when the notebook is saved.
 
 ## Configure Snapshot Behavior
 
@@ -189,8 +191,8 @@ Each snapshot becomes one LabArchives page and may include:
 - snapshot metadata
 - Git metadata
 - rich notebook diff text and a filtered raw patch for non-notebook files
-- the notebook file
-- PNG figures found in visible notebook outputs
+- the notebook file, with visible output figures rendered inline in the
+  readable notebook page
 - watched file attachments
 - execution summaries for text, image-only, multi-output, and error outputs
 
