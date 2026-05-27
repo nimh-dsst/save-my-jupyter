@@ -25,6 +25,16 @@ def test_triggered_cell_order_does_not_matter() -> None:
     )
 
 
+def test_tag_set_is_part_of_fingerprint() -> None:
+    assert _fingerprint(tags=("baseline",)) != _fingerprint(tags=("baseline", "qc"))
+
+
+def test_tag_order_and_blank_padding_do_not_matter() -> None:
+    assert _fingerprint(tags=("qc", " baseline ", "")) == _fingerprint(
+        tags=("baseline", "qc")
+    )
+
+
 def test_different_triggered_cells_differ() -> None:
     assert _fingerprint(triggered_cell_ids=("cell-a",)) != _fingerprint(
         triggered_cell_ids=("cell-a", "cell-b")
