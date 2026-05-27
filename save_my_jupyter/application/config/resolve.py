@@ -41,6 +41,7 @@ def _first[T](*candidates: tuple[T | None, ConfigLayer]) -> tuple[T, ConfigLayer
 def resolve_effective_config(
     *,
     request_commit_mode: CommitMode | None = None,
+    request_watched_paths: RelativeWatchPaths | None = None,
     notebook: NotebookMetadataConfig,
     user: UserSettingsConfig,
     repo: RepoConfig | None,
@@ -64,8 +65,9 @@ def resolve_effective_config(
         (False, ConfigLayer.FALLBACK),
     )
 
-    # empty watched-path lists mean "unset" and fall through to the next layer.
+    # A missing request falls through; an explicit empty request clears lower layers.
     watched_paths, provenance["watched_paths"] = _first(
+        (request_watched_paths, ConfigLayer.REQUEST),
         (notebook.watched_paths or None, ConfigLayer.NOTEBOOK),
         ((repo.default_watch_paths if repo else None) or None, ConfigLayer.REPO),
         (_EMPTY_WATCH_PATHS, ConfigLayer.FALLBACK),

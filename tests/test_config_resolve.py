@@ -148,6 +148,34 @@ def test_project_name_comes_from_repo_then_fallback() -> None:
 # --- watched paths (C-CONFIG-08) ---
 
 
+def test_request_watched_paths_win_over_notebook_and_repo() -> None:
+    resolved = resolve_effective_config(
+        request_watched_paths=(RelativeWatchPath("request-output"),),
+        notebook=NotebookMetadataConfig(watched_paths=(RelativeWatchPath("figures"),)),
+        user=UserSettingsConfig(),
+        repo=RepoConfig(
+            project_name="p",
+            default_watch_paths=(RelativeWatchPath("outputs"),),
+        ),
+    )
+    assert resolved.effective.watched_paths == (RelativeWatchPath("request-output"),)
+    assert resolved.provenance["watched_paths"] is ConfigLayer.REQUEST
+
+
+def test_explicit_empty_request_watched_paths_clear_lower_layers() -> None:
+    resolved = resolve_effective_config(
+        request_watched_paths=(),
+        notebook=NotebookMetadataConfig(watched_paths=(RelativeWatchPath("figures"),)),
+        user=UserSettingsConfig(),
+        repo=RepoConfig(
+            project_name="p",
+            default_watch_paths=(RelativeWatchPath("outputs"),),
+        ),
+    )
+    assert resolved.effective.watched_paths == ()
+    assert resolved.provenance["watched_paths"] is ConfigLayer.REQUEST
+
+
 def test_empty_notebook_watched_paths_fall_through_to_repo() -> None:
     resolved = resolve_effective_config(
         notebook=NotebookMetadataConfig(watched_paths=()),
