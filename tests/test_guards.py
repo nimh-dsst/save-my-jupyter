@@ -25,6 +25,7 @@ def test_validate_rejects_empty() -> None:
     result = validate_watched_path("   ")
     assert isinstance(result, WatchedPathRejected)
     assert result.message == "Watched paths must not be empty."
+    assert result.code == "invalid_sequence_item"
 
 
 @pytest.mark.parametrize("raw", ["/abs/path", "\\\\server\\share", "C:\\x"])
@@ -32,18 +33,21 @@ def test_validate_rejects_absolute(raw: str) -> None:
     result = validate_watched_path(raw)
     assert isinstance(result, WatchedPathRejected)
     assert result.message == "Watched paths must be relative."
+    assert result.code == "absolute_path_not_allowed"
 
 
 def test_validate_rejects_parent_traversal() -> None:
     result = validate_watched_path("outputs/../secrets")
     assert isinstance(result, WatchedPathRejected)
     assert result.message == "Watched paths must stay within the notebook or repo root."
+    assert result.code == "path_escapes_root"
 
 
 def test_validate_rejects_dot_only() -> None:
     result = validate_watched_path("./././")
     assert isinstance(result, WatchedPathRejected)
     assert result.message == "Watched paths must include at least one path segment."
+    assert result.code == "invalid_sequence_item"
 
 
 def test_validate_normalizes_to_posix() -> None:

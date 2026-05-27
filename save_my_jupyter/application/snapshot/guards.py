@@ -68,12 +68,18 @@ def validate_watched_path(raw: str) -> WatchedPathValidation:
     normalized POSIX path or a rejection carrying the exact user-facing message."""
     trimmed = raw.strip()
     if trimmed == "":
-        return WatchedPathRejected(message="Watched paths must not be empty.")
+        return WatchedPathRejected(
+            message="Watched paths must not be empty.",
+            code="invalid_sequence_item",
+        )
     if (
         trimmed.startswith(("/", "\\\\"))
         or _WINDOWS_ABSOLUTE.match(trimmed) is not None
     ):
-        return WatchedPathRejected(message="Watched paths must be relative.")
+        return WatchedPathRejected(
+            message="Watched paths must be relative.",
+            code="absolute_path_not_allowed",
+        )
 
     segments: list[str] = []
     for segment in re.split(r"[\\/]+", trimmed):
@@ -82,12 +88,14 @@ def validate_watched_path(raw: str) -> WatchedPathValidation:
         if segment == "..":
             return WatchedPathRejected(
                 message="Watched paths must stay within the notebook or repo root.",
+                code="path_escapes_root",
             )
         segments.append(segment)
 
     if not segments:
         return WatchedPathRejected(
             message="Watched paths must include at least one path segment.",
+            code="invalid_sequence_item",
         )
     return WatchedPathAccepted(normalized="/".join(segments))
 

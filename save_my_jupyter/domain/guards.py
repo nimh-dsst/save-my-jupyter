@@ -13,9 +13,11 @@ class WatchedPathAccepted:
 @dataclass(frozen=True, slots=True)
 class WatchedPathRejected:
     """A rejected watched-path entry with the exact user-facing message
-    (contract C-WATCH-02)."""
+    (contract C-WATCH-02) and a stable error code (C-FAIL-01) the HTTP boundary
+    can surface without re-deriving the reason."""
 
     message: str
+    code: str
 
 
 type WatchedPathValidation = WatchedPathAccepted | WatchedPathRejected
