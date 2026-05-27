@@ -34,6 +34,12 @@ export class ApiClient {
     );
   }
 
+  async listJobs(limit: number): Promise<unknown> {
+    return this.request("GET", ["snapshot-jobs"], undefined, {
+      limit: String(limit),
+    });
+  }
+
   async authStatus(): Promise<AuthState> {
     return parseAuthState(await this.request("GET", ["auth", "status"]));
   }
@@ -46,8 +52,12 @@ export class ApiClient {
     method: string,
     parts: readonly string[],
     body?: unknown,
+    query?: Record<string, string>,
   ): Promise<unknown> {
-    const url = URLExt.join(this.settings.baseUrl, NAMESPACE, ...parts);
+    let url = URLExt.join(this.settings.baseUrl, NAMESPACE, ...parts);
+    if (query !== undefined) {
+      url += URLExt.objectToQueryString(query);
+    }
     const init: RequestInit = { method };
     if (body !== undefined) {
       init.body = JSON.stringify(body);
