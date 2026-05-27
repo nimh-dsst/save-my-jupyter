@@ -7,7 +7,7 @@ from __future__ import annotations
 from save_my_jupyter.domain.jobs import JobState
 
 _ALLOWED_TRANSITIONS: dict[JobState, frozenset[JobState]] = {
-    JobState.QUEUED: frozenset({JobState.RUNNING, JobState.ABANDONED}),
+    JobState.QUEUED: frozenset({JobState.RUNNING, JobState.FAILED, JobState.ABANDONED}),
     JobState.RUNNING: frozenset(
         {JobState.PERSISTED, JobState.FAILED, JobState.ABANDONED}
     ),

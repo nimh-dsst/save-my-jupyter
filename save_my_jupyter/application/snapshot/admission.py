@@ -6,6 +6,7 @@ resets on restart -- by design, a restart re-enables a previously deduped run
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
@@ -50,6 +51,7 @@ class SnapshotAdmission:
         self._active_fingerprints: dict[str, str] = {}
         self._completed_fingerprints: dict[str, datetime] = {}
         self._jobs: dict[str, _JobInfo] = {}
+        self._lock = threading.Lock()
 
     def admit(
         self,
@@ -59,42 +61,44 @@ class SnapshotAdmission:
         fingerprint: RunFingerprint,
         job_id: str,
     ) -> AdmissionDecision:
-        self._expire_completed()
+        with self._lock:
+            self._expire_completed()
 
-        if source is SnapshotSource.TRIGGER_CELL:
-            in_flight = self._active_fingerprints.get(fingerprint)
-            if in_flight is not None:
-                return Coalesced(job_id=job_id, coalesced_into=in_flight)
-            if fingerprint in self._completed_fingerprints:
+            if source is SnapshotSource.TRIGGER_CELL:
+                in_flight = self._active_fingerprints.get(fingerprint)
+                if in_flight is not None:
+                    return Coalesced(job_id=job_id, coalesced_into=in_flight)
+                if fingerprint in self._completed_fingerprints:
+                    return Rejected(
+                        reason_code="duplicate_run", message=DUPLICATE_RUN_MESSAGE
+                    )
+
+            if self._pending.get(notebook_key, 0) >= self._max_pending:
                 return Rejected(
-                    reason_code="duplicate_run", message=DUPLICATE_RUN_MESSAGE
+                    reason_code="snapshot_queue_full", message=QUEUE_FULL_MESSAGE
                 )
 
-        if self._pending.get(notebook_key, 0) >= self._max_pending:
-            return Rejected(
-                reason_code="snapshot_queue_full", message=QUEUE_FULL_MESSAGE
+            self._pending[notebook_key] = self._pending.get(notebook_key, 0) + 1
+            if source is SnapshotSource.TRIGGER_CELL:
+                self._active_fingerprints[fingerprint] = job_id
+            self._jobs[job_id] = _JobInfo(
+                notebook_key=notebook_key, fingerprint=fingerprint, source=source
             )
-
-        self._pending[notebook_key] = self._pending.get(notebook_key, 0) + 1
-        if source is SnapshotSource.TRIGGER_CELL:
-            self._active_fingerprints[fingerprint] = job_id
-        self._jobs[job_id] = _JobInfo(
-            notebook_key=notebook_key, fingerprint=fingerprint, source=source
-        )
-        return Accepted(job_id=job_id)
+            return Accepted(job_id=job_id)
 
     def complete(self, job_id: str, *, succeeded: bool) -> None:
-        info = self._jobs.pop(job_id, None)
-        if info is None:
-            return
-        remaining = self._pending.get(info.notebook_key, 0) - 1
-        self._pending[info.notebook_key] = max(0, remaining)
-        if info.source is SnapshotSource.TRIGGER_CELL:
-            self._active_fingerprints.pop(info.fingerprint, None)
-            # Only a successful run records its fingerprint; failures stay
-            # retryable (contract C-QUEUE-04).
-            if succeeded:
-                self._completed_fingerprints[info.fingerprint] = self._clock.now()
+        with self._lock:
+            info = self._jobs.pop(job_id, None)
+            if info is None:
+                return
+            remaining = self._pending.get(info.notebook_key, 0) - 1
+            self._pending[info.notebook_key] = max(0, remaining)
+            if info.source is SnapshotSource.TRIGGER_CELL:
+                self._active_fingerprints.pop(info.fingerprint, None)
+                # Only a successful run records its fingerprint; failures stay
+                # retryable (contract C-QUEUE-04).
+                if succeeded:
+                    self._completed_fingerprints[info.fingerprint] = self._clock.now()
 
     def _expire_completed(self) -> None:
         cutoff = self._clock.now() - self._dedupe_ttl
