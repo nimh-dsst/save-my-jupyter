@@ -82,6 +82,59 @@ The intended workflow is:
 The project is intentionally strict about unit tests and static analysis as code
 is added.
 
+## Test-Driven Workflow
+
+`AGENTS.md` (and its `CLAUDE.md` symlink) is the authoritative workflow guide.
+Every behavior change follows red → green → refactor:
+
+1. Find or write the user-observable behavior in `contracts.md`. That file is the
+   spec; `targets.md` explains how the spec is organized around the six targets.
+2. Write the smallest failing test against the public surface and confirm it fails
+   for the right reason.
+3. Make it green with the smallest change.
+4. Re-run the local gate; refactor; re-run.
+
+Pure mechanical changes (renames, formatting, dependency bumps) are exempt.
+
+### Contract-ID test convention
+
+Tests cite the contract they verify by stable ID, so a reader can map a test back
+to the promise it protects. Put the ID in the test name or a leading comment:
+
+```python
+def test_errored_run_still_snapshots_with_run_outcome_error() -> None:
+    # C-SNAP-07: an errored trigger run is captured with run_outcome = error
+    ...
+```
+
+A contract without a test is a defect to fix the next time the area is touched.
+
+## Architecture & Import Rules
+
+The package uses a layered hexagonal structure. Allowed import direction:
+
+```text
+http/    -> application/ -> ports/ -> adapters/
+worker/  -> application/ -> ports/ -> adapters/
+application/ -> domain/
+adapters/    -> domain/
+```
+
+Hard rules, enforced by lint and by `tests/test_architecture.py` (an AST test):
+
+- `domain/` imports nothing from the project except itself.
+- `ports/` imports only `domain/` (Protocol seams over `domain` types).
+- `application/` and `domain/` must not import Tornado, dulwich, labapi, sqlite3,
+  keyring, or requests. IO happens only through `ports/` Protocols, implemented in
+  `adapters/`.
+- `application/` is not all pure: config resolution, capture planning, bundle
+  building, and message formatting are pure; orchestrators perform IO only through
+  ports. `git/inspect.py` and capture file reads are read-only adapters
+  (side-effect-free but not pure); `git/mutate.py` and deliveries are side effects.
+
+If the architecture test fails, a forbidden import has crossed a layer boundary —
+move the IO behind a port rather than relaxing the test.
+
 ## Packaging
 
 Build artifacts:

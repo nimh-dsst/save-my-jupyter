@@ -52,9 +52,16 @@ Deliberately not in the bundle:
 - the entire working tree — only files the user has opted in
 - raw `.ipynb` JSON noise — the rich notebook diff filters it out
 
+**Structure (honest purity boundaries):** capture is three stages so "pure" stays true.
+- **CapturePlanner** — *pure*. Given the in-memory notebook model, resolved config, git inspection result, and user metadata, it produces a `CapturePlan` (destination, declared watched-path patterns, commit context, expected artifacts). Same inputs → same plan. This is what the preview endpoint runs.
+- **CaptureReader** — *read-only adapter*. Reads bytes from disk at capture time (notebook bytes or frontend-supplied content, matched watched-file bytes), applying PROTECT guards. Side-effect-free but not pure: the same plan can yield different bytes if the filesystem moved. This is what the Activity receipt reflects.
+- **BundleBuilder** — *pure*. Combines plan + bytes + git context + diff + metadata into the `SnapshotBundle`.
+
+Git is split to keep this honest: `git/inspect.py` is a read-only adapter (repo root, HEAD, dirty state, scoped diff), and `git/mutate.py` (staging, commit creation) is a side effect the orchestrator runs *before* bundling, passing the resulting commit hash in.
+
 **Why core:** without capture, there's nothing to deliver. The *shape* of capture is what determines whether a snapshot is useful later: enough context to reproduce, not so much that the snapshot is noise.
 
-**Contracts under this target:** the CONTENT family, the GIT family, part of the WATCH family (the "what gets included" half).
+**Contracts under this target:** the CONTENT family, the DIRECTIVE family, the GIT family, part of the WATCH family (the "what gets included" half).
 
 ---
 
@@ -62,12 +69,13 @@ Deliberately not in the bundle:
 
 **Decide when a capture fires.**
 
-Two modes today:
+Two modes:
 - **Explicit**: the user clicks (panel, notebook toolbar, command palette). Always uncontested — manual snapshots never dedupe.
-- **Automatic**: cell execution. Either a marked trigger cell or "every cell" mode. Successful executions only.
+- **Automatic**: cell execution. Either a marked trigger cell or "every cell" mode. Error runs are captured too — the error state is the point, not a reason to skip.
 
-Plus a refinement:
-- **Coalesce**: rapid bursts (e.g., Run All) collapse into one snapshot covering all triggered cells, not N snapshots.
+Coalescing is **execution-lifecycle, not timer-based**: triggered cells accumulate as they finish, and the pending set flushes once when the run completes (on both success and error). One run = one snapshot regardless of duration; separate runs stay separate.
+
+**Dedupe ownership is the backend's.** Frontend coalescing is a UX nicety; it is never the only protection. The backend coordinator is authoritative for run-fingerprint dedupe, queue limits, and coalesce-into-running, because duplicate submissions also come from multiple tabs, retries, network re-sends, and future non-browser API clients — none of which a frontend debounce can see.
 
 What it isn't:
 - Filesystem watching. The "watched paths" name is misleading — they're not polled; they're matched at trigger time. This is now explicit in the docs.
@@ -107,14 +115,17 @@ Failure shapes the user trusts:
 **Tell the user what happened in terms they can act on.**
 
 After every snapshot — successful or not — the user needs:
-- Confirmation that the work is done (not "queued", not "in flight" — actually persisted before the message appears).
-- A pointer to the result they can navigate to: job id, snapshot id, commit hash (with "created" vs "reused HEAD"), commit URL when buildable, LabArchives directory + page references.
+- A pointer to the result they can navigate to: job id, snapshot id, commit hash (with "created" vs "reused HEAD"), commit URL when buildable, and a clickable LabArchives directory URL.
 - A clear failure explanation when it didn't work — coded by cause (session expired, file too large, queue full, etc.) — not "something went wrong."
 - Ambient awareness for automatic snapshots, since the user wasn't watching: JupyterLab notifications for start (3s), success (5s), and failure (7s), all timed differently so the user can read them.
 
+**Preview is advisory; the Activity receipt is authoritative.** The "What will be saved" review is timestamped and computed from the shared resolver, but filesystem-dependent parts (watched-file matches) are recomputed at execution. What the Activity entry records is the truth about what was uploaded. The review marks itself stale when the notebook has unsaved changes it didn't see.
+
+**Transport is explicit, not magic.** Event *shapes* are shared between backend and frontend; the *transport* is HTTP. `POST /snapshot` returns `{job_id, status}` immediately on intake; the panel polls `GET /snapshot-jobs/<id>` for the job's live state (`queued | running | persisted | failed | abandoned`) and reads `GET /snapshot-jobs?limit=N` for the Activity feed. The backend returns both structured fields and a canonical `display_message`; the frontend renders structured refs for rich UI but uses `display_message` for status/notification copy, so the two never drift. SSE/WebSocket can replace polling later without changing event shapes.
+
 **Why core:** a save the user can't find isn't a save. Silent failures destroy trust faster than loud ones do. CONFIRM is the user's only proof the system works.
 
-**Contracts:** the success/failure message shapes (SNAP-MAN-05, SNAP-TRIG-6/7/8), the FAIL vocabulary, the four status kinds, the post-save reference list.
+**Contracts:** the success/failure message shapes (SNAP-05/06, SNAP-07 notifications), the FAIL vocabulary, the four status kinds, the API job endpoints, the durable Activity contracts (QUEUE-05/06).
 
 ---
 
@@ -122,18 +133,21 @@ After every snapshot — successful or not — the user needs:
 
 **Let individuals and teams shape capture, trigger, and delivery to match how they work.**
 
-Four layers, highest precedence first:
+Five layers, highest precedence first:
 1. Per-request (this snapshot's commit-mode choice)
 2. Per-notebook (`metadata.save_my_jupyter` in the `.ipynb` — travels with the file)
 3. Per-user (JupyterLab settings registry — defaults that follow the user)
 4. Per-repo (`.save-my-jupyter.toml` — team defaults that travel in git)
+5. Inferred (deterministic, context-derived: destination from project + notebook path, run label from the triggering cell) — then a hardcoded fallback beneath that.
+
+The resolved config carries per-field **provenance** so the panel can label `(inferred)` values inline in "What will be saved." Inference is the burden-shifting layer: a user who configures nothing still gets a working, non-arbitrary, non-PII result they can see and override.
 
 Configurable surface:
-- What gets captured: `include_notebook_file`, `include_diff_when_dirty`, the watched-paths list
-- Where it lands: target LabArchives notebook + a path template with 16 substitutable variables
-- How git participates: three commit modes, staging rules, commit message template
+- What gets captured: `include_notebook_file`, `include_diff_when_dirty`, the watched-paths list (opt-in; empty by default)
+- Where it lands: target LabArchives notebook + a path template with substitutable variables
+- How git participates: commit modes (`ask`/`always`/`never`, with `ask` showing an in-panel prompt + remember), staging rules, commit message template
 - Trigger policy: marked cells vs. every cell, per-notebook
-- Tag/metadata defaults
+- Tag/run-label defaults — including in-source `# smj:` code directives (DIRECTIVE family)
 
 Plus a one-click starter generator so users don't have to write the repo config from scratch.
 
