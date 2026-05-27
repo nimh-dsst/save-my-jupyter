@@ -28,16 +28,19 @@ def render_metadata_page(
         ("Commit status", metadata.commit_status),
         ("Commit URL", metadata.commit_url),
         ("Diff included", "Yes" if metadata.diff_included else "No"),
+        ("Notebook diff", _notebook_diff_summary(metadata)),
         ("Extension version", metadata.extension_version),
         ("Run label", metadata.run_label),
         (_TAGS_LABEL, ", ".join(metadata.tags) or None),
         ("Notes", metadata.notes),
+        *_extra_field_rows(metadata.extra_fields),
     ]
     table_rows = "\n".join(_render_row(label, value) for label, value in rows)
     return (
         "<h2>Snapshot metadata</h2>\n"
         f"<table>\n{table_rows}\n</table>\n"
         f"{_render_summary(metadata.execution_summary)}\n"
+        f"{_render_working_tree_diff(metadata.working_tree_diff)}\n"
         f"{_render_artifacts(artifact_page_names)}"
     )
 
@@ -49,6 +52,22 @@ def _render_row(label: str, value: str | None) -> str:
 
 def _render_summary(summary: str) -> str:
     return f"<h3>Execution summary</h3>\n<pre>{escape(summary)}</pre>"
+
+
+def _render_working_tree_diff(diff_text: str | None) -> str:
+    if not diff_text:
+        return ""
+    return f"<h3>Working tree diff</h3>\n<pre>{escape(diff_text)}</pre>"
+
+
+def _extra_field_rows(fields: dict[str, str]) -> list[tuple[str, str]]:
+    return [(f"Metadata: {key}", value) for key, value in fields.items()]
+
+
+def _notebook_diff_summary(metadata: SnapshotMetadata) -> str | None:
+    if metadata.notebook_diff is None:
+        return None
+    return f"{metadata.notebook_diff.summary} See {metadata.notebook_diff.page_name}."
 
 
 def _render_artifacts(page_names: Sequence[str]) -> str:

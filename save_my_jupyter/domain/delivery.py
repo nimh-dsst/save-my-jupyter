@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from save_my_jupyter.domain.config import LabArchivesTarget
 from save_my_jupyter.domain.enums import SnapshotSource
@@ -12,7 +12,25 @@ from save_my_jupyter.domain.types import (
     RemoteUrl,
     RunFingerprint,
     SnapshotId,
+    StringMap,
 )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class NotebookDiffEntry:
+    """One rich-text LabArchives entry for a cell in the notebook diff page."""
+
+    title: str
+    html: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class NotebookDiff:
+    """Readable cell-by-cell notebook view with diff highlighting."""
+
+    page_name: str
+    summary: str
+    entries: tuple[NotebookDiffEntry, ...]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -36,6 +54,9 @@ class SnapshotMetadata:
     tags: tuple[str, ...]
     notes: str | None
     execution_summary: str
+    extra_fields: StringMap = field(default_factory=dict)
+    notebook_diff: NotebookDiff | None = None
+    working_tree_diff: str | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -45,6 +66,7 @@ class BundleArtifact:
     page_name: str
     mime_type: MimeType
     content: bytes
+    description: str | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

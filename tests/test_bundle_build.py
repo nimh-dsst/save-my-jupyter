@@ -8,6 +8,7 @@ from save_my_jupyter.application.snapshot.build import (
     build_snapshot_bundle,
     format_directory_name,
 )
+from save_my_jupyter.application.snapshot.diff import DIFF_FILTER_QUALIFIER
 from save_my_jupyter.domain.artifacts import (
     FigureArtifact,
     NotebookPayload,
@@ -68,7 +69,7 @@ def test_directory_name_uses_iso_millisecond_timestamp_and_snapshot_id() -> None
 # --- bundle assembly (C-DEST-03, C-CONTENT order) ---
 
 
-def test_bundle_orders_notebook_then_figures_then_files_then_diff() -> None:
+def test_bundle_orders_notebook_then_files_then_diff_and_embeds_figures() -> None:
     bundle = build_snapshot_bundle(
         directory_name="dir-1",
         target=_TARGET,
@@ -90,13 +91,13 @@ def test_bundle_orders_notebook_then_figures_then_files_then_diff() -> None:
     )
     assert [artifact.page_name for artifact in bundle.artifacts] == [
         "analysis.ipynb",
-        "figure-001.png",
         "result.csv",
         "working-tree.patch",
     ]
     assert bundle.artifacts[0].mime_type == "application/x-ipynb+json"
     assert bundle.artifacts[-1].mime_type == "text/x-diff"
     assert bundle.artifacts[-1].content == b"diff --git a/x b/x"
+    assert bundle.artifacts[-1].description == DIFF_FILTER_QUALIFIER
 
 
 def test_bundle_omits_notebook_when_absent() -> None:
@@ -107,6 +108,22 @@ def test_bundle_omits_notebook_when_absent() -> None:
         notebook=None,
     )
     assert bundle.artifacts == ()
+
+
+def test_bundle_keeps_figures_when_notebook_is_absent() -> None:
+    bundle = build_snapshot_bundle(
+        directory_name="dir-1",
+        target=_TARGET,
+        metadata=_metadata(),
+        notebook=None,
+        figures=(
+            FigureArtifact(
+                name="figure-001.png", mime_type=MimeType("image/png"), content=b"img"
+            ),
+        ),
+    )
+
+    assert [artifact.page_name for artifact in bundle.artifacts] == ["figure-001.png"]
 
 
 def test_bundle_omits_diff_when_blank() -> None:
@@ -154,8 +171,8 @@ def test_fake_delivery_receipt_counts_metadata_plus_artifacts() -> None:
     )
     receipt = delivery.deliver(bundle)
 
-    # one 00 Metadata page + notebook + figure
-    assert receipt.page_count == 3
+    # one 00 Metadata page + notebook; figures are embedded in the notebook page.
+    assert receipt.page_count == 2
     assert receipt.meta_page_name == "00 Metadata"
     assert receipt.directory_name == "2026-05-26T12-00-00.123_snapshot-1"
     assert receipt.url is not None

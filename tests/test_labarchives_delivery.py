@@ -7,7 +7,12 @@ from save_my_jupyter.adapters.labarchives.delivery import LabArchivesDelivery
 from save_my_jupyter.application.snapshot.build import build_snapshot_bundle
 from save_my_jupyter.domain.artifacts import NotebookPayload, WatchedFileArtifact
 from save_my_jupyter.domain.config import LabArchivesTarget
-from save_my_jupyter.domain.delivery import SnapshotBundle, SnapshotMetadata
+from save_my_jupyter.domain.delivery import (
+    NotebookDiff,
+    NotebookDiffEntry,
+    SnapshotBundle,
+    SnapshotMetadata,
+)
 from save_my_jupyter.domain.enums import SnapshotSource
 from save_my_jupyter.domain.errors import SnapshotError
 from save_my_jupyter.domain.jobs import RunOutcome
@@ -23,34 +28,64 @@ if TYPE_CHECKING:
 
 
 class _FakeClient:
-    def __init__(self, *, fail_on_attach: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        fail_on_attach: bool = False,
+        fail_on_create: bool = False,
+        fail_with_snapshot_error: bool = False,
+    ) -> None:
         self.pages: list[str] = []
+        self.html_entries: list[tuple[str, str]] = []
         self.deleted: list[str] = []
         self.attachments: list[str] = []
+        self.attachment_pages: list[tuple[str, str]] = []
+        self.attachment_descriptions: list[tuple[str, str]] = []
+        self._page_names: dict[str, str] = {}
         self._fail_on_attach = fail_on_attach
+        self._fail_on_create = fail_on_create
+        self._fail_with_snapshot_error = fail_with_snapshot_error
         self._counter = 0
 
     def create_directory(
         self, *, notebook_name: str, root_path: str, directory_name: str
     ) -> str:
+        if self._fail_on_create:
+            raise RuntimeError("create failed")
         return f"dir::{directory_name}"
 
     def create_page(self, *, directory_id: str, page_name: str) -> str:
+        if self._fail_with_snapshot_error:
+            raise SnapshotError(
+                "LabArchives session expired; sign in again to continue.",
+                code="labarchives_session_expired",
+            )
         self._counter += 1
         page_id = f"page-{self._counter}"
         self.pages.append(page_name)
+        self._page_names[page_id] = page_name
         return page_id
 
     def write_page_html(self, *, page_id: str, html: str) -> None:
-        del page_id, html
+        self.html_entries.append((self._page_names[page_id], html))
 
     def attach_file(
-        self, *, page_id: str, filename: str, mime_type: str, content: bytes
+        self,
+        *,
+        page_id: str,
+        filename: str,
+        mime_type: str,
+        content: bytes,
+        description: str | None = None,
     ) -> None:
-        del page_id, mime_type, content
+        del mime_type, content
         if self._fail_on_attach:
             raise RuntimeError("labarchives attach failed")
         self.attachments.append(filename)
+        self.attachment_pages.append((self._page_names[page_id], filename))
+        self.attachment_descriptions.append(
+            (filename, description if description is not None else filename)
+        )
 
     def delete_directory(self, *, directory_id: str) -> None:
         self.deleted.append(directory_id)
@@ -59,7 +94,7 @@ class _FakeClient:
         return f"https://labarchives.test/{directory_id}"
 
 
-def _bundle() -> SnapshotBundle:
+def _bundle(*, notebook_diff: NotebookDiff | None = None) -> SnapshotBundle:
     metadata = SnapshotMetadata(
         notebook_name="nb.ipynb",
         notebook_path="proj/nb.ipynb",
@@ -77,6 +112,7 @@ def _bundle() -> SnapshotBundle:
         tags=(),
         notes=None,
         execution_summary="ok",
+        notebook_diff=notebook_diff,
     )
     return build_snapshot_bundle(
         directory_name="2026-05-26T12-00-00.000_snap-1",
@@ -85,7 +121,14 @@ def _bundle() -> SnapshotBundle:
             root_path=LabArchivesRootPath("Notebook Log/a@b.org"),
         ),
         metadata=metadata,
-        notebook=NotebookPayload(filename="nb.ipynb", content=b"{}"),
+        notebook=NotebookPayload(
+            filename="nb.ipynb",
+            content=(
+                b'{"cells":[{"cell_type":"code","source":"print(1)\\n",'
+                b'"outputs":[{"output_type":"stream","name":"stdout",'
+                b'"text":"done\\n"}]}]}'
+            ),
+        ),
         files=(
             WatchedFileArtifact(
                 filename="result.csv", mime_type=MimeType("text/csv"), content=b"a,b"
@@ -108,6 +151,50 @@ def test_successful_delivery_creates_pages_and_returns_receipt() -> None:
     assert client.deleted == []
 
 
+def test_delivery_writes_readable_notebook_page_html() -> None:
+    client = _FakeClient()
+    delivery: Delivery = LabArchivesDelivery(client)
+
+    delivery.deliver(_bundle())
+
+    notebook_entries = [
+        html for page_name, html in client.html_entries if page_name == "nb.ipynb"
+    ]
+    assert len(notebook_entries) == 1
+    assert "Notebook nb.ipynb" in notebook_entries[0]
+    assert "Cell 1 (code)" in notebook_entries[0]
+    assert "print" in notebook_entries[0]
+    assert "1" in notebook_entries[0]
+    assert "stream (stdout)" in notebook_entries[0]
+    assert "done" in notebook_entries[0]
+    assert client.attachments == ["nb.ipynb", "result.csv"]
+
+
+def test_delivery_writes_rich_notebook_diff_page_entries() -> None:
+    client = _FakeClient()
+    delivery: Delivery = LabArchivesDelivery(client)
+    notebook_diff = NotebookDiff(
+        page_name="01 Notebook Diff",
+        summary="1 of 1 cells changed.",
+        entries=(
+            NotebookDiffEntry(
+                title="Cell 1 changed",
+                html="<section>Cell 1 changed</section>",
+            ),
+        ),
+    )
+
+    receipt = delivery.deliver(_bundle(notebook_diff=notebook_diff))
+
+    assert client.pages == ["00 Metadata", "01 Notebook Diff", "nb.ipynb", "result.csv"]
+    assert (
+        "01 Notebook Diff",
+        "<section>Cell 1 changed</section>",
+    ) in client.html_entries
+    assert ("nb.ipynb", "nb.ipynb") in client.attachment_pages
+    assert receipt.page_count == 4
+
+
 def test_failed_delivery_cleans_up_and_raises() -> None:
     client = _FakeClient(fail_on_attach=True)
     delivery = LabArchivesDelivery(client)
@@ -115,4 +202,22 @@ def test_failed_delivery_cleans_up_and_raises() -> None:
         delivery.deliver(_bundle())
     assert exc.value.code == "labarchives_write_failed"
     # best-effort cleanup moved the directory to API Deleted Items
+    assert client.deleted == ["dir::2026-05-26T12-00-00.000_snap-1"]
+
+
+def test_directory_create_failure_is_wrapped_without_cleanup() -> None:
+    client = _FakeClient(fail_on_create=True)
+    delivery = LabArchivesDelivery(client)
+    with pytest.raises(SnapshotError) as exc:
+        delivery.deliver(_bundle())
+    assert exc.value.code == "labarchives_write_failed"
+    assert client.deleted == []
+
+
+def test_delivery_preserves_snapshot_error_after_cleanup() -> None:
+    client = _FakeClient(fail_with_snapshot_error=True)
+    delivery = LabArchivesDelivery(client)
+    with pytest.raises(SnapshotError) as exc:
+        delivery.deliver(_bundle())
+    assert exc.value.code == "labarchives_session_expired"
     assert client.deleted == ["dir::2026-05-26T12-00-00.000_snap-1"]

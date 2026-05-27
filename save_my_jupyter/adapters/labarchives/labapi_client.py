@@ -12,10 +12,14 @@ A real-LabArchives smoke test is required before trusting this path.
 
 from __future__ import annotations
 
+from contextlib import suppress
 from io import BytesIO
 from typing import Any
 
 import labapi
+
+_URL_ATTRIBUTE_NAMES = ("url", "web_url", "html_url", "permalink")
+_URL_METHOD_NAMES = ("url", "web_url", "html_url", "permalink", "get_url")
 
 
 class LabApiClient:
@@ -49,16 +53,44 @@ class LabApiClient:
         self._pages[page_id].entries.create(labapi.TextEntry, html)
 
     def attach_file(
-        self, *, page_id: str, filename: str, mime_type: str, content: bytes
+        self,
+        *,
+        page_id: str,
+        filename: str,
+        mime_type: str,
+        content: bytes,
+        description: str | None = None,
     ) -> None:
-        attachment = labapi.Attachment(BytesIO(content), mime_type, filename, filename)
+        attachment = labapi.Attachment(
+            BytesIO(content), mime_type, filename, description or filename
+        )
         self._pages[page_id].entries.create(labapi.AttachmentEntry, attachment)
 
     def delete_directory(self, *, directory_id: str) -> None:
         self._directories[directory_id].delete()
 
     def directory_url(self, *, directory_id: str) -> str | None:
-        # The labapi web URL for a directory is not part of the ported call set;
-        # the receipt degrades to the metadata page name until wired (C-DEST-05).
-        del directory_id
-        return None
+        directory = self._directories.get(directory_id)
+        if directory is None:
+            return None
+        return _object_url(directory)
+
+
+def _object_url(value: Any) -> str | None:
+    for attribute_name in _URL_ATTRIBUTE_NAMES:
+        candidate = getattr(value, attribute_name, None)
+        if isinstance(candidate, str) and _is_http_url(candidate):
+            return candidate
+    for method_name in _URL_METHOD_NAMES:
+        method = getattr(value, method_name, None)
+        if not callable(method):
+            continue
+        with suppress(Exception):
+            candidate = method()
+            if isinstance(candidate, str) and _is_http_url(candidate):
+                return candidate
+    return None
+
+
+def _is_http_url(value: str) -> bool:
+    return value.startswith(("https://", "http://"))

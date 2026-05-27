@@ -7,7 +7,12 @@ from save_my_jupyter.adapters.local_delivery import LocalDelivery
 from save_my_jupyter.application.snapshot.build import build_snapshot_bundle
 from save_my_jupyter.domain.artifacts import FigureArtifact, NotebookPayload
 from save_my_jupyter.domain.config import LabArchivesTarget
-from save_my_jupyter.domain.delivery import SnapshotBundle, SnapshotMetadata
+from save_my_jupyter.domain.delivery import (
+    NotebookDiff,
+    NotebookDiffEntry,
+    SnapshotBundle,
+    SnapshotMetadata,
+)
 from save_my_jupyter.domain.enums import SnapshotSource
 from save_my_jupyter.domain.jobs import RunOutcome
 from save_my_jupyter.domain.types import (
@@ -21,7 +26,13 @@ if TYPE_CHECKING:
     from save_my_jupyter.ports import Delivery
 
 
-def _bundle() -> SnapshotBundle:
+_NOTEBOOK_WITH_IMAGE = (
+    b'{"cells":[{"cell_type":"code","source":"plot()\\n","outputs":['
+    b'{"output_type":"display_data","data":{"image/png":"UE5H"}}]}]}'
+)
+
+
+def _bundle(*, notebook_diff: NotebookDiff | None = None) -> SnapshotBundle:
     metadata = SnapshotMetadata(
         notebook_name="nb.ipynb",
         notebook_path="proj/nb.ipynb",
@@ -39,6 +50,7 @@ def _bundle() -> SnapshotBundle:
         tags=(),
         notes=None,
         execution_summary="ok",
+        notebook_diff=notebook_diff,
     )
     return build_snapshot_bundle(
         directory_name="2026-05-26T12-00-00.000_snap-1",
@@ -47,7 +59,7 @@ def _bundle() -> SnapshotBundle:
             root_path=LabArchivesRootPath("Notebook Log"),
         ),
         metadata=metadata,
-        notebook=NotebookPayload(filename="nb.ipynb", content=b'{"cells": []}'),
+        notebook=NotebookPayload(filename="nb.ipynb", content=_NOTEBOOK_WITH_IMAGE),
         figures=(
             FigureArtifact(
                 name="figure-001.png", mime_type=MimeType("image/png"), content=b"PNG"
@@ -63,11 +75,15 @@ def test_writes_snapshot_directory_with_pages_and_metadata(tmp_path: Path) -> No
     directory = tmp_path / "2026-05-26T12-00-00.000_snap-1"
     assert (directory / "00 Metadata.html").is_file()
     assert "Snapshot metadata" in (directory / "00 Metadata.html").read_text("utf-8")
-    assert (directory / "nb.ipynb").read_bytes() == b'{"cells": []}'
-    assert (directory / "figure-001.png").read_bytes() == b"PNG"
+    assert (directory / "nb.ipynb").read_bytes() == _NOTEBOOK_WITH_IMAGE
+    assert (directory / "nb.ipynb.html").is_file()
+    notebook_html = (directory / "nb.ipynb.html").read_text("utf-8")
+    assert "Notebook nb.ipynb" in notebook_html
+    assert "data:image/png;base64,UE5H" in notebook_html
+    assert not (directory / "figure-001.png").exists()
 
     assert receipt.meta_page_name == "00 Metadata"
-    assert receipt.page_count == 3  # metadata + notebook + figure
+    assert receipt.page_count == 2  # metadata + notebook with inline figures
     assert receipt.url is not None
     assert receipt.url.startswith("file:")
 
@@ -77,3 +93,27 @@ def test_each_snapshot_gets_its_own_directory(tmp_path: Path) -> None:
     delivery.deliver(_bundle())
     directories = sorted(child.name for child in tmp_path.iterdir() if child.is_dir())
     assert directories == ["2026-05-26T12-00-00.000_snap-1"]
+
+
+def test_rich_diff_keeps_readable_notebook_page(tmp_path: Path) -> None:
+    delivery: Delivery = LocalDelivery(tmp_path)
+    notebook_diff = NotebookDiff(
+        page_name="01 Notebook Diff",
+        summary="1 of 1 cells changed.",
+        entries=(
+            NotebookDiffEntry(
+                title="Cell 1 changed",
+                html="<section>Cell 1 changed</section>",
+            ),
+        ),
+    )
+
+    receipt = delivery.deliver(_bundle(notebook_diff=notebook_diff))
+
+    directory = tmp_path / "2026-05-26T12-00-00.000_snap-1"
+    assert (directory / "01 Notebook Diff.html").is_file()
+    assert "Cell 1 changed" in (directory / "01 Notebook Diff.html").read_text("utf-8")
+    assert (directory / "nb.ipynb").is_file()
+    assert (directory / "nb.ipynb.html").is_file()
+    assert not (directory / "figure-001.png").exists()
+    assert receipt.page_count == 3  # metadata + rich diff + notebook page

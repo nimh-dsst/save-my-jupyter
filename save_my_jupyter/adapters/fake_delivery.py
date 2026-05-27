@@ -21,8 +21,9 @@ class FakeDelivery:
     def deliver(self, bundle: SnapshotBundle) -> DeliveryReceipt:
         self.delivered.append(bundle)
         meta_page_id = f"meta-{len(self.delivered)}"
-        # one canonical metadata page plus one page per artifact (C-DEST-02/03)
-        page_count = 1 + len(bundle.artifacts)
+        rich_diff_pages = 1 if bundle.metadata.notebook_diff is not None else 0
+        # one canonical metadata page plus readable diff and artifact pages
+        page_count = 1 + rich_diff_pages + len(bundle.artifacts)
         return DeliveryReceipt(
             directory_name=bundle.directory_name,
             meta_page_id=meta_page_id,

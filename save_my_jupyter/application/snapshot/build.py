@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from save_my_jupyter.application.snapshot.diff import DIFF_FILTER_QUALIFIER
 from save_my_jupyter.application.snapshot.notebook_content import NOTEBOOK_MIME_TYPE
 from save_my_jupyter.domain.artifacts import (
     FigureArtifact,
@@ -53,14 +54,15 @@ def build_snapshot_bundle(
                 content=notebook.content,
             )
         )
-    for figure in figures:
-        artifacts.append(
-            BundleArtifact(
-                page_name=_page_name(figure.name),
-                mime_type=figure.mime_type,
-                content=figure.content,
+    if notebook is None:
+        for figure in figures:
+            artifacts.append(
+                BundleArtifact(
+                    page_name=_page_name(figure.name),
+                    mime_type=figure.mime_type,
+                    content=figure.content,
+                )
             )
-        )
     for watched_file in files:
         artifacts.append(
             BundleArtifact(
@@ -75,6 +77,7 @@ def build_snapshot_bundle(
                 page_name=_DIFF_PAGE_NAME,
                 mime_type=_DIFF_MIME_TYPE,
                 content=diff_text.encode("utf-8"),
+                description=DIFF_FILTER_QUALIFIER,
             )
         )
 
