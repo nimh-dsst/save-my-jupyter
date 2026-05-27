@@ -40,3 +40,10 @@ def test_unknown_host_has_no_url() -> None:
 def test_missing_remote_or_hash_has_no_url() -> None:
     assert build_commit_url(None, _HASH) is None
     assert build_commit_url("git@github.com:org/repo.git", None) is None
+
+
+def test_invalid_commit_hash_has_no_url() -> None:
+    assert build_commit_url("git@github.com:org/repo.git", "") is None
+    assert build_commit_url("git@github.com:org/repo.git", "not-a-hash") is None
+    assert build_commit_url("git@github.com:org/repo.git", "abc123/evil") is None
+    assert build_commit_url("git@github.com:org/repo.git", "a" * 41) is None

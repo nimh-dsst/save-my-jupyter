@@ -4,13 +4,19 @@ returns None for unknown hosts or missing inputs (no IO)."""
 
 from __future__ import annotations
 
+import re
+
 from save_my_jupyter.domain.types import RemoteUrl
+
+_COMMIT_HASH_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 
 
 def build_commit_url(
     remote_url: str | None, commit_hash: str | None
 ) -> RemoteUrl | None:
     if remote_url is None or commit_hash is None:
+        return None
+    if _COMMIT_HASH_RE.fullmatch(commit_hash) is None:
         return None
 
     normalized = remote_url.removesuffix(".git")
