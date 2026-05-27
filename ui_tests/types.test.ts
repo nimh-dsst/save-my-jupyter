@@ -7,6 +7,7 @@ import {
   parseEffectiveState,
   parseAuthStartResponse,
   parseNotebookExtensionMetadata,
+  parseSnapshotPreviewResponse,
   parseSnapshotRequestPayload,
   parseSnapshotSubmissionResult,
   parseUserPreferences,
@@ -193,6 +194,47 @@ void test("parseEffectiveState parses state payloads from the backend", () => {
   );
   assert.equal(state.effectiveConfig.commitMode, "always");
   assert.equal(state.repoConfigPath, "/repo/.save-my-jupyter.toml");
+});
+
+void test("parseSnapshotPreviewResponse applies defaults for optional fields", () => {
+  const preview = parseSnapshotPreviewResponse({
+    generatedAt: "2026-05-26T12:00:00.000Z",
+    source: "disk",
+    target: { notebookName: "Jupyter Snapshots", rootPath: "Notebook Log" },
+  });
+
+  assert.deepEqual(preview.artifacts, []);
+  assert.deepEqual(preview.tags, []);
+  assert.deepEqual(preview.provenance, {});
+  assert.equal(preview.runLabel, null);
+  assert.equal(preview.source, "disk");
+});
+
+void test("parseSnapshotPreviewResponse parses artifacts and provenance layers", () => {
+  const preview = parseSnapshotPreviewResponse({
+    artifacts: [{ kind: "notebook", summary: "Notebook" }],
+    generatedAt: "2026-05-26T12:00:00.000Z",
+    provenance: { targetRootPath: "inferred", commitMode: "user" },
+    runLabel: "run-1",
+    source: "frontend",
+    tags: ["a"],
+    target: { notebookName: "NB", rootPath: "Root" },
+  });
+
+  assert.equal(preview.artifacts[0]?.kind, "notebook");
+  assert.equal(preview.provenance["targetRootPath"], "inferred");
+  assert.equal(preview.provenance["commitMode"], "user");
+});
+
+void test("parseSnapshotPreviewResponse rejects unknown provenance layers", () => {
+  assert.throws(() => {
+    parseSnapshotPreviewResponse({
+      generatedAt: "2026-05-26T12:00:00.000Z",
+      provenance: { targetRootPath: "made-up-layer" },
+      source: "frontend",
+      target: { notebookName: "NB", rootPath: "Root" },
+    });
+  });
 });
 
 void test("parseUserPreferences ignores removed experiment context settings", () => {

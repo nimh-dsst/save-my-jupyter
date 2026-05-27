@@ -1,0 +1,93 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  buildWillBeSavedSection,
+  formatInferredLabel,
+} from "../src/application/panel/willBeSaved";
+import { parseSnapshotPreviewResponse } from "../src/types";
+
+function previewFixture(
+  overrides: Record<string, unknown> = {},
+): ReturnType<typeof parseSnapshotPreviewResponse> {
+  return parseSnapshotPreviewResponse({
+    artifacts: [
+      { kind: "notebook", summary: "Notebook (all cells, outputs, metadata)" },
+      { kind: "figure", summary: "2 figures from cell outputs" },
+    ],
+    generatedAt: "2026-05-26T12:00:00.000Z",
+    provenance: { targetNotebook: "inferred", targetRootPath: "inferred" },
+    runLabel: "training-3",
+    source: "frontend",
+    tags: ["baseline", "gpu"],
+    target: {
+      notebookName: "Jupyter Snapshots",
+      rootPath: "Notebook Log/a@b.org/proj/nb.ipynb",
+    },
+    ...overrides,
+  });
+}
+
+void test("formatInferredLabel appends (inferred) inline only when inferred", () => {
+  assert.equal(formatInferredLabel("Jupyter Snapshots", true), "Jupyter Snapshots (inferred)");
+  assert.equal(formatInferredLabel("Custom NB", false), "Custom NB");
+});
+
+void test("buildWillBeSavedSection lists artifacts in order", () => {
+  const section = buildWillBeSavedSection(previewFixture());
+  assert.deepEqual(
+    section.artifacts.map((row) => row.kind),
+    ["notebook", "figure"],
+  );
+  assert.equal(section.emptyMessage, null);
+});
+
+void test("inferred destination is labeled inline, never hidden", () => {
+  const section = buildWillBeSavedSection(previewFixture());
+  assert.equal(section.destination.notebookInferred, true);
+  assert.equal(section.destination.rootInferred, true);
+  assert.ok(
+    section.destination.notebookLabel.includes("(inferred)"),
+    `expected inline inferred label: ${section.destination.notebookLabel}`,
+  );
+});
+
+void test("explicit destination is not labeled inferred", () => {
+  const section = buildWillBeSavedSection(
+    previewFixture({ provenance: { targetNotebook: "notebook", targetRootPath: "repo" } }),
+  );
+  assert.equal(section.destination.notebookInferred, false);
+  assert.equal(section.destination.rootInferred, false);
+  assert.ok(!section.destination.rootLabel.includes("(inferred)"));
+});
+
+void test("empty plan still renders the section with an empty-state message", () => {
+  const section = buildWillBeSavedSection(previewFixture({ artifacts: [] }));
+  assert.equal(section.artifacts.length, 0);
+  assert.ok(
+    section.emptyMessage !== null && section.emptyMessage.length > 0,
+    "empty plan must show an empty-state message, not hide the section",
+  );
+});
+
+void test("freshness note mentions execution recompute and the timestamp", () => {
+  const section = buildWillBeSavedSection(previewFixture());
+  const lowered = section.freshness.toLowerCase();
+  assert.ok(lowered.includes("recompute") || lowered.includes("recomputes"));
+  assert.ok(section.freshness.includes("2026-05-26T12:00:00.000Z"));
+});
+
+void test("disk-sourced preview marks itself as a saved-file fallback", () => {
+  const section = buildWillBeSavedSection(previewFixture({ source: "disk" }));
+  const lowered = section.freshness.toLowerCase();
+  assert.ok(
+    lowered.includes("disk") || lowered.includes("saved"),
+    `disk preview should disclose the fallback: ${section.freshness}`,
+  );
+});
+
+void test("tags and run label are carried through", () => {
+  const section = buildWillBeSavedSection(previewFixture());
+  assert.deepEqual(section.tags, ["baseline", "gpu"]);
+  assert.equal(section.runLabel, "training-3");
+});

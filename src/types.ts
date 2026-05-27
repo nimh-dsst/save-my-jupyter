@@ -4,6 +4,17 @@ export const snapshotSourceSchema = z.enum(["manual", "trigger_cell"]);
 
 export const commitModeSchema = z.enum(["prompt", "always", "never"]);
 
+export const configLayerSchema = z.enum([
+  "request",
+  "notebook",
+  "user",
+  "repo",
+  "inferred",
+  "fallback",
+]);
+
+export const artifactKindSchema = z.enum(["notebook", "figure", "file", "diff"]);
+
 export const notebookExtensionMetadataSchema = z.object({
   all_cells_trigger: z.boolean().default(false),
   default_metadata: z.record(z.string(), z.string()).default({}),
@@ -76,6 +87,21 @@ export const authStateSchema = z.object({
 export const labArchivesTargetSchema = z.object({
   notebookName: z.string(),
   rootPath: z.string(),
+});
+
+export const plannedArtifactSchema = z.object({
+  kind: artifactKindSchema,
+  summary: z.string(),
+});
+
+export const snapshotPreviewResponseSchema = z.object({
+  artifacts: z.array(plannedArtifactSchema).default([]),
+  generatedAt: z.string(),
+  provenance: z.record(z.string(), configLayerSchema).default({}),
+  runLabel: z.string().nullable().default(null),
+  source: z.enum(["frontend", "disk"]),
+  tags: z.array(z.string()).default([]),
+  target: labArchivesTargetSchema,
 });
 
 export const effectiveConfigSchema = z.object({
@@ -157,10 +183,16 @@ export const apiErrorSchema = z.object({
 });
 
 export type ApiError = z.infer<typeof apiErrorSchema>;
+export type ArtifactKind = z.infer<typeof artifactKindSchema>;
 export type AuthStartResponse = z.infer<typeof authStartResponseSchema>;
 export type AuthState = z.infer<typeof authStateSchema>;
 export type CellExtensionMetadata = z.infer<typeof cellExtensionMetadataSchema>;
 export type CommitMode = z.infer<typeof commitModeSchema>;
+export type ConfigLayer = z.infer<typeof configLayerSchema>;
+export type PlannedArtifact = z.infer<typeof plannedArtifactSchema>;
+export type SnapshotPreviewResponse = z.infer<
+  typeof snapshotPreviewResponseSchema
+>;
 export type ConfigInitResponse = z.infer<typeof configInitResponseSchema>;
 export type EffectiveConfig = z.infer<typeof effectiveConfigSchema>;
 export type EffectiveState = z.infer<typeof effectiveStateSchema>;
@@ -214,6 +246,12 @@ export function parseSnapshotRequestPayload(
   raw: unknown,
 ): SnapshotRequestPayload {
   return snapshotRequestPayloadSchema.parse(raw);
+}
+
+export function parseSnapshotPreviewResponse(
+  raw: unknown,
+): SnapshotPreviewResponse {
+  return snapshotPreviewResponseSchema.parse(raw);
 }
 
 export function parseSnapshotSubmissionResult(
