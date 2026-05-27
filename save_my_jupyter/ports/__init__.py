@@ -8,11 +8,13 @@ implement them — enforced by `tests/test_architecture.py`.
 from __future__ import annotations
 
 from save_my_jupyter.ports.clock import Clock
+from save_my_jupyter.ports.delivery import Delivery
 from save_my_jupyter.ports.filesystem import FileSystem
 from save_my_jupyter.ports.keyring import KeyringStore
 
 __all__ = [
     "Clock",
+    "Delivery",
     "FileSystem",
     "KeyringStore",
 ]

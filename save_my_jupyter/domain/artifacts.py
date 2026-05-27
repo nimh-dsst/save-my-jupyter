@@ -13,3 +13,20 @@ class FigureArtifact:
     name: str
     mime_type: MimeType
     content: bytes
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class NotebookPayload:
+    """The notebook file as it will be uploaded (contract C-CONTENT-01)."""
+
+    filename: str
+    content: bytes
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class WatchedFileArtifact:
+    """A watched file read at snapshot time, ready to upload (C-CONTENT-04)."""
+
+    filename: str
+    mime_type: MimeType
+    content: bytes
