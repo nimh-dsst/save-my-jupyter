@@ -10,6 +10,7 @@ import tomllib
 from collections.abc import Mapping
 from typing import Literal, cast
 
+from save_my_jupyter.application.snapshot.guards import validate_watched_path
 from save_my_jupyter.domain.config import (
     NotebookMetadataConfig,
     RelativeWatchPaths,
@@ -18,6 +19,7 @@ from save_my_jupyter.domain.config import (
 )
 from save_my_jupyter.domain.enums import CommitMode, TriggerMode
 from save_my_jupyter.domain.errors import SnapshotError
+from save_my_jupyter.domain.guards import WatchedPathRejected
 from save_my_jupyter.domain.types import (
     CellId,
     LabArchivesNotebookName,
@@ -62,6 +64,7 @@ def parse_repo_config(toml_text: str, *, default_project_name: str) -> RepoConfi
         repo_root_strategy=strategy,
         default_all_cells_trigger=_opt_bool(defaults, "all_cells_trigger"),
         default_commit_mode=_opt_commit_mode(defaults, "commit_mode"),
+        default_tags=tuple(_str_list(defaults, "default_tags")),
         default_watch_paths=_opt_watch_paths(defaults, "watch_paths"),
         include_notebook_file=_opt_bool(defaults, "include_notebook_file"),
         include_diff_when_dirty=_opt_bool(defaults, "include_diff_when_dirty"),
@@ -87,9 +90,7 @@ def parse_notebook_metadata(metadata: Mapping[str, object]) -> NotebookMetadataC
         trigger_cell_ids=frozenset(
             CellId(value) for value in _str_list(metadata, "trigger_cell_ids")
         ),
-        watched_paths=tuple(
-            RelativeWatchPath(value) for value in _str_list(metadata, "watched_paths")
-        ),
+        watched_paths=_metadata_watch_paths(metadata, "watched_paths"),
         labarchives_target_notebook=(
             LabArchivesNotebookName(notebook) if notebook is not None else None
         ),
@@ -146,8 +147,34 @@ def _opt_commit_mode(section: Mapping[str, object], key: str) -> CommitMode | No
 def _opt_watch_paths(
     section: Mapping[str, object], key: str
 ) -> RelativeWatchPaths | None:
-    paths = tuple(RelativeWatchPath(value) for value in _str_list(section, key))
-    return paths or None
+    paths: list[RelativeWatchPath] = []
+    for value in _str_list(section, key):
+        normalized = _normalize_watch_path(value, strict=True)
+        assert normalized is not None
+        paths.append(RelativeWatchPath(normalized))
+    return tuple(paths) or None
+
+
+def _metadata_watch_paths(
+    section: Mapping[str, object], key: str
+) -> RelativeWatchPaths:
+    paths: list[RelativeWatchPath] = []
+    for value in _str_list(section, key):
+        normalized = _normalize_watch_path(value, strict=False)
+        if normalized is not None:
+            paths.append(RelativeWatchPath(normalized))
+    return tuple(paths)
+
+
+def _normalize_watch_path(raw: str, *, strict: bool) -> str | None:
+    validation = validate_watched_path(raw)
+    if not isinstance(validation, WatchedPathRejected):
+        return validation.normalized
+    if strict:
+        raise SnapshotError(
+            validation.message, code=validation.code, context={"path": raw}
+        )
+    return None
 
 
 def _str_list(section: Mapping[str, object], key: str) -> list[str]:

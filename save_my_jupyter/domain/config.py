@@ -43,6 +43,7 @@ class RepoConfig:
     repo_root_strategy: Literal["git", "fixed"] = "git"
     default_all_cells_trigger: bool | None = None
     default_commit_mode: CommitMode | None = None
+    default_tags: tuple[str, ...] = ()
     default_watch_paths: RelativeWatchPaths | None = None
     include_notebook_file: bool | None = None
     include_diff_when_dirty: bool | None = None

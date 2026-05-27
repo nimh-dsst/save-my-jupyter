@@ -19,6 +19,7 @@ repo_root_strategy = "fixed"
 [defaults]
 all_cells_trigger = true
 commit_mode = "always"
+default_tags = ["repo", "baseline"]
 watch_paths = ["outputs", "figs/**"]
 include_notebook_file = false
 include_diff_when_dirty = false
@@ -40,6 +41,7 @@ def test_full_repo_config_parses_every_section() -> None:
     assert config.repo_root_strategy == "fixed"
     assert config.default_all_cells_trigger is True
     assert config.default_commit_mode is CommitMode.ALWAYS
+    assert config.default_tags == ("repo", "baseline")
     assert config.default_watch_paths == ("outputs", "figs/**")
     assert config.include_notebook_file is False
     assert config.include_diff_when_dirty is False
@@ -48,6 +50,23 @@ def test_full_repo_config_parses_every_section() -> None:
     assert config.stage_notebook_on_commit is False
     assert config.stage_watched_paths_on_commit is True
     assert config.commit_message_template == "snap {notebook_name}"
+
+
+def test_repo_watch_paths_are_normalized() -> None:
+    config = parse_repo_config(
+        '[defaults]\nwatch_paths = ["outputs\\\\nested\\\\result.csv"]\n',
+        default_project_name="fallback",
+    )
+    assert config.default_watch_paths == ("outputs/nested/result.csv",)
+
+
+def test_repo_watch_paths_reject_unsafe_values() -> None:
+    with pytest.raises(SnapshotError) as exc:
+        parse_repo_config(
+            '[defaults]\nwatch_paths = ["../secrets"]\n',
+            default_project_name="fallback",
+        )
+    assert exc.value.code == "path_escapes_root"
 
 
 def test_empty_repo_config_uses_defaults_and_fallback_name() -> None:
@@ -111,6 +130,13 @@ def test_notebook_metadata_parsed() -> None:
     assert config.watched_paths == ("outputs",)
     assert config.labarchives_target_notebook == "NB"
     assert config.default_metadata == {"owner": "alice"}
+
+
+def test_notebook_metadata_drops_unsafe_watched_paths() -> None:
+    config = parse_notebook_metadata(
+        {"watched_paths": ["outputs\\result.csv", "../secrets", "/etc/passwd"]}
+    )
+    assert config.watched_paths == ("outputs/result.csv",)
 
 
 # --- user settings (C-CONFIG-07) ---
