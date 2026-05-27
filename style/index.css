@@ -1,5 +1,409 @@
+.smj-Panel {
+  box-sizing: border-box;
+  color: var(--jp-ui-font-color1);
+  display: grid;
+  gap: 0;
+  height: 100%;
+  align-content: start;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.smj-PanelHeader {
+  border-bottom: 1px solid var(--jp-border-color2);
+  display: grid;
+  gap: 2px;
+  padding: 0 0 10px;
+}
+
+.smj-PanelHeader h2 {
+  font-size: var(--jp-ui-font-size2);
+  font-weight: 600;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.smj-PanelHeader p {
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+  line-height: 1.4;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.smj-Panel section {
+  border-top: 1px solid var(--jp-border-color2);
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 12px 0;
+}
+
+.smj-PanelHeader + section {
+  border-top: none;
+}
+
+.smj-Panel h3 {
+  color: var(--jp-ui-font-color1);
+  font-size: var(--jp-ui-font-size0);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  margin: 0 0 8px;
+  text-transform: uppercase;
+}
+
+.smj-Panel h4 {
+  color: var(--jp-ui-font-color1);
+  font-size: var(--jp-ui-font-size0);
+  font-weight: 600;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.smj-Panel p {
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+  line-height: 1.5;
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
+}
+
+.smj-Panel p:last-child {
+  margin-bottom: 0;
+}
+
+.smj-Panel button {
+  background: var(--jp-layout-color1);
+  border: 1px solid var(--jp-border-color1);
+  border-radius: var(--jp-border-radius);
+  color: var(--jp-ui-font-color1);
+  cursor: pointer;
+  font-family: var(--jp-ui-font-family);
+  font-size: var(--jp-ui-font-size0);
+  line-height: 1.4;
+  min-height: 28px;
+  padding: 3px 8px;
+}
+
+.smj-Panel button + button {
+  margin-left: 8px;
+}
+
+.smj-Snapshot > button + button,
+.smj-TriggerOptions > button + button {
+  display: block;
+  margin-left: 0;
+  margin-top: 8px;
+}
+
+.smj-Panel button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.smj-Panel button:hover:not(:disabled),
+.smj-Panel button:focus-visible:not(:disabled) {
+  background: var(--jp-layout-color2);
+  border-color: var(--jp-border-color1);
+}
+
+.smj-SectionTitleRow {
+  align-items: baseline;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.smj-SectionTitleRow h3 {
+  margin: 0;
+}
+
+.smj-Badge {
+  background: transparent;
+  border: 1px solid var(--jp-border-color3);
+  border-radius: var(--jp-border-radius);
+  color: var(--jp-ui-font-color2);
+  flex: 0 0 auto;
+  font-size: var(--jp-ui-font-size0);
+  line-height: 1.4;
+  max-width: 50%;
+  overflow: hidden;
+  padding: 1px 6px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.smj-Badge-success {
+  color: var(--jp-success-color1);
+}
+
+.smj-Badge-warning {
+  color: var(--jp-warn-color1);
+}
+
+.smj-ActionStack {
+  display: grid;
+  gap: 8px;
+}
+
+.smj-ActionStack > button + button {
+  margin-left: 0;
+}
+
+.smj-PrimaryButton {
+  font-weight: 600;
+}
+
+.smj-OutputDisclosure {
+  border-left: 3px solid var(--jp-border-color2);
+  padding-left: 8px;
+}
+
+.smj-Panel ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.smj-Facts {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 8px;
+}
+
+.smj-Facts > div {
+  column-gap: 8px;
+  display: grid;
+  grid-template-columns: minmax(72px, auto) minmax(0, 1fr);
+}
+
+.smj-Facts dt,
+.smj-Facts dd {
+  font-size: var(--jp-ui-font-size0);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.smj-Facts dt {
+  color: var(--jp-ui-font-color1);
+  font-weight: 600;
+}
+
+.smj-Facts dd {
+  color: var(--jp-ui-font-color2);
+  overflow-wrap: anywhere;
+}
+
+.smj-Subsection {
+  display: grid;
+  gap: 6px;
+}
+
+.smj-Subsection + .smj-Subsection {
+  border-top: 1px solid var(--jp-border-color3);
+  padding-top: 8px;
+}
+
+.smj-MetaNote {
+  color: var(--jp-ui-font-color3);
+  font-size: var(--jp-ui-font-size0);
+}
+
+.smj-ArtifactList,
+.smj-ActivityList {
+  list-style: none;
+  padding-left: 0;
+}
+
+.smj-ArtifactList li {
+  column-gap: 8px;
+  display: grid;
+  grid-template-columns: minmax(48px, auto) minmax(0, 1fr);
+}
+
+.smj-ArtifactKind {
+  color: var(--jp-ui-font-color1);
+  font-weight: 600;
+}
+
+.smj-Panel li {
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+  line-height: 1.5;
+  margin: 0 0 6px;
+  overflow-wrap: anywhere;
+}
+
+.smj-Panel li:last-child {
+  margin-bottom: 0;
+}
+
+.smj-PhaseList {
+  display: grid;
+  gap: 2px;
+  margin-top: 6px;
+}
+
+.smj-PhaseList li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--jp-ui-font-color3);
+  margin-bottom: 0;
+}
+
+.smj-PhaseList li > span:last-child {
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+  text-transform: uppercase;
+}
+
+.smj-PhaseList .smj-Phase-current {
+  color: var(--jp-ui-font-color1);
+}
+
+.smj-Panel strong,
+.smj-Panel .smj-Status,
+.smj-Panel .smj-Blocked,
+.smj-Panel .smj-Error {
+  color: var(--jp-ui-font-color1);
+}
+
+.smj-Panel .smj-Error {
+  color: var(--jp-error-color1);
+}
+
+.smj-Panel .smj-Status,
+.smj-Panel .smj-Blocked {
+  border-left: 3px solid var(--jp-border-color2);
+  padding-left: 8px;
+}
+
+.smj-Panel code {
+  background: var(--jp-layout-color0);
+  border: 1px solid var(--jp-border-color2);
+  border-radius: var(--jp-border-radius);
+  color: var(--jp-ui-font-color1);
+  font-family: var(--jp-code-font-family);
+  font-size: var(--jp-ui-font-size0);
+  padding: 1px 3px;
+}
+
+.smj-Panel input,
+.smj-Panel select,
+.smj-Panel textarea {
+  background: var(--jp-input-background);
+  border: 1px solid var(--jp-input-border-color);
+  border-radius: var(--jp-border-radius);
+  box-sizing: border-box;
+  color: var(--jp-ui-font-color1);
+  font-family: var(--jp-ui-font-family);
+  font-size: var(--jp-ui-font-size0);
+  line-height: 1.4;
+  min-height: 28px;
+  padding: 3px 6px;
+  width: 100%;
+}
+
+.smj-Panel textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.smj-Panel input[type="checkbox"],
+.smj-Panel input[type="radio"] {
+  min-height: 0;
+  width: auto;
+}
+
+.smj-Panel input:focus,
+.smj-Panel select:focus,
+.smj-Panel textarea:focus {
+  border-color: var(--jp-input-active-border-color);
+  box-shadow: var(--jp-input-box-shadow);
+  outline: none;
+}
+
+.smj-Field,
+.smj-InlineForm {
+  display: grid;
+  gap: 6px;
+}
+
+.smj-Field span {
+  color: var(--jp-ui-font-color1);
+  font-size: var(--jp-ui-font-size0);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.smj-Checkbox,
+.smj-Segmented label {
+  align-items: center;
+  color: var(--jp-ui-font-color1);
+  display: flex;
+  font-size: var(--jp-ui-font-size0);
+  gap: 6px;
+  line-height: 1.4;
+}
+
+.smj-Segmented {
+  display: grid;
+  gap: 6px;
+}
+
+.smj-SetupRow {
+  display: grid;
+  gap: 8px;
+}
+
+.smj-WatchedPathList {
+  list-style: none;
+  padding-left: 0;
+}
+
+.smj-WatchedPathList li {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.smj-WatchedPathList code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.smj-Panel .smj-Status-success {
+  color: var(--jp-success-color1);
+}
+
+.smj-Panel .smj-Status-warning {
+  color: var(--jp-warn-color1);
+}
+
+.smj-Panel .smj-Status-error {
+  color: var(--jp-error-color1);
+}
+
 .smj-SnapshotPanel {
   height: 100%;
+}
+
+#jp-right-stack > .smj-PanelWidget {
+  box-sizing: border-box;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+  padding: 8px;
+}
+
+#jp-right-stack > .smj-PanelWidget > .smj-Panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
 }
 
 .smj-SnapshotPanel .jp-SidePanel-content {
@@ -320,15 +724,24 @@
 }
 
 .jp-Notebook .jp-Cell.smj-Cell--trigger {
+  box-shadow: inset 4px 0 0 var(--jp-brand-color1);
   position: relative;
 }
 
 .jp-Notebook .jp-Cell.smj-Cell--trigger::after {
   background: var(--jp-brand-color1);
   border-radius: 999px;
+  bottom: 4px;
   content: "";
-  inset: 0 auto 0 0;
+  left: 0;
   pointer-events: none;
   position: absolute;
-  width: 3px;
+  top: 4px;
+  width: 4px;
+  z-index: 2;
+}
+
+.jp-Notebook .jp-Cell.smj-Cell--trigger .jp-Cell-inputWrapper,
+.jp-Notebook .jp-Cell.smj-Cell--trigger .jp-Cell-outputWrapper {
+  box-shadow: inset 4px 0 0 var(--jp-brand-color1);
 }

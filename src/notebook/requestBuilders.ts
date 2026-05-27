@@ -1,4 +1,4 @@
-import type { CommitMode } from "../types";
+import type { CommitMode, RunOutcome } from "../types";
 
 export interface SnapshotRequestInput {
   readonly source: "manual" | "trigger_cell";
@@ -12,7 +12,9 @@ export interface SnapshotRequestInput {
   readonly tags?: readonly string[];
   readonly runLabel?: string | null;
   readonly notes?: string | null;
+  readonly extraFields?: Record<string, string>;
   readonly commitMode?: CommitMode | null;
+  readonly runOutcome?: RunOutcome | null;
   readonly watchedPaths?: readonly string[];
   readonly clientTimestamp?: string;
   readonly notebookContent?: unknown;
@@ -39,11 +41,17 @@ export function buildSnapshotRequestBody(
       tags: [...(input.tags ?? [])],
       run_label: input.runLabel ?? null,
       notes: input.notes ?? null,
+      extra_fields: { ...(input.extraFields ?? {}) },
     },
-    watched_paths: [...(input.watchedPaths ?? [])],
   };
+  if (input.watchedPaths !== undefined && input.watchedPaths.length > 0) {
+    body["watched_paths"] = [...input.watchedPaths];
+  }
   if (input.commitMode != null) {
     body["commit_mode"] = input.commitMode;
+  }
+  if (input.runOutcome != null) {
+    body["run_outcome"] = input.runOutcome;
   }
   if (input.clientTimestamp !== undefined) {
     body["client_timestamp"] = input.clientTimestamp;
