@@ -84,6 +84,10 @@ def test_ports_have_no_io_library_imports() -> None:
     assert _io_library_violations("ports") == []
 
 
+def test_application_has_no_io_library_imports() -> None:
+    assert _io_library_violations("application") == []
+
+
 def test_ports_only_import_domain_from_project() -> None:
     violations: list[str] = []
     for path in _python_files("ports"):
