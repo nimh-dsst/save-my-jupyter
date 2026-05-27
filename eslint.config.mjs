@@ -37,6 +37,7 @@ export default tseslint.config(
       "save_my_jupyter/labextension/**",
       "scripts/**",
       "selenium-profile-*/**",
+      "smj-diff-repro-*/**",
       "test-dist/**",
       "tmp*/**",
     ],
