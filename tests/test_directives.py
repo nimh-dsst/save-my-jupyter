@@ -1,6 +1,27 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+from typing import Any
+
+import pytest
 from save_my_jupyter.application.snapshot.directives import merge_tags, parse_directives
+
+_FIXTURES: list[dict[str, Any]] = json.loads(
+    (Path(__file__).resolve().parent.parent / "fixtures" / "directives.json").read_text(
+        encoding="utf-8"
+    )
+)
+
+
+@pytest.mark.parametrize("case", _FIXTURES, ids=[case["name"] for case in _FIXTURES])
+def test_shared_directive_fixtures(case: dict[str, Any]) -> None:
+    # The same fixtures drive ui_tests/directives.test.ts, so the Python and
+    # TypeScript parsers cannot drift (contract C-DIRECTIVE-02).
+    result = parse_directives(case["cells"])
+    assert result.run_label == case["runLabel"]
+    assert list(result.tags) == case["tags"]
+
 
 # --- single directive parsing (C-DIRECTIVE-01) ---
 

@@ -1,0 +1,62 @@
+[
+  {
+    "name": "run and tags in one directive",
+    "cells": ["# smj: run=training-3; tags=baseline, gpu"],
+    "runLabel": "training-3",
+    "tags": ["baseline", "gpu"]
+  },
+  {
+    "name": "smj prefix and keys are case-insensitive, values keep case",
+    "cells": ["# SMJ: RUN=Training-3; TAGS=Baseline, GPU"],
+    "runLabel": "Training-3",
+    "tags": ["Baseline", "GPU"]
+  },
+  {
+    "name": "double-slash comment marker is recognized",
+    "cells": ["// smj: tags=ts"],
+    "runLabel": null,
+    "tags": ["ts"]
+  },
+  {
+    "name": "tags union across cells, first run wins",
+    "cells": ["x = 1\n# smj: run=first; tags=a, b", "# smj: tags=b, c\n# smj: run=second"],
+    "runLabel": "first",
+    "tags": ["a", "b", "c"]
+  },
+  {
+    "name": "run-only directive",
+    "cells": ["# smj: run=only-run"],
+    "runLabel": "only-run",
+    "tags": []
+  },
+  {
+    "name": "tags-only directive",
+    "cells": ["# smj: tags=x"],
+    "runLabel": null,
+    "tags": ["x"]
+  },
+  {
+    "name": "trailing inline comment is not a directive",
+    "cells": ["# a normal comment", "result = compute()  # smj: tags=trailing"],
+    "runLabel": null,
+    "tags": []
+  },
+  {
+    "name": "blank and whitespace tag values are dropped",
+    "cells": ["# smj: tags= , ok ,"],
+    "runLabel": null,
+    "tags": ["ok"]
+  },
+  {
+    "name": "no directives anywhere",
+    "cells": ["import numpy as np", "df.head()"],
+    "runLabel": null,
+    "tags": []
+  },
+  {
+    "name": "indented full-line directive is recognized",
+    "cells": ["    # smj: run=indented"],
+    "runLabel": "indented",
+    "tags": []
+  }
+]
