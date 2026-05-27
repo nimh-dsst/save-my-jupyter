@@ -30,3 +30,4 @@ class WatchedFileArtifact:
     filename: str
     mime_type: MimeType
     content: bytes
+    relative_path: str | None = None

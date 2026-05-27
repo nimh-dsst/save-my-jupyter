@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -65,6 +66,10 @@ def test_directory_pattern_collects_files_beneath_it() -> None:
         filesystem=filesystem,
     )
     assert _names(artifacts) == ["a.csv", "b.json"]
+    assert [artifact.relative_path for artifact in artifacts] == [
+        "outputs/a.csv",
+        "outputs/sub/b.json",
+    ]
 
 
 def test_glob_pattern_matches_by_extension() -> None:
@@ -88,14 +93,16 @@ def test_mime_type_resolved_from_extension() -> None:
     assert artifact.content == b"x"
 
 
-def test_sensitive_files_are_excluded() -> None:
+def test_sensitive_files_are_excluded(caplog: pytest.LogCaptureFixture) -> None:
     filesystem = _filesystem({"secrets/.env": b"SECRET=1", "secrets/ok.csv": b"x"})
+    caplog.set_level(logging.WARNING)
     artifacts = gather_watched_files(
         watched_paths=(RelativeWatchPath("secrets"),),
         capture_root=_ROOT,
         filesystem=filesystem,
     )
     assert _names(artifacts) == ["ok.csv"]
+    assert "skipped sensitive watched file" in caplog.text
 
 
 def test_ignored_directories_are_excluded() -> None:
@@ -124,3 +131,41 @@ def test_file_over_size_cap_raises() -> None:
             max_file_bytes=10,
         )
     assert exc.value.code == "watched_file_artifact_too_large"
+
+
+def test_symlink_to_file_outside_root_is_dropped(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret", encoding="utf-8")
+    root = tmp_path / "repo"
+    root.mkdir()
+    link = root / "outputs.txt"
+    try:
+        link.symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
+
+    caplog.set_level(logging.WARNING)
+    artifacts = gather_watched_files(
+        watched_paths=(RelativeWatchPath("**/*.txt"),),
+        capture_root=root,
+        filesystem=_PathFileSystem(),
+    )
+
+    assert artifacts == ()
+    assert "skipped watched file outside capture root" in caplog.text
+
+
+class _PathFileSystem:
+    def exists(self, path: Path) -> bool:
+        return path.exists()
+
+    def is_file(self, path: Path) -> bool:
+        return path.is_file()
+
+    def read_bytes(self, path: Path) -> bytes:
+        return path.read_bytes()
+
+    def iter_files(self, root: Path, pattern: str) -> Iterator[Path]:
+        yield from root.glob(pattern)
