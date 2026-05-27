@@ -5,12 +5,14 @@ dulwich. `.ipynb_checkpoints` churn is ignored when judging dirtiness."""
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from pathlib import Path
 
 from dulwich import porcelain
 from dulwich.errors import NotGitRepository
 from dulwich.repo import Repo
 
+from save_my_jupyter.domain.errors import SnapshotError
 from save_my_jupyter.domain.repo import RepoContext
 from save_my_jupyter.domain.types import (
     CommitHash,
@@ -57,6 +59,59 @@ class DulwichGitInspector:
             head_commit=head_commit,
             is_dirty=is_dirty,
         )
+
+
+class DulwichGitMutator:
+    def stage(
+        self, repo_root: RepoRootPath, paths: Sequence[RelativeRepoPath]
+    ) -> tuple[RelativeRepoPath, ...]:
+        if not paths:
+            return ()
+        root = Path(repo_root)
+        absolute = [str(root / path) for path in paths]
+        try:
+            with Repo(str(root)) as repo:
+                _added, ignored = porcelain.add(repo, paths=absolute)
+        except Exception as exc:
+            raise SnapshotError(
+                "Unable to stage snapshot paths.",
+                code="git_stage_failed",
+                context={"error": _describe(exc)},
+            ) from exc
+        if ignored:
+            raise SnapshotError(
+                "Ignored paths cannot be staged.",
+                code="git_stage_failed",
+                context={"ignored": ", ".join(sorted(ignored))},
+            )
+        return tuple(paths)
+
+    def commit(
+        self,
+        repo_root: RepoRootPath,
+        *,
+        message: str,
+        current_head: CommitHash | None,
+    ) -> CommitHash | None:
+        try:
+            with Repo(str(Path(repo_root))) as repo:
+                status = porcelain.status(repo, untracked_files="no")
+                if not any(status.staged.values()):
+                    return current_head
+                sha = porcelain.commit(repo, message=message.encode("utf-8"))
+        except Exception as exc:
+            raise SnapshotError(
+                "Unable to create snapshot commit.",
+                code="git_commit_failed",
+                context={"error": _describe(exc)},
+            ) from exc
+        parsed = _parse_commit_hash(_decode(sha))
+        if parsed is None:
+            raise SnapshotError(
+                "Commit succeeded but HEAD could not be resolved.",
+                code="git_commit_missing_head",
+            )
+        return parsed
 
 
 def _head_commit(repo: Repo) -> CommitHash | None:
@@ -107,3 +162,7 @@ def _parse_commit_hash(raw: str) -> CommitHash | None:
     if _COMMIT_HASH_PATTERN.match(normalized) is None:
         return None
     return CommitHash(normalized)
+
+
+def _describe(exc: Exception) -> str:
+    return str(exc).strip() or exc.__class__.__name__
