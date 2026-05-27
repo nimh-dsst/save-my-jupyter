@@ -1,5 +1,6 @@
 import type {
   ArtifactKind,
+  CommitMode,
   ConfigLayer,
   SnapshotPreviewResponse,
 } from "../../types";
@@ -23,6 +24,9 @@ export interface WillBeSavedSection {
   /** Non-null when nothing will be saved; the section is still shown (never hidden). */
   readonly emptyMessage: string | null;
   readonly destination: DestinationView;
+  readonly metadataRows: readonly { readonly label: string; readonly value: string }[];
+  readonly policyRows: readonly { readonly label: string; readonly value: string }[];
+  readonly repoRows: readonly { readonly label: string; readonly value: string }[];
   readonly tags: readonly string[];
   readonly runLabel: string | null;
   readonly freshness: string;
@@ -62,10 +66,131 @@ export function buildWillBeSavedSection(
       rootInferred,
       rootLabel: formatInferredLabel(preview.target.rootPath, rootInferred),
     },
+    metadataRows: buildMetadataRows(preview),
+    policyRows: buildPolicyRows(preview),
+    repoRows: buildRepoRows(preview),
     tags: preview.tags,
     runLabel: preview.runLabel,
     freshness: buildFreshnessNote(preview.generatedAt, preview.source),
   };
+}
+
+function buildPolicyRows(
+  preview: SnapshotPreviewResponse,
+): readonly { readonly label: string; readonly value: string }[] {
+  const config = preview.effectiveConfig;
+  if (config === null) {
+    return [];
+  }
+  const watched =
+    config.watchedPaths.length > 0 ? config.watchedPaths.join(", ") : "None";
+  const triggerPolicy = config.allCellsTrigger
+    ? "Every executed cell"
+    : "Marked trigger cells only";
+  const diffPolicy = config.includeDiffWhenDirty
+    ? "Included when dirty and no commit is created"
+    : "Not included";
+  const commitMode = formatInferredLabel(
+    describeCommitMode(config.commitMode),
+    isInferred(preview.provenance["commitMode"]),
+  );
+  return [
+    {
+      label: "Notebook file",
+      value: config.includeNotebookFile ? "Included with outputs" : "Not included",
+    },
+    { label: "Watched rules", value: watched },
+    { label: "Git commit", value: commitMode },
+    { label: "Dirty diff", value: diffPolicy },
+    { label: "Trigger policy", value: triggerPolicy },
+    {
+      label: "Stage notebook",
+      value: yesNo(config.stageNotebookOnCommit),
+    },
+    {
+      label: "Stage watched files",
+      value: yesNo(config.stageWatchedPathsOnCommit),
+    },
+    {
+      label: "Commit message",
+      value: config.commitMessageTemplate,
+    },
+    {
+      label: "Metadata defaults",
+      value: formatKeyValues(config.metadataTemplate),
+    },
+  ];
+}
+
+function buildMetadataRows(
+  preview: SnapshotPreviewResponse,
+): readonly { readonly label: string; readonly value: string }[] {
+  const rows = [
+    {
+      label: "Run label",
+      value: formatInferredLabel(
+        preview.runLabel ?? "None",
+        preview.runLabel !== null && isInferred(preview.provenance["runLabel"]),
+      ),
+    },
+    {
+      label: "Tags",
+      value: preview.tags.length > 0 ? preview.tags.join(", ") : "None",
+    },
+    {
+      label: "Notes",
+      value: preview.notes ?? "None",
+    },
+  ];
+  for (const [key, value] of Object.entries(preview.extraFields)) {
+    rows.push({ label: key, value });
+  }
+  return rows;
+}
+
+function buildRepoRows(
+  preview: SnapshotPreviewResponse,
+): readonly { readonly label: string; readonly value: string }[] {
+  const repo = preview.repo;
+  if (repo?.repoRoot === null || repo === null) {
+    return [{ label: "Repository", value: "No repository detected" }];
+  }
+  return [
+    { label: "Repository", value: repo.repoRoot },
+    { label: "Notebook path", value: repo.relativeNotebookPath ?? "Unavailable" },
+    { label: "HEAD", value: repo.headCommit ?? "No HEAD commit" },
+    { label: "Dirty state", value: repo.isDirty ? "Dirty" : "Clean" },
+    { label: "Remote", value: repo.remoteUrl ?? "No remote URL" },
+    {
+      label: "Config",
+      value: preview.repoConfigLoaded
+        ? (preview.repoConfigPath ?? "Loaded")
+        : "No .save-my-jupyter.toml loaded",
+    },
+  ];
+}
+
+function describeCommitMode(mode: CommitMode): string {
+  switch (mode) {
+    case "always":
+      return "Create a snapshot commit";
+    case "never":
+      return "Reuse existing HEAD";
+    case "ask":
+      return "Ask before snapshot";
+  }
+}
+
+function yesNo(value: boolean): string {
+  return value ? "Yes" : "No";
+}
+
+function formatKeyValues(values: Record<string, string>): string {
+  const entries = Object.entries(values);
+  if (entries.length === 0) {
+    return "None";
+  }
+  return entries.map(([key, value]) => `${key}=${value}`).join(", ");
 }
 
 function isInferred(layer: ConfigLayer | undefined): boolean {

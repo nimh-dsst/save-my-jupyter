@@ -15,8 +15,39 @@ function previewFixture(
       { kind: "notebook", summary: "Notebook (all cells, outputs, metadata)" },
       { kind: "figure", summary: "2 figures from cell outputs" },
     ],
+    effectiveConfig: {
+      allCellsTrigger: false,
+      commitMessageTemplate: "snapshot: {notebook_name}",
+      commitMode: "always",
+      includeDiffWhenDirty: true,
+      includeNotebookFile: true,
+      metadataTemplate: { sample: "42" },
+      stageNotebookOnCommit: true,
+      stageWatchedPathsOnCommit: false,
+      target: {
+        notebookName: "Jupyter Snapshots",
+        rootPath: "Notebook Log/a@b.org/proj/nb.ipynb",
+      },
+      watchedPaths: ["outputs/*.csv"],
+    },
     generatedAt: "2026-05-26T12:00:00.000Z",
-    provenance: { targetNotebook: "inferred", targetRootPath: "inferred" },
+    extraFields: { operator: "Ada" },
+    notes: "operator note",
+    provenance: {
+      commitMode: "fallback",
+      runLabel: "inferred",
+      targetNotebook: "inferred",
+      targetRootPath: "inferred",
+    },
+    repo: {
+      headCommit: "abcdef123456",
+      isDirty: true,
+      relativeNotebookPath: "proj/nb.ipynb",
+      remoteUrl: "git@github.com:example/repo.git",
+      repoRoot: "/repo",
+    },
+    repoConfigLoaded: true,
+    repoConfigPath: "/repo/.save-my-jupyter.toml",
     runLabel: "training-3",
     source: "frontend",
     tags: ["baseline", "gpu"],
@@ -90,4 +121,42 @@ void test("tags and run label are carried through", () => {
   const section = buildWillBeSavedSection(previewFixture());
   assert.deepEqual(section.tags, ["baseline", "gpu"]);
   assert.equal(section.runLabel, "training-3");
+  assert.ok(
+    section.metadataRows.some(
+      (row) => row.label === "Run label" && row.value.includes("(inferred)"),
+    ),
+  );
+  assert.ok(
+    section.metadataRows.some(
+      (row) => row.label === "Notes" && row.value === "operator note",
+    ),
+  );
+  assert.ok(
+    section.metadataRows.some(
+      (row) => row.label === "operator" && row.value === "Ada",
+    ),
+  );
+});
+
+void test("policy and repository details are included in the review", () => {
+  const section = buildWillBeSavedSection(previewFixture());
+  assert.ok(section.policyRows.some((row) => row.label === "Git commit"));
+  assert.ok(
+    section.policyRows.some(
+      (row) => row.label === "Git commit" && row.value.includes("(inferred)"),
+    ),
+  );
+  assert.ok(section.policyRows.some((row) => row.value.includes("outputs/*.csv")));
+  assert.ok(section.policyRows.some((row) => row.label === "Stage notebook"));
+  assert.ok(section.policyRows.some((row) => row.label === "Commit message"));
+  assert.ok(section.policyRows.some((row) => row.value.includes("sample=42")));
+  assert.ok(section.repoRows.some((row) => row.value === "/repo"));
+  assert.ok(section.repoRows.some((row) => row.value === "Dirty"));
+});
+
+void test("missing repository is explicit", () => {
+  const section = buildWillBeSavedSection(previewFixture({ repo: null }));
+  assert.deepEqual(section.repoRows, [
+    { label: "Repository", value: "No repository detected" },
+  ]);
 });
