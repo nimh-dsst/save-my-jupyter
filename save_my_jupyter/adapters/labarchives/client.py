@@ -23,7 +23,13 @@ class LabArchivesClient(Protocol):
     def write_page_html(self, *, page_id: str, html: str) -> None: ...
 
     def attach_file(
-        self, *, page_id: str, filename: str, mime_type: str, content: bytes
+        self,
+        *,
+        page_id: str,
+        filename: str,
+        mime_type: str,
+        content: bytes,
+        description: str | None = None,
     ) -> None: ...
 
     def delete_directory(self, *, directory_id: str) -> None:
