@@ -14,9 +14,10 @@ from __future__ import annotations
 import importlib
 import json
 import os
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, NoReturn, Protocol, cast
 from uuid import uuid4
 
@@ -25,12 +26,15 @@ import labapi
 from save_my_jupyter.domain.errors import SnapshotError
 
 _API_URL_ENV_VAR = "API_URL"
+_ACCESS_KEY_ID_ENV_VAR = "ACCESS_KEYID"
+_ACCESS_PASSWORD_ENV_VAR = "ACCESS_PWD"
 _CURL_CA_BUNDLE_ENV_VAR = "CURL_CA_BUNDLE"
 _DEFAULT_API_URL = "https://api.labarchives.com"
 _KEYRING_SERVICE_PREFIX = "save-my-jupyter.labarchives.profile"
 _REQUESTS_CA_BUNDLE_ENV_VAR = "REQUESTS_CA_BUNDLE"
 _SSL_CERT_FILE_ENV_VAR = "SSL_CERT_FILE"
 _PROMPT_MESSAGE = "Open the LabArchives authentication page to continue."
+_PENDING_AUTH_TTL = timedelta(seconds=60)
 _START_FAILURE_CODE = "labarchives_auth_start_failed"
 _START_FAILURE_MESSAGE = "Unable to start the LabArchives authentication flow."
 _COMPLETE_FAILURE_CODE = "labarchives_authentication_failed"
@@ -51,6 +55,8 @@ _TLS_VERIFICATION_FAILED_MESSAGE = (
     "TLS verification failed while connecting to LabArchives. Check "
     "the server CA trust configuration or the LabArchives certificate chain."
 )
+_LOGOUT_FAILURE_CODE = "labarchives_logout_failed"
+_LOGOUT_FAILURE_MESSAGE = "Unable to sign out of LabArchives."
 _CREDENTIAL_ERROR_MARKERS = ("access_keyid", "access_pwd")
 _TLS_CA_BUNDLE_ERROR_MARKERS = (
     "tls ca certificate bundle",
@@ -219,8 +225,10 @@ class LabArchivesSession:
 class PendingAuth:
     callback_url: str
     client: Any
+    created_at: datetime
     request_id: str
     user_id: str
+    user_id_aliases: tuple[str, ...]
 
 
 class _ProfileStore:
@@ -282,22 +290,45 @@ class _ProfileStore:
         keyring_backend = self._keyring_backend
         if keyring_backend is None:
             return
+        failures: list[str] = []
         seen_user_ids: set[str] = set()
         for candidate_user_id in (user_id, *aliases):
             if candidate_user_id in seen_user_ids or candidate_user_id == "":
                 continue
             seen_user_ids.add(candidate_user_id)
-            with suppress(Exception):
+            try:
+                if (
+                    keyring_backend.get_password(self._service_name, candidate_user_id)
+                    is None
+                ):
+                    continue
                 keyring_backend.delete_password(self._service_name, candidate_user_id)
+            except Exception as exc:
+                if _is_missing_keyring_entry(exc):
+                    continue
+                failures.append(f"{candidate_user_id}: {_describe_exception(exc)}")
+        if failures:
+            raise SnapshotError(
+                _LOGOUT_FAILURE_MESSAGE,
+                code=_LOGOUT_FAILURE_CODE,
+                context={"errors": "; ".join(failures)},
+            )
 
 
 class AuthServiceImpl:
-    def __init__(self, *, keyring_backend: KeyringBackend | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        keyring_backend: KeyringBackend | None = None,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
         self._api_url = os.getenv(_API_URL_ENV_VAR, _DEFAULT_API_URL).strip()
         if self._api_url == "":
             self._api_url = _DEFAULT_API_URL
+        self._clock = clock or (lambda: datetime.now(UTC))
         self._pending_requests: dict[str, PendingAuth] = {}
         self._sessions: dict[str, LabArchivesSession] = {}
+        self._expired_session_user_ids: set[str] = set()
         self._profile_store = _ProfileStore(
             api_url=self._api_url, backend=keyring_backend
         )
@@ -309,6 +340,8 @@ class AuthServiceImpl:
         *,
         user_id_aliases: tuple[str, ...] = (),
     ) -> AuthStartResult:
+        self._expire_pending_requests()
+        _ensure_server_credentials(api_url=self._api_url)
         request_id = uuid4().hex
         callback_url = f"{callback_base_url.rstrip('/')}/{request_id}"
         stored_profile = self.get_stored_profile(
@@ -339,8 +372,10 @@ class AuthServiceImpl:
         self._pending_requests[request_id] = PendingAuth(
             callback_url=callback_url,
             client=client,
+            created_at=self._clock(),
             request_id=request_id,
             user_id=user_id,
+            user_id_aliases=user_id_aliases,
         )
         return AuthStartResult(
             status="pending",
@@ -361,9 +396,18 @@ class AuthServiceImpl:
             )
         return session
 
+    def ensure_server_credentials(self) -> None:
+        _ensure_server_credentials(api_url=self._api_url)
+
     def complete_auth(
-        self, request_id: str, *, email: str, auth_code: str
+        self,
+        request_id: str,
+        *,
+        email: str,
+        auth_code: str,
+        user_id_aliases: tuple[str, ...] = (),
     ) -> LabArchivesSession:
+        self._expire_pending_requests()
         pending_auth = self._pending_requests.pop(request_id, None)
         if pending_auth is None:
             raise SnapshotError(
@@ -387,23 +431,42 @@ class AuthServiceImpl:
             )
         existing_session = self._sessions.get(pending_auth.user_id)
         if existing_session is not None:
-            existing_session.client.close()
+            with suppress(Exception):
+                existing_session.client.close()
         session = LabArchivesSession(
             user_email=user.email, user=user, client=pending_auth.client
         )
         self._sessions[pending_auth.user_id] = session
+        self._expired_session_user_ids.difference_update(
+            {
+                candidate
+                for candidate in (
+                    pending_auth.user_id,
+                    *pending_auth.user_id_aliases,
+                    *user_id_aliases,
+                )
+                if candidate
+            }
+        )
         self._persist_profile(pending_auth.user_id, pending_auth.client, user)
         return session
 
     def fail_pending_auth(self, request_id: str) -> None:
+        self._expire_pending_requests()
         pending_auth = self._pending_requests.pop(request_id, None)
         if pending_auth is None:
-            return
-        pending_auth.client.close()
+            raise SnapshotError(
+                "Authentication request was not found or has expired.",
+                code="missing_auth_request",
+                context={"request_id": request_id},
+            )
+        with suppress(Exception):
+            pending_auth.client.close()
 
     def get_auth_status(
         self, user_id: str, *, user_id_aliases: tuple[str, ...] = ()
     ) -> AuthStatusResult:
+        self._expire_pending_requests()
         stored_profile = self.get_stored_profile(
             user_id, user_id_aliases=user_id_aliases
         )
@@ -413,7 +476,11 @@ class AuthServiceImpl:
         stored_notebook_names = (
             stored_profile.notebook_names if stored_profile is not None else ()
         )
-        session = self._get_or_restore_session(user_id, user_id_aliases=user_id_aliases)
+        session = self._existing_session(user_id, user_id_aliases=user_id_aliases)
+        if session is None and _server_credentials_configured():
+            session = self._get_or_restore_session(
+                user_id, user_id_aliases=user_id_aliases
+            )
         if session is not None:
             return AuthStatusResult(
                 status="authenticated",
@@ -421,11 +488,14 @@ class AuthServiceImpl:
                 stored_user_email=stored_user_email,
                 stored_notebook_names=stored_notebook_names,
             )
+        pending_user_ids = {
+            candidate for candidate in (user_id, *user_id_aliases) if candidate
+        }
         pending_request_id = next(
             (
                 pending_auth.request_id
                 for pending_auth in self._pending_requests.values()
-                if pending_auth.user_id == user_id
+                if pending_auth.user_id in pending_user_ids
             ),
             None,
         )
@@ -445,14 +515,21 @@ class AuthServiceImpl:
     def clear_session(self, user_id: str) -> None:
         session = self._sessions.pop(user_id, None)
         if session is not None:
-            session.client.close()
+            with suppress(Exception):
+                session.client.close()
+        if user_id:
+            self._expired_session_user_ids.add(user_id)
 
     def logout(self, user_id: str, *, user_id_aliases: tuple[str, ...] = ()) -> None:
         self.clear_session(user_id)
         for alias in user_id_aliases:
             if alias and alias != user_id:
                 self.clear_session(alias)
+        self._cancel_pending_for_users((user_id, *user_id_aliases))
         self._profile_store.delete(user_id=user_id, aliases=user_id_aliases)
+        self._expired_session_user_ids.difference_update(
+            {candidate for candidate in (user_id, *user_id_aliases) if candidate}
+        )
 
     def get_stored_profile(
         self, user_id: str, *, user_id_aliases: tuple[str, ...] = ()
@@ -468,9 +545,11 @@ class AuthServiceImpl:
     def _get_or_restore_session(
         self, user_id: str, *, user_id_aliases: tuple[str, ...] = ()
     ) -> LabArchivesSession | None:
-        session = self._sessions.get(user_id)
+        session = self._existing_session(user_id, user_id_aliases=user_id_aliases)
         if session is not None:
             return session
+        if self._session_restore_suppressed(user_id, aliases=user_id_aliases):
+            return None
         loaded_profile = self._profile_store.load_with_source(
             user_id=user_id, aliases=user_id_aliases
         )
@@ -510,6 +589,54 @@ class AuthServiceImpl:
         if stored_profile_user_id != user_id:
             self._profile_store.save(user_id=user_id, profile=stored_profile)
         return session
+
+    def _session_restore_suppressed(
+        self, user_id: str, *, aliases: tuple[str, ...] = ()
+    ) -> bool:
+        return any(
+            candidate in self._expired_session_user_ids
+            for candidate in (user_id, *aliases)
+            if candidate
+        )
+
+    def _existing_session(
+        self, user_id: str, *, user_id_aliases: tuple[str, ...] = ()
+    ) -> LabArchivesSession | None:
+        for candidate_user_id in (user_id, *user_id_aliases):
+            if not candidate_user_id:
+                continue
+            session = self._sessions.get(candidate_user_id)
+            if session is not None:
+                if candidate_user_id != user_id:
+                    self._sessions[user_id] = session
+                return session
+        return None
+
+    def _expire_pending_requests(self) -> None:
+        cutoff = self._clock() - _PENDING_AUTH_TTL
+        expired = [
+            request_id
+            for request_id, pending in self._pending_requests.items()
+            if pending.created_at <= cutoff
+        ]
+        for request_id in expired:
+            pending = self._pending_requests.pop(request_id)
+            with suppress(Exception):
+                pending.client.close()
+
+    def _cancel_pending_for_users(self, user_ids: tuple[str, ...]) -> None:
+        targets = {user_id for user_id in user_ids if user_id}
+        if not targets:
+            return
+        request_ids = [
+            request_id
+            for request_id, pending in self._pending_requests.items()
+            if pending.user_id in targets
+        ]
+        for request_id in request_ids:
+            pending = self._pending_requests.pop(request_id)
+            with suppress(Exception):
+                pending.client.close()
 
 
 class LabArchivesAuth:
@@ -554,8 +681,17 @@ class LabArchivesAuth:
             self._user_id, callback_base_url, user_id_aliases=self._aliases
         )
 
+    def ensure_server_credentials(self) -> None:
+        if not self._demo:
+            self._impl.ensure_server_credentials()
+
     def complete(self, request_id: str, *, email: str, auth_code: str) -> None:
-        self._impl.complete_auth(request_id, email=email, auth_code=auth_code)
+        self._impl.complete_auth(
+            request_id,
+            email=email,
+            auth_code=auth_code,
+            user_id_aliases=self._aliases,
+        )
 
     def fail_pending(self, request_id: str) -> None:
         self._impl.fail_pending_auth(request_id)
@@ -563,6 +699,13 @@ class LabArchivesAuth:
     def logout(self) -> None:
         self._demo = False
         self._impl.logout(self._user_id, user_id_aliases=self._aliases)
+
+    def clear_session(self) -> None:
+        self._demo = False
+        self._impl.clear_session(self._user_id)
+        for alias in self._aliases:
+            if alias and alias != self._user_id:
+                self._impl.clear_session(alias)
 
     def connect_demo(self) -> None:
         self._demo = True
@@ -622,3 +765,34 @@ def _raise_auth_error(
         ) from exc
 
     raise SnapshotError(fallback_message, code=fallback_code, context=context) from exc
+
+
+def _ensure_server_credentials(*, api_url: str) -> None:
+    if _server_credentials_configured():
+        return
+    raise SnapshotError(
+        _MISSING_CREDENTIALS_MESSAGE,
+        code=_MISSING_CREDENTIALS_CODE,
+        context={"api_url": api_url},
+    )
+
+
+def _server_credentials_configured() -> bool:
+    access_key_id = os.getenv(_ACCESS_KEY_ID_ENV_VAR, "").strip()
+    access_password = os.getenv(_ACCESS_PASSWORD_ENV_VAR, "").strip()
+    return bool(access_key_id and access_password)
+
+
+def _describe_exception(exc: Exception) -> str:
+    return str(exc).strip() or exc.__class__.__name__
+
+
+def _is_missing_keyring_entry(exc: Exception) -> bool:
+    if isinstance(exc, KeyError):
+        return True
+    lowered = str(exc).lower()
+    return (
+        "not found" in lowered
+        or "does not exist" in lowered
+        or "no password" in lowered
+    )

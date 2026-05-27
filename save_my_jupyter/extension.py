@@ -37,12 +37,14 @@ class SaveMyJupyterApp(ExtensionApp):
         super().initialize_settings()  # type: ignore[no-untyped-call]
         data_dir = Path(jupyter_data_dir()) / _DATA_SUBDIR
         data_dir.mkdir(parents=True, exist_ok=True)
+        user_id = _current_user_id(self)
         services = build_services(
             data_dir=data_dir,
             snapshots_dir=self._snapshots_dir(),
-            user_id=_current_user_id(self),
+            user_id=user_id,
+            user_id_aliases=_legacy_user_id_aliases(user_id),
             extension_version=__version__,
-            demo_mode=not _labarchives_credentials_present(),
+            demo_mode=_demo_mode_enabled(),
         )
         self.settings["save_my_jupyter_services"] = services
 
@@ -78,8 +80,9 @@ class SaveMyJupyterApp(ExtensionApp):
             cast("Any", services).worker_pool.shutdown()
 
 
-def _labarchives_credentials_present() -> bool:
-    return bool(os.environ.get("ACCESS_KEYID") and os.environ.get("ACCESS_PWD"))
+def _demo_mode_enabled() -> bool:
+    value = os.environ.get("SAVE_MY_JUPYTER_DEMO_MODE", "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _current_user_id(app: ExtensionApp) -> str:
@@ -89,6 +92,12 @@ def _current_user_id(app: ExtensionApp) -> str:
     identity = getattr(server_app, "identity_provider", None)
     user = getattr(identity, "username", None)
     return str(user) if user else "anonymous"
+
+
+def _legacy_user_id_aliases(user_id: str) -> tuple[str, ...]:
+    if user_id == "anonymous":
+        return ()
+    return ("anonymous",)
 
 
 def launch_instance() -> None:

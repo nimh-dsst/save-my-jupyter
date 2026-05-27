@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING
 
 from save_my_jupyter.adapters.activity_sqlite import SqliteActivityStore
 from save_my_jupyter.adapters.clock_system import SystemClock
-from save_my_jupyter.adapters.fake_delivery import FakeDelivery
 from save_my_jupyter.adapters.filesystem_local import LocalFileSystem
 from save_my_jupyter.adapters.git_dulwich import DulwichGitInspector, DulwichGitMutator
 from save_my_jupyter.adapters.labarchives.auth import LabArchivesAuth
@@ -24,6 +23,7 @@ from save_my_jupyter.application.snapshot.pipeline import (
     run_snapshot_pipeline,
 )
 from save_my_jupyter.domain.config import UserSettingsConfig
+from save_my_jupyter.domain.errors import SnapshotError
 from save_my_jupyter.worker.pool import WorkerPool
 
 if TYPE_CHECKING:
@@ -67,13 +67,19 @@ def build_services(
     pool = WorkerPool()
 
     def pipeline(job_id: str, request: SnapshotRequest) -> ActivityRecord:
+        if not demo_mode:
+            auth.ensure_server_credentials()
         session = auth.current_session()
         if demo_mode:
             delivery = LocalDelivery(snapshots_dir)
         elif session is not None:
             delivery = LabArchivesDelivery(LabApiClient(session))
         else:
-            delivery = FakeDelivery()
+            raise SnapshotError(
+                "LabArchives session expired; sign in again to continue.",
+                code="labarchives_session_expired",
+                context={"user_id": user_id},
+            )
         deps = PipelineDependencies(
             git_inspector=git_inspector,
             git_mutator=git_mutator,
@@ -86,7 +92,10 @@ def build_services(
             user_id=user_id,
             extension_version=extension_version,
         )
-        return run_snapshot_pipeline(job_id, request, deps)
+        record = run_snapshot_pipeline(job_id, request, deps)
+        if record.error_code == "labarchives_session_expired":
+            auth.clear_session()
+        return record
 
     coordinator = SnapshotCoordinator(
         admission=SnapshotAdmission(clock),
