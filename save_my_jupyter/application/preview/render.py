@@ -14,28 +14,42 @@ from typing import TYPE_CHECKING
 
 from save_my_jupyter.application.config import (
     parse_notebook_metadata,
-    parse_repo_config,
     resolve_effective_config,
 )
+from save_my_jupyter.application.config.discovery import discover_repo_config
 from save_my_jupyter.application.snapshot.directives import parse_directives
+from save_my_jupyter.application.snapshot.guards import (
+    NOTEBOOK_MAX_BYTES,
+    enforce_size_cap,
+)
 from save_my_jupyter.application.snapshot.notebook_content import outline_notebook
 from save_my_jupyter.application.snapshot.plan import plan_capture
 from save_my_jupyter.domain.capture import CapturePlan
 from save_my_jupyter.domain.enums import CommitMode
+from save_my_jupyter.domain.errors import SnapshotError
 
 if TYPE_CHECKING:
-    from save_my_jupyter.domain.config import UserSettingsConfig
+    from save_my_jupyter.domain.config import (
+        EffectiveConfig,
+        RepoConfig,
+        UserSettingsConfig,
+    )
     from save_my_jupyter.domain.provenance import ConfigLayer
+    from save_my_jupyter.domain.repo import RepoContext
     from save_my_jupyter.domain.requests import SnapshotRequest
     from save_my_jupyter.ports import FileSystem, GitInspector
-
-_REPO_CONFIG_FILENAME = ".save-my-jupyter.toml"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class PreviewResult:
     plan: CapturePlan
     provenance: Mapping[str, ConfigLayer]
+    effective: EffectiveConfig
+    repo: RepoContext
+    repo_config_path: str | None
+    repo_config_loaded: bool
+    notes: str | None
+    extra_fields: Mapping[str, str]
     source: str
 
 
@@ -52,12 +66,18 @@ def build_preview(
         filesystem, str(context.notebook_path)
     )
     source = "frontend" if request.notebook_content is not None else "disk"
+    repo_config = discover_repo_config(
+        filesystem=filesystem,
+        notebook_path=context.notebook_path,
+        repo_root=repo.repo_root,
+    )
 
     resolved = resolve_effective_config(
         request_commit_mode=request.commit_mode,
+        request_watched_paths=request.watched_paths,
         notebook=parse_notebook_metadata(_notebook_metadata(notebook_json)),
         user=user_settings,
-        repo=_load_repo_config(filesystem, repo.repo_root),
+        repo=repo_config.config,
     )
     effective = resolved.effective
     will_commit = effective.commit_mode is CommitMode.ALWAYS and repo.is_dirty
@@ -70,19 +90,27 @@ def build_preview(
         will_create_commit=will_commit,
         ui_tags=request.metadata.tags,
         ui_run_label=request.metadata.run_label,
-        default_tags=user_settings.default_tags,
+        default_tags=_default_tags(user_settings, repo_config.config),
+        default_run_label=user_settings.default_run_label,
     )
-    return PreviewResult(plan=plan, provenance=resolved.provenance, source=source)
+    return PreviewResult(
+        plan=plan,
+        provenance=resolved.provenance,
+        effective=effective,
+        repo=repo,
+        repo_config_path=str(repo_config.path),
+        repo_config_loaded=repo_config.loaded,
+        notes=request.metadata.notes,
+        extra_fields=request.metadata.extra_fields,
+        source=source,
+    )
 
 
-def _load_repo_config(filesystem: FileSystem, repo_root: str | None):
-    if repo_root is None:
-        return None
-    config_path = Path(repo_root) / _REPO_CONFIG_FILENAME
-    if not filesystem.is_file(config_path):
-        return None
-    text = filesystem.read_bytes(config_path).decode("utf-8")
-    return parse_repo_config(text, default_project_name=Path(repo_root).name)
+def _default_tags(
+    user_settings: UserSettingsConfig, repo_config: RepoConfig | None
+) -> tuple[str, ...]:
+    repo_tags = repo_config.default_tags if repo_config is not None else ()
+    return (*repo_tags, *user_settings.default_tags)
 
 
 def _load_notebook_json(
@@ -91,7 +119,29 @@ def _load_notebook_json(
     path = Path(notebook_path)
     if not filesystem.is_file(path):
         return {}
-    return _as_dict(json.loads(filesystem.read_bytes(path).decode("utf-8"))) or {}
+    try:
+        raw = filesystem.read_bytes(path)
+    except OSError as exc:
+        raise SnapshotError(
+            "Unable to read notebook artifact.",
+            code="notebook_artifact_parse_failed",
+            context={"path": str(path)},
+        ) from exc
+    enforce_size_cap(
+        size_bytes=len(raw),
+        max_bytes=NOTEBOOK_MAX_BYTES,
+        code="notebook_artifact_too_large",
+        path=path,
+    )
+    try:
+        loaded = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SnapshotError(
+            "Unable to parse notebook artifact.",
+            code="notebook_artifact_parse_failed",
+            context={"path": str(path)},
+        ) from exc
+    return _as_dict(loaded) or {}
 
 
 def _notebook_metadata(notebook_json: Mapping[str, object]) -> Mapping[str, object]:
