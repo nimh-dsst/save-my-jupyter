@@ -13,9 +13,11 @@ from save_my_jupyter.domain.queue import Accepted, Coalesced, Rejected
 if TYPE_CHECKING:
     from save_my_jupyter.domain.activity import ActivityRecord
     from save_my_jupyter.domain.capture import CapturePlan
+    from save_my_jupyter.domain.config import EffectiveConfig
     from save_my_jupyter.domain.errors import SnapshotError
     from save_my_jupyter.domain.provenance import ConfigLayer
     from save_my_jupyter.domain.queue import AdmissionDecision
+    from save_my_jupyter.domain.repo import RepoContext
 
 
 def serialize_error(error: SnapshotError) -> dict[str, object]:
@@ -79,16 +81,33 @@ def serialize_preview(
     *,
     plan: CapturePlan,
     provenance: Mapping[str, ConfigLayer],
+    effective: EffectiveConfig,
+    repo: RepoContext,
+    repo_config_path: str | None,
+    repo_config_loaded: bool,
+    notes: str | None,
+    extra_fields: Mapping[str, str],
     generated_at: datetime,
     source: str,
 ) -> dict[str, object]:
+    serialized_provenance = {
+        _camel(key): layer.value for key, layer in provenance.items()
+    }
+    if plan.run_label_provenance is not None:
+        serialized_provenance["runLabel"] = plan.run_label_provenance.value
     return {
         "artifacts": [
             {"kind": artifact.kind.value, "summary": artifact.summary}
             for artifact in plan.artifacts
         ],
         "generatedAt": generated_at.isoformat(),
-        "provenance": {_camel(key): layer.value for key, layer in provenance.items()},
+        "provenance": serialized_provenance,
+        "effectiveConfig": _serialize_effective_config(effective),
+        "extraFields": dict(extra_fields),
+        "notes": notes,
+        "repo": _serialize_repo(repo),
+        "repoConfigPath": repo_config_path,
+        "repoConfigLoaded": repo_config_loaded,
         "runLabel": plan.run_label,
         "source": source,
         "tags": list(plan.tags),
@@ -96,6 +115,34 @@ def serialize_preview(
             "notebookName": plan.target.notebook_name,
             "rootPath": plan.target.root_path,
         },
+    }
+
+
+def _serialize_effective_config(config: EffectiveConfig) -> dict[str, object]:
+    return {
+        "allCellsTrigger": config.all_cells_trigger,
+        "commitMessageTemplate": config.commit_message_template,
+        "commitMode": config.commit_mode.value,
+        "includeDiffWhenDirty": config.include_diff_when_dirty,
+        "includeNotebookFile": config.include_notebook_file,
+        "metadataTemplate": dict(config.metadata_template),
+        "stageNotebookOnCommit": config.stage_notebook_on_commit,
+        "stageWatchedPathsOnCommit": config.stage_watched_paths_on_commit,
+        "target": {
+            "notebookName": config.target.notebook_name,
+            "rootPath": config.target.root_path,
+        },
+        "watchedPaths": list(config.watched_paths),
+    }
+
+
+def _serialize_repo(repo: RepoContext) -> dict[str, object]:
+    return {
+        "headCommit": repo.head_commit,
+        "isDirty": repo.is_dirty,
+        "relativeNotebookPath": repo.relative_notebook_path,
+        "remoteUrl": repo.remote_url,
+        "repoRoot": repo.repo_root,
     }
 
 

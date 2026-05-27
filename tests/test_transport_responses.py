@@ -4,16 +4,20 @@ from datetime import UTC, datetime
 
 from save_my_jupyter.domain.activity import ActivityRecord
 from save_my_jupyter.domain.capture import CapturePlan, PlannedArtifact
-from save_my_jupyter.domain.config import LabArchivesTarget
-from save_my_jupyter.domain.enums import ArtifactKind, SnapshotSource
+from save_my_jupyter.domain.config import EffectiveConfig, LabArchivesTarget
+from save_my_jupyter.domain.enums import ArtifactKind, CommitMode, SnapshotSource
 from save_my_jupyter.domain.errors import SnapshotError
 from save_my_jupyter.domain.jobs import JobState, RunOutcome
 from save_my_jupyter.domain.provenance import ConfigLayer
 from save_my_jupyter.domain.queue import Accepted, Coalesced, Rejected
+from save_my_jupyter.domain.repo import RepoContext
 from save_my_jupyter.domain.types import (
     LabArchivesNotebookName,
     LabArchivesRootPath,
+    RelativeRepoPath,
+    RelativeWatchPath,
     RemoteUrl,
+    RepoRootPath,
     SnapshotId,
 )
 from save_my_jupyter.transport.responses import (
@@ -120,6 +124,7 @@ def test_preview_serializes_to_frontend_shape() -> None:
         ),
         tags=("baseline",),
         run_label="run-1",
+        run_label_provenance=ConfigLayer.REQUEST,
     )
     provenance = {
         "target_notebook": ConfigLayer.INFERRED,
@@ -127,12 +132,40 @@ def test_preview_serializes_to_frontend_shape() -> None:
         "commit_mode": ConfigLayer.USER,
     }
     payload = serialize_preview(
-        plan=plan, provenance=provenance, generated_at=_NOW, source="frontend"
+        plan=plan,
+        provenance=provenance,
+        effective=EffectiveConfig(
+            all_cells_trigger=False,
+            commit_mode=CommitMode.ALWAYS,
+            watched_paths=(RelativeWatchPath("outputs"),),
+            include_notebook_file=True,
+            include_diff_when_dirty=True,
+            target=plan.target,
+            metadata_template={},
+            stage_notebook_on_commit=True,
+            stage_watched_paths_on_commit=False,
+            commit_message_template="snapshot: {notebook_name}",
+        ),
+        repo=RepoContext(
+            repo_root=RepoRootPath("/repo"),
+            relative_notebook_path=RelativeRepoPath("analysis.ipynb"),
+            remote_url=RemoteUrl("git@github.com:example/repo.git"),
+            head_commit=None,
+            is_dirty=True,
+        ),
+        repo_config_path="/repo/.save-my-jupyter.toml",
+        repo_config_loaded=True,
+        notes="operator note",
+        extra_fields={"operator": "Ada"},
+        generated_at=_NOW,
+        source="frontend",
     )
     assert payload["generatedAt"] == _NOW.isoformat()
     assert payload["source"] == "frontend"
     assert payload["runLabel"] == "run-1"
     assert payload["tags"] == ["baseline"]
+    assert payload["notes"] == "operator note"
+    assert payload["extraFields"] == {"operator": "Ada"}
     assert payload["artifacts"] == [
         {"kind": "notebook", "summary": "Notebook"},
         {"kind": "figure", "summary": "2 figures"},
@@ -141,9 +174,21 @@ def test_preview_serializes_to_frontend_shape() -> None:
         "notebookName": "Jupyter Snapshots",
         "rootPath": "Notebook Log/a@b.org",
     }
+    assert payload["effectiveConfig"]["commitMode"] == "always"
+    assert payload["effectiveConfig"]["watchedPaths"] == ["outputs"]
+    assert payload["repo"] == {
+        "headCommit": None,
+        "isDirty": True,
+        "relativeNotebookPath": "analysis.ipynb",
+        "remoteUrl": "git@github.com:example/repo.git",
+        "repoRoot": "/repo",
+    }
+    assert payload["repoConfigLoaded"] is True
+    assert payload["repoConfigPath"] == "/repo/.save-my-jupyter.toml"
     # provenance keys are camelCased to match the frontend reader (C-CONFIG-11)
     assert payload["provenance"] == {
         "targetNotebook": "inferred",
         "targetRootPath": "inferred",
         "commitMode": "user",
+        "runLabel": "request",
     }

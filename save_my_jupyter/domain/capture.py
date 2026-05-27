@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from save_my_jupyter.domain.config import LabArchivesTarget
 from save_my_jupyter.domain.enums import ArtifactKind
+from save_my_jupyter.domain.provenance import ConfigLayer
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -44,3 +45,4 @@ class CapturePlan:
     target: LabArchivesTarget
     tags: tuple[str, ...]
     run_label: str | None
+    run_label_provenance: ConfigLayer | None = None
