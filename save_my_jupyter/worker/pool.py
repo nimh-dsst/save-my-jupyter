@@ -5,11 +5,13 @@ their own error handling and record outcomes via the Activity store."""
 
 from __future__ import annotations
 
+import logging
 import queue
 import threading
 from collections.abc import Callable
 
 _Job = Callable[[], None]
+_LOG = logging.getLogger(__name__)
 
 
 class WorkerPool:
@@ -22,7 +24,7 @@ class WorkerPool:
     def submit(self, key: str, job: _Job) -> None:
         with self._lock:
             if self._shutdown:
-                return
+                raise RuntimeError("worker pool is shut down")
             work_queue = self._queues.get(key)
             if work_queue is None:
                 work_queue = queue.Queue()
@@ -32,7 +34,7 @@ class WorkerPool:
                 )
                 self._threads[key] = thread
                 thread.start()
-        work_queue.put(job)
+            work_queue.put(job)
 
     def join(self) -> None:
         """Block until every queued job has finished (used by tests and a clean
@@ -42,10 +44,13 @@ class WorkerPool:
 
     def shutdown(self, *, timeout: float | None = 5.0) -> None:
         with self._lock:
-            self._shutdown = True
+            should_signal = not self._shutdown
+            if should_signal:
+                self._shutdown = True
             queues = list(self._queues.items())
-        for _key, work_queue in queues:
-            work_queue.put(None)
+        if should_signal:
+            for _key, work_queue in queues:
+                work_queue.put(None)
         for key, _work_queue in queues:
             self._threads[key].join(timeout=timeout)
 
@@ -62,5 +67,7 @@ class WorkerPool:
                 return
             try:
                 job()
+            except Exception:
+                _LOG.exception("Save My Jupyter worker job failed unexpectedly")
             finally:
                 work_queue.task_done()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 
+import pytest
 from save_my_jupyter.worker.pool import WorkerPool
 
 
@@ -44,9 +45,25 @@ def test_different_notebooks_each_run_their_jobs() -> None:
     assert done == {"a1", "b1", "a2"}
 
 
-def test_submit_after_shutdown_is_ignored() -> None:
+def test_submit_after_shutdown_is_rejected() -> None:
     pool = WorkerPool()
     pool.shutdown()
-    ran: list[int] = []
-    pool.submit("nb-a", lambda: ran.append(1))
-    assert ran == []
+    with pytest.raises(RuntimeError):
+        pool.submit("nb-a", lambda: None)
+
+
+def test_worker_continues_after_job_raises() -> None:
+    pool = WorkerPool()
+    ran: list[str] = []
+
+    def fail() -> None:
+        raise RuntimeError("boom")
+
+    try:
+        pool.submit("nb-a", fail)
+        pool.submit("nb-a", lambda: ran.append("second"))
+        pool.join()
+    finally:
+        pool.shutdown()
+
+    assert ran == ["second"]
