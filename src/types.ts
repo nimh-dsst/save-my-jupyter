@@ -15,6 +15,41 @@ export const configLayerSchema = z.enum([
 
 export const artifactKindSchema = z.enum(["notebook", "figure", "file", "diff"]);
 
+export const jobStateSchema = z.enum([
+  "queued",
+  "running",
+  "persisted",
+  "failed",
+  "abandoned",
+]);
+
+export const runOutcomeSchema = z.enum(["success", "error", "n/a"]);
+
+export const activityRecordSchema = z.object({
+  commitHash: z.string().nullable().default(null),
+  commitUrl: z.string().nullable().default(null),
+  completedAt: z.string().nullable().default(null),
+  directoryName: z.string().nullable().default(null),
+  directoryUrl: z.string().nullable().default(null),
+  displayMessage: z.string(),
+  errorCode: z.string().nullable().default(null),
+  errorMessage: z.string().nullable().default(null),
+  jobId: z.string(),
+  metaPageId: z.string().nullable().default(null),
+  metaPageName: z.string().nullable().default(null),
+  notebookPath: z.string(),
+  pageCount: z.number().int().nullable().default(null),
+  runOutcome: runOutcomeSchema,
+  snapshotId: z.string().nullable().default(null),
+  source: snapshotSourceSchema,
+  state: jobStateSchema,
+  submittedAt: z.string(),
+});
+
+export const snapshotJobsResponseSchema = z.object({
+  jobs: z.array(activityRecordSchema).default([]),
+});
+
 export const notebookExtensionMetadataSchema = z.object({
   all_cells_trigger: z.boolean().default(false),
   default_metadata: z.record(z.string(), z.string()).default({}),
@@ -182,8 +217,12 @@ export const apiErrorSchema = z.object({
   }),
 });
 
+export type ActivityRecord = z.infer<typeof activityRecordSchema>;
 export type ApiError = z.infer<typeof apiErrorSchema>;
 export type ArtifactKind = z.infer<typeof artifactKindSchema>;
+export type JobState = z.infer<typeof jobStateSchema>;
+export type RunOutcome = z.infer<typeof runOutcomeSchema>;
+export type SnapshotJobsResponse = z.infer<typeof snapshotJobsResponseSchema>;
 export type AuthStartResponse = z.infer<typeof authStartResponseSchema>;
 export type AuthState = z.infer<typeof authStateSchema>;
 export type CellExtensionMetadata = z.infer<typeof cellExtensionMetadataSchema>;
@@ -252,6 +291,14 @@ export function parseSnapshotPreviewResponse(
   raw: unknown,
 ): SnapshotPreviewResponse {
   return snapshotPreviewResponseSchema.parse(raw);
+}
+
+export function parseSnapshotJobsResponse(raw: unknown): SnapshotJobsResponse {
+  return snapshotJobsResponseSchema.parse(raw);
+}
+
+export function parseActivityRecord(raw: unknown): ActivityRecord {
+  return activityRecordSchema.parse(raw);
 }
 
 export function parseSnapshotSubmissionResult(
