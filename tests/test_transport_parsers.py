@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from save_my_jupyter.domain.enums import CommitMode, SnapshotSource
 from save_my_jupyter.domain.errors import SnapshotError
-from save_my_jupyter.http.parsers import parse_snapshot_request
+from save_my_jupyter.transport.parsers import parse_snapshot_request
 
 
 def _manual(**overrides: Any) -> dict[str, Any]:

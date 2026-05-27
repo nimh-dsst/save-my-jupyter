@@ -96,9 +96,7 @@ select = [
   "UP",
   "W",
 ]
-# A005: the `http` layer is named per the architecture; absolute imports make
-# shadowing the stdlib `http` module harmless in Python 3.
-ignore = ["A005", "EM101", "EM102", "RUF012", "TC001", "TC003", "TC006"]
+ignore = ["EM101", "EM102", "RUF012", "TC001", "TC003", "TC006"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101"]
