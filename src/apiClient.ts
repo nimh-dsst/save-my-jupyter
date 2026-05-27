@@ -3,9 +3,11 @@ import { ServerConnection } from "@jupyterlab/services";
 
 import {
   parseApiError,
+  parseAuthStartResponse,
   parseAuthState,
   parseSnapshotPreviewResponse,
   parseSnapshotSubmissionResult,
+  type AuthStartResponse,
   type AuthState,
   type SnapshotPreviewResponse,
   type SnapshotSubmissionResult,
@@ -42,6 +44,10 @@ export class ApiClient {
 
   async authStatus(): Promise<AuthState> {
     return parseAuthState(await this.request("GET", ["auth", "status"]));
+  }
+
+  async startAuth(): Promise<AuthStartResponse> {
+    return parseAuthStartResponse(await this.request("POST", ["auth", "start"]));
   }
 
   async signOut(): Promise<void> {

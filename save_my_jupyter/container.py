@@ -13,10 +13,10 @@ from save_my_jupyter.adapters.clock_system import SystemClock
 from save_my_jupyter.adapters.fake_delivery import FakeDelivery
 from save_my_jupyter.adapters.filesystem_local import LocalFileSystem
 from save_my_jupyter.adapters.git_dulwich import DulwichGitInspector, DulwichGitMutator
-from save_my_jupyter.adapters.keyring_system import SystemKeyring
-from save_my_jupyter.adapters.labarchives.auth import AuthService
+from save_my_jupyter.adapters.labarchives.auth import LabArchivesAuth
 from save_my_jupyter.adapters.labarchives.delivery import LabArchivesDelivery
 from save_my_jupyter.adapters.labarchives.labapi_client import LabApiClient
+from save_my_jupyter.adapters.local_delivery import LocalDelivery
 from save_my_jupyter.application.snapshot.admission import SnapshotAdmission
 from save_my_jupyter.application.snapshot.coordinator import SnapshotCoordinator
 from save_my_jupyter.application.snapshot.pipeline import (
@@ -36,20 +36,23 @@ if TYPE_CHECKING:
 class ServiceContainer:
     coordinator: SnapshotCoordinator
     activity: ActivityStore
-    auth: AuthService
+    auth: LabArchivesAuth
     git_inspector: GitInspector
     filesystem: FileSystem
     user_settings: UserSettingsConfig
     clock: Clock
     worker_pool: WorkerPool
     extension_version: str
+    demo_mode: bool
 
 
 def build_services(
     *,
     data_dir: Path,
+    snapshots_dir: Path,
     user_id: str,
     extension_version: str,
+    demo_mode: bool = True,
     user_id_aliases: tuple[str, ...] = (),
 ) -> ServiceContainer:
     clock: Clock = SystemClock()
@@ -58,18 +61,19 @@ def build_services(
     git_mutator = DulwichGitMutator()
     activity = SqliteActivityStore(data_dir / "activity.sqlite")
     activity.abandon_inflight()
-    keyring = SystemKeyring()
-    auth = AuthService(keyring, user_id=user_id, user_id_aliases=user_id_aliases)
+    snapshots_dir.mkdir(parents=True, exist_ok=True)
+    auth = LabArchivesAuth(user_id=user_id, user_id_aliases=user_id_aliases)
     user_settings = UserSettingsConfig()
     pool = WorkerPool()
 
     def pipeline(job_id: str, request: SnapshotRequest) -> ActivityRecord:
         session = auth.current_session()
-        delivery = (
-            LabArchivesDelivery(LabApiClient(session))
-            if session is not None
-            else FakeDelivery()
-        )
+        if demo_mode:
+            delivery = LocalDelivery(snapshots_dir)
+        elif session is not None:
+            delivery = LabArchivesDelivery(LabApiClient(session))
+        else:
+            delivery = FakeDelivery()
         deps = PipelineDependencies(
             git_inspector=git_inspector,
             git_mutator=git_mutator,
@@ -101,4 +105,5 @@ def build_services(
         clock=clock,
         worker_pool=pool,
         extension_version=extension_version,
+        demo_mode=demo_mode,
     )

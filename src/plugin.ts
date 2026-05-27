@@ -42,16 +42,10 @@ const plugin: JupyterFrontEndPlugin<void> = {
       }
     };
 
-    const connect = async (): Promise<void> => {
-      // Opening the LabArchives sign-in flow is the gate-unverifiable seam,
-      // wired during the smoke test; refresh status to reflect any change.
-      await controller.refreshAuth();
-    };
-
     const panel = new SnapshotPanel({
       state: controller.state,
       onConnect: () => {
-        void connect();
+        void controller.toggleAuth();
       },
       onSnapshot: () => {
         void snapshotCurrent();

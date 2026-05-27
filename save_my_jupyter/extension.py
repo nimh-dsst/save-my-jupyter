@@ -5,6 +5,7 @@ only -- exercised through a running Jupyter server."""
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, cast
 
@@ -15,7 +16,9 @@ from jupyter_server.utils import url_path_join
 from save_my_jupyter import __version__
 from save_my_jupyter.container import build_services
 from save_my_jupyter.transport.handlers import (
+    AuthCallbackHandler,
     AuthLogoutHandler,
+    AuthStartHandler,
     AuthStatusHandler,
     SnapshotHandler,
     SnapshotJobsHandler,
@@ -24,6 +27,7 @@ from save_my_jupyter.transport.handlers import (
 )
 
 _DATA_SUBDIR = "save_my_jupyter"
+_SNAPSHOTS_SUBDIR = "save-my-jupyter-snapshots"
 
 
 class SaveMyJupyterApp(ExtensionApp):
@@ -35,10 +39,17 @@ class SaveMyJupyterApp(ExtensionApp):
         data_dir.mkdir(parents=True, exist_ok=True)
         services = build_services(
             data_dir=data_dir,
+            snapshots_dir=self._snapshots_dir(),
             user_id=_current_user_id(self),
             extension_version=__version__,
+            demo_mode=not _labarchives_credentials_present(),
         )
         self.settings["save_my_jupyter_services"] = services
+
+    def _snapshots_dir(self) -> Path:
+        server_app = self.serverapp
+        root = server_app.root_dir if server_app is not None else "."
+        return Path(root) / _SNAPSHOTS_SUBDIR
 
     def initialize_handlers(self) -> None:
         server_app = self.serverapp
@@ -55,6 +66,8 @@ class SaveMyJupyterApp(ExtensionApp):
             (route("snapshot-preview"), SnapshotPreviewHandler),
             (route("watch", "sync"), WatchSyncHandler),
             (route("auth", "status"), AuthStatusHandler),
+            (route("auth", "start"), AuthStartHandler),
+            (route("auth", "callback", r"(?P<request_id>[^/]+)"), AuthCallbackHandler),
             (route("auth", "logout"), AuthLogoutHandler),
         ]
         self.handlers.extend(handlers)  # type: ignore[attr-defined]
@@ -63,6 +76,10 @@ class SaveMyJupyterApp(ExtensionApp):
         services = self.settings.get("save_my_jupyter_services")
         if services is not None:
             cast("Any", services).worker_pool.shutdown()
+
+
+def _labarchives_credentials_present() -> bool:
+    return bool(os.environ.get("ACCESS_KEYID") and os.environ.get("ACCESS_PWD"))
 
 
 def _current_user_id(app: ExtensionApp) -> str:

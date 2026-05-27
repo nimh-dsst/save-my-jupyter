@@ -37,10 +37,46 @@ export function initialPanelState(): PanelState {
 export class SnapshotPanelController {
   readonly state: WritableSignal<PanelState> = createSignal(initialPanelState());
 
-  constructor(private readonly api: ApiClient) {}
+  constructor(private readonly api: ApiClient) {
+    // The OAuth callback tab signals completion; refresh auth when it does.
+    try {
+      const channel = new BroadcastChannel("save-my-jupyter-auth");
+      channel.onmessage = () => {
+        void this.refreshAuth();
+      };
+    } catch {
+      // BroadcastChannel unavailable; the storage event below still covers it.
+    }
+    try {
+      window.addEventListener("storage", (event) => {
+        if (event.key === "save-my-jupyter-auth") {
+          void this.refreshAuth();
+        }
+      });
+    } catch {
+      // No window (non-browser host); nothing to wire.
+    }
+  }
 
   setNotebookName(name: string | null): void {
     patchSignal(this.state, { notebookName: name });
+  }
+
+  /** Connect when signed out, sign out when signed in (the auth-row button). */
+  async toggleAuth(): Promise<void> {
+    try {
+      if (this.state.get().readiness.canSnapshot) {
+        await this.api.signOut();
+      } else {
+        const start = await this.api.startAuth();
+        if (start.authUrl !== null) {
+          window.open(start.authUrl, "_blank", "noopener");
+        }
+      }
+    } catch (error) {
+      patchSignal(this.state, { status: describeError(error) });
+    }
+    await this.refreshAuth();
   }
 
   async refreshAuth(): Promise<void> {
