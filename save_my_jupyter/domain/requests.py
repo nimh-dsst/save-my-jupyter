@@ -5,12 +5,14 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from save_my_jupyter.domain.enums import CommitMode, SnapshotSource
+from save_my_jupyter.domain.jobs import RunOutcome
 from save_my_jupyter.domain.types import (
     CellId,
     DocumentId,
     KernelId,
     NotebookPath,
     RelativeWatchPath,
+    StringMap,
 )
 
 
@@ -34,6 +36,7 @@ class RequestedMetadata:
     tags: tuple[str, ...] = ()
     run_label: str | None = None
     notes: str | None = None
+    extra_fields: StringMap = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -46,6 +49,7 @@ class SnapshotRequest:
     notebook_context: NotebookContext
     metadata: RequestedMetadata
     commit_mode: CommitMode | None = None
-    watched_paths: tuple[RelativeWatchPath, ...] = ()
+    watched_paths: tuple[RelativeWatchPath, ...] | None = None
+    run_outcome: RunOutcome | None = None
     client_timestamp: datetime | None = None
     notebook_content: Mapping[str, object] | None = field(default=None, compare=False)

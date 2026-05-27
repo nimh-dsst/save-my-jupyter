@@ -5,7 +5,10 @@ from typing import Any
 import pytest
 from save_my_jupyter.domain.enums import CommitMode, SnapshotSource
 from save_my_jupyter.domain.errors import SnapshotError
-from save_my_jupyter.transport.parsers import parse_snapshot_request
+from save_my_jupyter.transport.parsers import (
+    parse_activity_limit,
+    parse_snapshot_request,
+)
 
 
 def _manual(**overrides: Any) -> dict[str, Any]:
@@ -44,8 +47,48 @@ def test_minimal_manual_request_parses() -> None:
     assert request.notebook_context.notebook_path == "analysis/nb.ipynb"
     assert request.notebook_context.notebook_name == "nb.ipynb"
     assert request.commit_mode is None
-    assert request.watched_paths == ()
+    assert request.watched_paths is None
     assert request.metadata.tags == ()
+
+
+@pytest.mark.parametrize("path", ["/etc/passwd", "C:\\Users\\x\\nb.ipynb"])
+def test_absolute_notebook_path_rejected(path: str) -> None:
+    assert (
+        _code(
+            _manual(
+                notebook_context={"notebook_path": path, "notebook_name": "nb.ipynb"}
+            )
+        )
+        == "invalid_notebook_path"
+    )
+
+
+def test_traversing_notebook_path_rejected() -> None:
+    assert (
+        _code(
+            _manual(
+                notebook_context={
+                    "notebook_path": "../outside.ipynb",
+                    "notebook_name": "outside.ipynb",
+                }
+            )
+        )
+        == "invalid_notebook_path"
+    )
+
+
+def test_notebook_path_must_target_ipynb() -> None:
+    assert (
+        _code(
+            _manual(
+                notebook_context={
+                    "notebook_path": "analysis/secrets.json",
+                    "notebook_name": "secrets.json",
+                }
+            )
+        )
+        == "invalid_notebook_path"
+    )
 
 
 # --- trigger context (C-FAIL-01) ---
@@ -61,11 +104,13 @@ def test_trigger_with_context_parses() -> None:
     body["notebook_context"]["triggering_cell_id"] = "cell-1"
     body["notebook_context"]["triggered_cell_ids"] = ["cell-1", "cell-2"]
     body["notebook_context"]["cell_execution_count"] = 7
+    body["run_outcome"] = "error"
     request = parse_snapshot_request(body)
     assert request.source is SnapshotSource.TRIGGER_CELL
     assert request.notebook_context.triggering_cell_id == "cell-1"
     assert request.notebook_context.triggered_cell_ids == ("cell-1", "cell-2")
     assert request.notebook_context.cell_execution_count == 7
+    assert request.run_outcome == "error"
 
 
 # --- commit mode ---
@@ -73,6 +118,9 @@ def test_trigger_with_context_parses() -> None:
 
 def test_commit_mode_parsed_and_validated() -> None:
     assert parse_snapshot_request(_manual(commit_mode="ask")).commit_mode is (
+        CommitMode.ASK
+    )
+    assert parse_snapshot_request(_manual(commit_mode="prompt")).commit_mode is (
         CommitMode.ASK
     )
     assert _code(_manual(commit_mode="sometimes")) == "invalid_commit_mode"
@@ -112,12 +160,21 @@ def test_user_metadata_parsed() -> None:
                 "tags": ["baseline", "gpu"],
                 "run_label": "run-1",
                 "notes": "a note",
+                "extra_fields": {"operator": "Ada"},
             }
         )
     )
     assert request.metadata.tags == ("baseline", "gpu")
     assert request.metadata.run_label == "run-1"
     assert request.metadata.notes == "a note"
+    assert request.metadata.extra_fields == {"operator": "Ada"}
+
+
+def test_user_metadata_extra_fields_must_be_strings() -> None:
+    assert (
+        _code(_manual(user_metadata={"extra_fields": {"operator": 1}}))
+        == "invalid_user_metadata"
+    )
 
 
 def test_client_timestamp_parsed_and_validated() -> None:
@@ -131,3 +188,18 @@ def test_client_timestamp_parsed_and_validated() -> None:
 def test_notebook_content_passed_through() -> None:
     request = parse_snapshot_request(_manual(notebook_content={"cells": []}))
     assert request.notebook_content == {"cells": []}
+
+
+# --- activity limit ---
+
+
+def test_activity_limit_parsed() -> None:
+    assert parse_activity_limit("1") == 1
+    assert parse_activity_limit("100") == 100
+
+
+@pytest.mark.parametrize("raw", ["0", "-1", "101", "abc"])
+def test_activity_limit_rejected(raw: str) -> None:
+    with pytest.raises(SnapshotError) as exc:
+        parse_activity_limit(raw)
+    assert exc.value.code == "invalid_limit"

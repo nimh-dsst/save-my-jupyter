@@ -6,12 +6,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime
+from pathlib import PurePosixPath
 from typing import cast
 
 from save_my_jupyter.application.snapshot.guards import validate_watched_path
 from save_my_jupyter.domain.enums import CommitMode, SnapshotSource
 from save_my_jupyter.domain.errors import SnapshotError
 from save_my_jupyter.domain.guards import WatchedPathRejected
+from save_my_jupyter.domain.jobs import RunOutcome
 from save_my_jupyter.domain.requests import (
     NotebookContext,
     RequestedMetadata,
@@ -35,6 +37,7 @@ def parse_snapshot_request(raw: object) -> SnapshotRequest:
         metadata=_metadata(body),
         commit_mode=_commit_mode(body),
         watched_paths=_watched_paths(body),
+        run_outcome=_run_outcome(body),
         client_timestamp=_timestamp(body),
         notebook_content=_notebook_content(body),
     )
@@ -71,9 +74,7 @@ def _notebook_context(
     document = _optional_str(raw, "document_id", code="invalid_notebook_context")
     kernel = _optional_str(raw, "kernel_id", code="invalid_notebook_context")
     return NotebookContext(
-        notebook_path=NotebookPath(
-            _require_str(raw, "notebook_path", code="invalid_notebook_path")
-        ),
+        notebook_path=NotebookPath(_notebook_path(raw)),
         notebook_name=_require_str(raw, "notebook_name", code="invalid_notebook_name"),
         document_id=DocumentId(document) if document is not None else None,
         kernel_id=KernelId(kernel) if kernel is not None else None,
@@ -96,6 +97,7 @@ def _metadata(body: Mapping[str, object]) -> RequestedMetadata:
         tags=tuple(_str_list(meta, "tags")),
         run_label=_optional_str(meta, "run_label", code="invalid_user_metadata"),
         notes=_optional_str(meta, "notes", code="invalid_user_metadata"),
+        extra_fields=_str_map(meta, "extra_fields"),
     )
 
 
@@ -104,6 +106,8 @@ def _commit_mode(body: Mapping[str, object]) -> CommitMode | None:
     if value is None:
         return None
     if isinstance(value, str):
+        if value == "prompt":
+            return CommitMode.ASK
         try:
             return CommitMode(value)
         except ValueError:
@@ -111,10 +115,24 @@ def _commit_mode(body: Mapping[str, object]) -> CommitMode | None:
     raise SnapshotError(f"Unknown commit mode: {value!r}.", code="invalid_commit_mode")
 
 
-def _watched_paths(body: Mapping[str, object]) -> tuple[RelativeWatchPath, ...]:
+def _run_outcome(body: Mapping[str, object]) -> RunOutcome | None:
+    value = body.get("run_outcome")
+    if value is None:
+        return None
+    if isinstance(value, str):
+        try:
+            return RunOutcome(value)
+        except ValueError:
+            pass
+    raise SnapshotError(f"Unknown run outcome: {value!r}.", code="invalid_run_outcome")
+
+
+def _watched_paths(
+    body: Mapping[str, object],
+) -> tuple[RelativeWatchPath, ...] | None:
     value = body.get("watched_paths")
     if value is None:
-        return ()
+        return None
     if not isinstance(value, list):
         raise SnapshotError("watched_paths must be a list.", code="invalid_sequence")
     result: list[RelativeWatchPath] = []
@@ -159,6 +177,40 @@ def _mapping(value: object, *, code: str, what: str) -> Mapping[str, object]:
     raise SnapshotError(f"{what} must be a JSON object.", code=code)
 
 
+def _notebook_path(body: Mapping[str, object]) -> str:
+    value = _require_str(body, "notebook_path", code="invalid_notebook_path")
+    normalized = value.strip().replace("\\", "/")
+    if (
+        normalized == ""
+        or normalized.startswith("/")
+        or _has_windows_drive_prefix(normalized)
+    ):
+        raise SnapshotError(
+            "notebook_path must be a relative .ipynb path.",
+            code="invalid_notebook_path",
+            context={"path": value},
+        )
+    parts = [part for part in normalized.split("/") if part not in ("", ".")]
+    if not parts or any(part == ".." for part in parts):
+        raise SnapshotError(
+            "notebook_path must stay within the Jupyter server root.",
+            code="invalid_notebook_path",
+            context={"path": value},
+        )
+    normalized = "/".join(parts)
+    if PurePosixPath(normalized).suffix.lower() != ".ipynb":
+        raise SnapshotError(
+            "notebook_path must point to an .ipynb file.",
+            code="invalid_notebook_path",
+            context={"path": value},
+        )
+    return normalized
+
+
+def _has_windows_drive_prefix(path: str) -> bool:
+    return len(path) >= 2 and path[0].isalpha() and path[1] == ":"
+
+
 def _require_str(body: Mapping[str, object], key: str, *, code: str) -> str:
     value = body.get(key)
     if isinstance(value, str):
@@ -198,3 +250,34 @@ def _str_list(body: Mapping[str, object], key: str) -> list[str]:
             )
         items.append(item)
     return items
+
+
+def _str_map(body: Mapping[str, object], key: str) -> dict[str, str]:
+    value = body.get(key)
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise SnapshotError(f"{key} must be an object.", code="invalid_user_metadata")
+    result: dict[str, str] = {}
+    for raw_key, raw_value in value.items():
+        if not isinstance(raw_key, str) or not isinstance(raw_value, str):
+            raise SnapshotError(
+                f"{key} keys and values must be strings.",
+                code="invalid_user_metadata",
+            )
+        result[raw_key] = raw_value
+    return result
+
+
+def parse_activity_limit(raw: str) -> int:
+    try:
+        limit = int(raw)
+    except ValueError as exc:
+        raise SnapshotError("limit must be an integer.", code="invalid_limit") from exc
+    if not 1 <= limit <= 100:
+        raise SnapshotError(
+            "limit must be between 1 and 100.",
+            code="invalid_limit",
+            context={"limit": raw},
+        )
+    return limit
