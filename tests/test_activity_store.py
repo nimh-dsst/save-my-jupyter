@@ -82,6 +82,18 @@ def test_save_replaces_existing_job(tmp_path: Path) -> None:
     assert fetched.state is JobState.RUNNING
 
 
+def test_terminal_job_cannot_be_replaced_by_running(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    store.save(_record("job-1", state=JobState.QUEUED, submitted=_BASE))
+    store.save(_record("job-1", state=JobState.RUNNING, submitted=_BASE))
+    store.save(_record("job-1", state=JobState.PERSISTED, submitted=_BASE))
+    store.save(_record("job-1", state=JobState.RUNNING, submitted=_BASE))
+
+    fetched = store.get("job-1")
+    assert fetched is not None
+    assert fetched.state is JobState.PERSISTED
+
+
 def test_recent_returns_newest_first_capped(tmp_path: Path) -> None:
     store = _store(tmp_path)
     for offset in range(5):
@@ -112,7 +124,13 @@ def test_abandon_inflight_marks_only_pending_jobs(tmp_path: Path) -> None:
     assert running is not None
     assert done is not None
     assert queued.state is JobState.ABANDONED
+    assert queued.completed_at is not None
+    assert (
+        queued.display_message
+        == "Snapshot abandoned when the Jupyter server restarted."
+    )
     assert running.state is JobState.ABANDONED
+    assert running.completed_at is not None
     assert done.state is JobState.PERSISTED
 
 

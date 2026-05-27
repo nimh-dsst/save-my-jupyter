@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
+from save_my_jupyter.application.activity.transitions import can_transition
+from save_my_jupyter.application.confirm.messages import build_display_message
 from save_my_jupyter.domain.activity import ActivityRecord
 from save_my_jupyter.domain.enums import SnapshotSource
 from save_my_jupyter.domain.jobs import JobState, RunOutcome
@@ -61,6 +63,15 @@ class SqliteActivityStore:
             f"VALUES ({placeholders})"
         )
         with closing(self._connect()) as conn:
+            current = conn.execute(
+                "SELECT state FROM activity WHERE job_id = ?", (record.job_id,)
+            ).fetchone()
+            if current is not None:
+                current_state = JobState(current["state"])
+                if current_state != record.state and not can_transition(
+                    current_state, record.state
+                ):
+                    return
             conn.execute(statement, _to_row(record))
             conn.commit()
 
@@ -81,11 +92,20 @@ class SqliteActivityStore:
         return tuple(_from_row(row) for row in rows)
 
     def abandon_inflight(self) -> int:
+        completed_at = datetime.now(UTC).isoformat()
+        display_message = build_display_message(
+            state=JobState.ABANDONED,
+            source=SnapshotSource.MANUAL,
+            job_id="",
+        )
         with closing(self._connect()) as conn:
             cursor = conn.execute(
-                "UPDATE activity SET state = ? WHERE state IN (?, ?)",
+                "UPDATE activity SET state = ?, completed_at = ?, display_message = ? "
+                "WHERE state IN (?, ?)",
                 (
                     JobState.ABANDONED.value,
+                    completed_at,
+                    display_message,
                     JobState.QUEUED.value,
                     JobState.RUNNING.value,
                 ),
