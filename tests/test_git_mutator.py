@@ -67,6 +67,22 @@ def test_staging_nothing_returns_empty(tmp_path: Path) -> None:
     assert DulwichGitMutator().stage(RepoRootPath(str(tmp_path)), []) == ()
 
 
+def test_unrelated_pre_staged_file_blocks_snapshot_commit(tmp_path: Path) -> None:
+    _init_repo(tmp_path)
+    _initial_commit(tmp_path, "nb.ipynb", b"{}")
+    (tmp_path / "nb.ipynb").write_bytes(b'{"x": 1}')
+    (tmp_path / "unrelated.txt").write_bytes(b"do not commit")
+    porcelain.add(str(tmp_path), paths=[str(tmp_path / "unrelated.txt")])
+
+    with pytest.raises(SnapshotError) as exc:
+        DulwichGitMutator().stage(
+            RepoRootPath(str(tmp_path)), [RelativeRepoPath("nb.ipynb")]
+        )
+
+    assert exc.value.code == "git_stage_failed"
+    assert "unrelated.txt" in exc.value.context["staged"]
+
+
 def test_staging_outside_a_repo_fails_with_git_stage_failed(tmp_path: Path) -> None:
     # tmp_path is not a git repository, so opening it raises and is wrapped.
     (tmp_path / "f.csv").write_bytes(b"x")

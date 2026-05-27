@@ -20,6 +20,18 @@ class GitInspector(Protocol):
     def resolve_repo(self, notebook_path: NotebookPath) -> RepoContext: ...
 
 
+class GitDiffProvider(GitInspector, Protocol):
+    """Git inspection surface needed by snapshot execution for dirty diffs."""
+
+    def diff_working_tree(
+        self, repo_root: RepoRootPath, paths: Sequence[RelativeRepoPath]
+    ) -> str: ...
+
+    def read_head_file(
+        self, repo_root: RepoRootPath, path: RelativeRepoPath
+    ) -> bytes | None: ...
+
+
 class GitMutator(Protocol):
     """Stages snapshot paths and creates the snapshot commit (contract C-GIT).
     Side-effecting, unlike the read-only GitInspector."""

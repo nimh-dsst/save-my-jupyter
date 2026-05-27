@@ -11,7 +11,7 @@ from save_my_jupyter.ports.activity import ActivityStore
 from save_my_jupyter.ports.clock import Clock
 from save_my_jupyter.ports.delivery import Delivery
 from save_my_jupyter.ports.filesystem import FileSystem
-from save_my_jupyter.ports.git import GitInspector, GitMutator
+from save_my_jupyter.ports.git import GitDiffProvider, GitInspector, GitMutator
 from save_my_jupyter.ports.keyring import KeyringStore
 
 __all__ = [
@@ -19,6 +19,7 @@ __all__ = [
     "Clock",
     "Delivery",
     "FileSystem",
+    "GitDiffProvider",
     "GitInspector",
     "GitMutator",
     "KeyringStore",
