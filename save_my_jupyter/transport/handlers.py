@@ -10,7 +10,9 @@ from __future__ import annotations
 import html
 import json
 import uuid
+from collections.abc import Mapping
 from http import HTTPStatus
+from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
 from jupyter_server.base.handlers import JupyterHandler
@@ -18,11 +20,20 @@ from jupyter_server.utils import url_path_join
 from tornado import web
 
 from save_my_jupyter.adapters.labarchives.auth import AuthStartResult, AuthStatusResult
+from save_my_jupyter.application.config.starter import (
+    StarterConfigInspection,
+    StarterConfigResult,
+    ensure_starter_config,
+    inspect_starter_config,
+)
 from save_my_jupyter.application.preview import build_preview
 from save_my_jupyter.container import ServiceContainer
 from save_my_jupyter.domain.errors import SnapshotError
 from save_my_jupyter.domain.queue import Rejected
-from save_my_jupyter.transport.parsers import parse_snapshot_request
+from save_my_jupyter.transport.parsers import (
+    parse_activity_limit,
+    parse_snapshot_request,
+)
 from save_my_jupyter.transport.responses import (
     serialize_activity,
     serialize_activity_list,
@@ -34,12 +45,17 @@ from save_my_jupyter.transport.responses import (
 authenticated = cast("Any", web.authenticated)
 
 _SETTINGS_KEY = "save_my_jupyter_services"
+_ROOT_SETTINGS_KEY = "save_my_jupyter_root_dir"
 
 
 class _BaseHandler(JupyterHandler):
     @property
     def services(self) -> ServiceContainer:
         return cast("ServiceContainer", self.settings[_SETTINGS_KEY])
+
+    @property
+    def server_root(self) -> Path:
+        return Path(cast("str", self.settings[_ROOT_SETTINGS_KEY]))
 
     def _write_json(
         self, payload: dict[str, object], *, status: HTTPStatus = HTTPStatus.OK
@@ -49,6 +65,12 @@ class _BaseHandler(JupyterHandler):
         self.finish(json.dumps(payload))
 
     def _write_error(
+        self, exc: SnapshotError, *, status: HTTPStatus = HTTPStatus.BAD_REQUEST
+    ) -> None:
+        self._log_request_error(exc, status=status)
+        self._write_json(serialize_error(exc), status=status)
+
+    def _log_request_error(
         self, exc: SnapshotError, *, status: HTTPStatus = HTTPStatus.BAD_REQUEST
     ) -> None:
         self.log.warning(
@@ -61,7 +83,6 @@ class _BaseHandler(JupyterHandler):
             str(exc),
             json.dumps(exc.context, sort_keys=True),
         )
-        self._write_json(serialize_error(exc), status=status)
 
 
 class SnapshotHandler(_BaseHandler):
@@ -82,9 +103,13 @@ class SnapshotHandler(_BaseHandler):
         except SnapshotError as exc:
             self._write_error(exc)
             return
-        decision = self.services.coordinator.submit(
-            job_id=uuid.uuid4().hex, request=request
-        )
+        try:
+            decision = self.services.coordinator.submit(
+                job_id=uuid.uuid4().hex, request=request
+            )
+        except SnapshotError as exc:
+            self._write_error(exc)
+            return
         self._write_json(serialize_submission(decision))
 
 
@@ -105,7 +130,11 @@ class SnapshotJobsHandler(_BaseHandler):
                 return
             self._write_json(serialize_activity(record))
             return
-        limit = int(self.get_query_argument("limit", "20"))
+        try:
+            limit = parse_activity_limit(self.get_query_argument("limit", "20"))
+        except SnapshotError as exc:
+            self._write_error(exc)
+            return
         self._write_json(serialize_activity_list(self.services.activity.recent(limit)))
 
 
@@ -117,16 +146,77 @@ class SnapshotPreviewHandler(_BaseHandler):
         except SnapshotError as exc:
             self._write_error(exc)
             return
-        result = build_preview(
-            request,
-            git_inspector=self.services.git_inspector,
-            filesystem=self.services.filesystem,
-            user_settings=self.services.user_settings,
-        )
+        try:
+            result = build_preview(
+                request,
+                git_inspector=self.services.git_inspector,
+                filesystem=self.services.filesystem,
+                user_settings=self.services.user_settings,
+            )
+        except SnapshotError as exc:
+            self._write_error(exc)
+            return
         self._write_json(
             serialize_preview(
                 plan=result.plan,
                 provenance=result.provenance,
+                effective=result.effective,
+                repo=result.repo,
+                repo_config_path=result.repo_config_path,
+                repo_config_loaded=result.repo_config_loaded,
+                notes=result.notes,
+                extra_fields=result.extra_fields,
+                generated_at=self.services.clock.now(),
+                source=result.source,
+            )
+        )
+
+    @authenticated
+    async def get(self) -> None:
+        notebook_path = self.get_query_argument("notebook_path", default=None)
+        if notebook_path is None:
+            self._write_error(
+                SnapshotError(
+                    "notebook_path is required.",
+                    code="invalid_notebook_path",
+                )
+            )
+            return
+        try:
+            request = parse_snapshot_request(
+                {
+                    "source": "manual",
+                    "notebook_context": {
+                        "notebook_path": notebook_path,
+                        "notebook_name": PurePosixPath(
+                            notebook_path.replace("\\", "/")
+                        ).name,
+                    },
+                }
+            )
+        except SnapshotError as exc:
+            self._write_error(exc)
+            return
+        try:
+            result = build_preview(
+                request,
+                git_inspector=self.services.git_inspector,
+                filesystem=self.services.filesystem,
+                user_settings=self.services.user_settings,
+            )
+        except SnapshotError as exc:
+            self._write_error(exc)
+            return
+        self._write_json(
+            serialize_preview(
+                plan=result.plan,
+                provenance=result.provenance,
+                effective=result.effective,
+                repo=result.repo,
+                repo_config_path=result.repo_config_path,
+                repo_config_loaded=result.repo_config_loaded,
+                notes=result.notes,
+                extra_fields=result.extra_fields,
                 generated_at=self.services.clock.now(),
                 source=result.source,
             )
@@ -147,6 +237,42 @@ class WatchSyncHandler(_BaseHandler):
             },
             status=HTTPStatus.GONE,
         )
+
+
+class ConfigInitHandler(_BaseHandler):
+    @authenticated
+    async def get(self) -> None:
+        notebook_path = self.get_query_argument("notebook_path", default=None)
+        if notebook_path is None:
+            self._write_error(
+                SnapshotError(
+                    "notebook_path is required.",
+                    code="invalid_notebook_path",
+                )
+            )
+            return
+        try:
+            inspection = inspect_starter_config(
+                server_root=self.server_root,
+                notebook_path=notebook_path,
+            )
+        except SnapshotError as exc:
+            self._write_error(exc)
+            return
+        self._write_json(_serialize_config_inspection(inspection))
+
+    @authenticated
+    async def post(self) -> None:
+        try:
+            notebook_path = _config_notebook_path(self.get_json_body())
+            result = ensure_starter_config(
+                server_root=self.server_root,
+                notebook_path=notebook_path,
+            )
+        except SnapshotError as exc:
+            self._write_error(exc)
+            return
+        self._write_json(_serialize_config_result(result))
 
 
 class AuthStatusHandler(_BaseHandler):
@@ -187,7 +313,12 @@ class AuthCallbackHandler(_BaseHandler):
     async def get(self, request_id: str) -> None:
         error = self.get_query_argument("error", default=None)
         if error is not None:
-            self.services.auth.fail_pending(request_id)
+            try:
+                self.services.auth.fail_pending(request_id)
+            except SnapshotError as exc:
+                self._log_request_error(exc)
+                self._render_callback(success=False, message=f"[{exc.code}] {exc}")
+                return
             self._render_callback(success=False, message=error)
             return
         email = self.get_query_argument("email", default="")
@@ -195,7 +326,8 @@ class AuthCallbackHandler(_BaseHandler):
         try:
             self.services.auth.complete(request_id, email=email, auth_code=auth_code)
         except SnapshotError as exc:
-            self._render_callback(success=False, message=str(exc))
+            self._log_request_error(exc)
+            self._render_callback(success=False, message=f"[{exc.code}] {exc}")
             return
         self._render_callback(success=True, message=f"Connected as {email}.")
 
@@ -207,7 +339,11 @@ class AuthCallbackHandler(_BaseHandler):
 class AuthLogoutHandler(_BaseHandler):
     @authenticated
     async def post(self) -> None:
-        self.services.auth.logout()
+        try:
+            self.services.auth.logout()
+        except SnapshotError as exc:
+            self._write_error(exc)
+            return
         self._write_json({"status": "signed_out"})
 
 
@@ -228,6 +364,42 @@ def _serialize_auth_start(result: AuthStartResult) -> dict[str, object]:
         "authUrl": result.auth_url,
         "requestId": result.request_id,
     }
+
+
+def _serialize_config_inspection(
+    inspection: StarterConfigInspection,
+) -> dict[str, object]:
+    return {
+        "configPath": inspection.config_path,
+        "exists": inspection.exists,
+        "rootDirectory": inspection.root_directory,
+    }
+
+
+def _serialize_config_result(result: StarterConfigResult) -> dict[str, object]:
+    return {
+        "configPath": result.config_path,
+        "message": result.message,
+        "rootDirectory": result.root_directory,
+        "status": result.status,
+    }
+
+
+def _config_notebook_path(body: object) -> str:
+    if not isinstance(body, Mapping):
+        raise SnapshotError(
+            "Request body must be a JSON object.", code="missing_json_body"
+        )
+    mapping = cast("Mapping[str, object]", body)
+    value = mapping.get("notebookPath")
+    if value is None:
+        value = mapping.get("notebook_path")
+    if isinstance(value, str):
+        return value
+    raise SnapshotError(
+        "notebookPath must be a string.",
+        code="invalid_notebook_path",
+    )
 
 
 def _render_callback_page(*, success: bool, message: str) -> str:

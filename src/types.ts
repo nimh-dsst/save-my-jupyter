@@ -2,7 +2,10 @@ import { z } from "zod";
 
 export const snapshotSourceSchema = z.enum(["manual", "trigger_cell"]);
 
-export const commitModeSchema = z.enum(["prompt", "always", "never"]);
+export const commitModeSchema = z.preprocess(
+  (value) => (value === "prompt" ? "ask" : value),
+  z.enum(["ask", "always", "never"]),
+);
 
 export const configLayerSchema = z.enum([
   "request",
@@ -13,7 +16,12 @@ export const configLayerSchema = z.enum([
   "fallback",
 ]);
 
-export const artifactKindSchema = z.enum(["notebook", "figure", "file", "diff"]);
+export const artifactKindSchema = z.enum([
+  "notebook",
+  "figure",
+  "file",
+  "diff",
+]);
 
 export const jobStateSchema = z.enum([
   "queued",
@@ -80,20 +88,27 @@ export const notebookContextSchema = z.object({
   notebook_name: z.string(),
   notebook_path: z.string(),
   triggering_cell_id: z.string().nullable().default(null),
+  triggered_cell_ids: z.array(z.string()).default([]),
 });
 
 export const manualSnapshotRequestSchema = z.object({
   client_timestamp: z.string().optional(),
-  commit_mode: commitModeSchema,
+  commit_mode: commitModeSchema.optional(),
   notebook_context: notebookContextSchema,
+  notebook_content: z.unknown().optional(),
+  watched_paths: z.array(z.string()).default([]),
+  run_outcome: runOutcomeSchema.optional(),
   source: z.literal("manual"),
   user_metadata: snapshotUserMetadataSchema,
 });
 
 export const triggerSnapshotRequestSchema = z.object({
   client_timestamp: z.string().optional(),
-  commit_mode: commitModeSchema,
+  commit_mode: commitModeSchema.optional(),
   notebook_context: notebookContextSchema,
+  notebook_content: z.unknown().optional(),
+  watched_paths: z.array(z.string()).default([]),
+  run_outcome: runOutcomeSchema.optional(),
   source: z.literal("trigger_cell"),
   user_metadata: snapshotUserMetadataSchema,
 });
@@ -129,16 +144,6 @@ export const plannedArtifactSchema = z.object({
   summary: z.string(),
 });
 
-export const snapshotPreviewResponseSchema = z.object({
-  artifacts: z.array(plannedArtifactSchema).default([]),
-  generatedAt: z.string(),
-  provenance: z.record(z.string(), configLayerSchema).default({}),
-  runLabel: z.string().nullable().default(null),
-  source: z.enum(["frontend", "disk"]),
-  tags: z.array(z.string()).default([]),
-  target: labArchivesTargetSchema,
-});
-
 export const effectiveConfigSchema = z.object({
   allCellsTrigger: z.boolean(),
   commitMessageTemplate: z.string(),
@@ -151,6 +156,25 @@ export const effectiveConfigSchema = z.object({
   target: labArchivesTargetSchema,
   watchedPaths: z.array(z.string()).default([]),
 });
+
+export const snapshotPreviewResponseSchema = z.preprocess(
+  normalizeSnapshotPreviewResponse,
+  z.object({
+    artifacts: z.array(plannedArtifactSchema).default([]),
+    effectiveConfig: effectiveConfigSchema.nullable().default(null),
+    extraFields: z.record(z.string(), z.string()).default({}),
+    generatedAt: z.string(),
+    notes: z.string().nullable().default(null),
+    provenance: z.record(z.string(), configLayerSchema).default({}),
+    repo: repoStateSchema.nullable().default(null),
+    repoConfigLoaded: z.boolean().default(false),
+    repoConfigPath: z.string().nullable().default(null),
+    runLabel: z.string().nullable().default(null),
+    source: z.enum(["frontend", "disk"]),
+    tags: z.array(z.string()).default([]),
+    target: labArchivesTargetSchema,
+  }),
+);
 
 export const effectiveStateSchema = z.object({
   auth: authStateSchema,
@@ -170,8 +194,15 @@ export const authStartResponseSchema = z.object({
 
 export const configInitResponseSchema = z.object({
   configPath: z.string(),
+  message: z.string(),
   rootDirectory: z.string(),
   status: z.enum(["created", "exists"]),
+});
+
+export const configStatusResponseSchema = z.object({
+  configPath: z.string(),
+  exists: z.boolean(),
+  rootDirectory: z.string(),
 });
 
 export const watchSyncResponseSchema = z.object({
@@ -179,31 +210,35 @@ export const watchSyncResponseSchema = z.object({
   status: z.enum(["registered", "unregistered"]),
 });
 
-export const snapshotSubmissionResultSchema = z.discriminatedUnion("status", [
-  z.object({
-    commitCreated: z.boolean().default(false),
-    commitHash: z.string().nullable().default(null),
-    commitUrl: z.string().nullable().default(null),
-    jobId: z.string(),
-    labarchivesDirectoryName: z.string().nullable().default(null),
-    labarchivesMetaPageId: z.string().nullable().default(null),
-    labarchivesMetaPageName: z.string().nullable().default(null),
-    labarchivesPageCount: z.number().int().nullable().default(null),
-    labarchivesPageId: z.string().nullable().default(null),
-    labarchivesPageName: z.string().nullable().default(null),
-    queuePosition: z.number(),
-    snapshotId: z.string().nullable().default(null),
-    status: z.literal("accepted"),
-  }),
-  z.object({
-    message: z.string(),
-    reasonCode: z.string(),
-    status: z.literal("rejected"),
-  }),
-]);
+export const snapshotSubmissionResultSchema = z.preprocess(
+  normalizeSnapshotSubmissionResult,
+  z.discriminatedUnion("status", [
+    z.object({
+      commitCreated: z.boolean().default(false),
+      commitHash: z.string().nullable().default(null),
+      commitUrl: z.string().nullable().default(null),
+      jobId: z.string(),
+      labarchivesDirectoryName: z.string().nullable().default(null),
+      labarchivesMetaPageId: z.string().nullable().default(null),
+      labarchivesMetaPageName: z.string().nullable().default(null),
+      labarchivesPageCount: z.number().int().nullable().default(null),
+      labarchivesPageId: z.string().nullable().default(null),
+      labarchivesPageName: z.string().nullable().default(null),
+      queuePosition: z.number().int().default(0),
+      snapshotId: z.string().nullable().default(null),
+      coalescedInto: z.string().nullable().default(null),
+      status: z.literal("accepted"),
+    }),
+    z.object({
+      message: z.string(),
+      reasonCode: z.string(),
+      status: z.literal("rejected"),
+    }),
+  ]),
+);
 
 export const userPreferencesSchema = z.object({
-  defaultCommitMode: commitModeSchema.default("prompt"),
+  defaultCommitMode: commitModeSchema.default("ask"),
   defaultRunLabel: z.string().nullable().default(null),
   defaultTags: z.array(z.string()).default([]),
   rememberCommitChoice: z.boolean().default(false),
@@ -216,6 +251,53 @@ export const apiErrorSchema = z.object({
     message: z.string(),
   }),
 });
+
+function normalizeSnapshotPreviewResponse(raw: unknown): unknown {
+  if (!isRecord(raw)) {
+    return raw;
+  }
+  const normalized = { ...raw };
+  if (normalized["source"] === "request") {
+    normalized["source"] = "frontend";
+  }
+  return normalized;
+}
+
+function normalizeSnapshotSubmissionResult(raw: unknown): unknown {
+  if (!isRecord(raw)) {
+    return raw;
+  }
+  const normalized = { ...raw };
+  copyAlias(normalized, "coalescedInto", "coalesced_into");
+  copyAlias(normalized, "commitCreated", "commit_created");
+  copyAlias(normalized, "commitHash", "commit_hash");
+  copyAlias(normalized, "commitUrl", "commit_url");
+  copyAlias(normalized, "jobId", "job_id");
+  copyAlias(normalized, "labarchivesDirectoryName", "labarchives_directory_name");
+  copyAlias(normalized, "labarchivesMetaPageId", "labarchives_meta_page_id");
+  copyAlias(normalized, "labarchivesMetaPageName", "labarchives_meta_page_name");
+  copyAlias(normalized, "labarchivesPageCount", "labarchives_page_count");
+  copyAlias(normalized, "labarchivesPageId", "labarchives_page_id");
+  copyAlias(normalized, "labarchivesPageName", "labarchives_page_name");
+  copyAlias(normalized, "queuePosition", "queue_position");
+  copyAlias(normalized, "reasonCode", "reason_code");
+  copyAlias(normalized, "snapshotId", "snapshot_id");
+  return normalized;
+}
+
+function copyAlias(
+  target: Record<string, unknown>,
+  canonical: string,
+  alias: string,
+): void {
+  if (target[canonical] === undefined && target[alias] !== undefined) {
+    target[canonical] = target[alias];
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 export type ActivityRecord = z.infer<typeof activityRecordSchema>;
 export type ApiError = z.infer<typeof apiErrorSchema>;
@@ -233,6 +315,7 @@ export type SnapshotPreviewResponse = z.infer<
   typeof snapshotPreviewResponseSchema
 >;
 export type ConfigInitResponse = z.infer<typeof configInitResponseSchema>;
+export type ConfigStatusResponse = z.infer<typeof configStatusResponseSchema>;
 export type EffectiveConfig = z.infer<typeof effectiveConfigSchema>;
 export type EffectiveState = z.infer<typeof effectiveStateSchema>;
 export type NotebookContext = z.infer<typeof notebookContextSchema>;
@@ -263,6 +346,10 @@ export function parseAuthState(raw: unknown): AuthState {
 
 export function parseConfigInitResponse(raw: unknown): ConfigInitResponse {
   return configInitResponseSchema.parse(raw);
+}
+
+export function parseConfigStatusResponse(raw: unknown): ConfigStatusResponse {
+  return configStatusResponseSchema.parse(raw);
 }
 
 export function parseCellExtensionMetadata(

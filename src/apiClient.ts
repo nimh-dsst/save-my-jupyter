@@ -5,10 +5,14 @@ import {
   parseApiError,
   parseAuthStartResponse,
   parseAuthState,
+  parseConfigInitResponse,
+  parseConfigStatusResponse,
   parseSnapshotPreviewResponse,
   parseSnapshotSubmissionResult,
   type AuthStartResponse,
   type AuthState,
+  type ConfigInitResponse,
+  type ConfigStatusResponse,
   type SnapshotPreviewResponse,
   type SnapshotSubmissionResult,
 } from "./types";
@@ -40,6 +44,20 @@ export class ApiClient {
     return this.request("GET", ["snapshot-jobs"], undefined, {
       limit: String(limit),
     });
+  }
+
+  async inspectConfig(notebookPath: string): Promise<ConfigStatusResponse> {
+    return parseConfigStatusResponse(
+      await this.request("GET", ["config", "init"], undefined, {
+        notebook_path: notebookPath,
+      }),
+    );
+  }
+
+  async initConfig(notebookPath: string): Promise<ConfigInitResponse> {
+    return parseConfigInitResponse(
+      await this.request("POST", ["config", "init"], { notebookPath }),
+    );
   }
 
   async authStatus(): Promise<AuthState> {

@@ -20,6 +20,7 @@ from save_my_jupyter.transport.handlers import (
     AuthLogoutHandler,
     AuthStartHandler,
     AuthStatusHandler,
+    ConfigInitHandler,
     SnapshotHandler,
     SnapshotJobsHandler,
     SnapshotPreviewHandler,
@@ -47,11 +48,15 @@ class SaveMyJupyterApp(ExtensionApp):
             demo_mode=_demo_mode_enabled(),
         )
         self.settings["save_my_jupyter_services"] = services
+        self.settings["save_my_jupyter_root_dir"] = str(self._server_root())
 
     def _snapshots_dir(self) -> Path:
+        return self._server_root() / _SNAPSHOTS_SUBDIR
+
+    def _server_root(self) -> Path:
         server_app = self.serverapp
         root = server_app.root_dir if server_app is not None else "."
-        return Path(root) / _SNAPSHOTS_SUBDIR
+        return Path(root)
 
     def initialize_handlers(self) -> None:
         server_app = self.serverapp
@@ -67,6 +72,7 @@ class SaveMyJupyterApp(ExtensionApp):
             (route("snapshot-jobs", r"(?P<job_id>[^/]+)"), SnapshotJobsHandler),
             (route("snapshot-preview"), SnapshotPreviewHandler),
             (route("watch", "sync"), WatchSyncHandler),
+            (route("config", "init"), ConfigInitHandler),
             (route("auth", "status"), AuthStatusHandler),
             (route("auth", "start"), AuthStartHandler),
             (route("auth", "callback", r"(?P<request_id>[^/]+)"), AuthCallbackHandler),

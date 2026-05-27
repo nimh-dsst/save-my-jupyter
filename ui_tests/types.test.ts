@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   parseAuthState,
   parseConfigInitResponse,
+  parseConfigStatusResponse,
   parseEffectiveState,
   parseAuthStartResponse,
   parseNotebookExtensionMetadata,
@@ -49,7 +50,7 @@ void test("parseSnapshotRequestPayload parses trigger requests", () => {
 void test("parseSnapshotRequestPayload rejects removed watched-path sources", () => {
   assert.throws(() => {
     parseSnapshotRequestPayload({
-      commit_mode: "prompt",
+      commit_mode: "ask",
       notebook_context: {
         notebook_name: "analysis.ipynb",
         notebook_path: "analysis/analysis.ipynb",
@@ -66,18 +67,32 @@ void test("parseSnapshotRequestPayload rejects removed watched-path sources", ()
 void test("parseSnapshotSubmissionResult parses accepted payloads", () => {
   const result = parseSnapshotSubmissionResult({
     jobId: "job-1",
-    queuePosition: 1,
     status: "accepted",
   });
 
   assert.equal(result.status, "accepted");
-  assert.equal(result.queuePosition, 1);
+  assert.equal(result.queuePosition, 0);
+  assert.equal(result.coalescedInto, null);
   assert.equal(result.labarchivesDirectoryName, null);
   assert.equal(result.labarchivesMetaPageId, null);
   assert.equal(result.labarchivesMetaPageName, null);
   assert.equal(result.labarchivesPageCount, null);
   assert.equal(result.labarchivesPageId, null);
   assert.equal(result.labarchivesPageName, null);
+});
+
+void test("parseSnapshotSubmissionResult accepts snake-case accepted payloads", () => {
+  const result = parseSnapshotSubmissionResult({
+    coalesced_into: "job-1",
+    job_id: "job-2",
+    queue_position: 2,
+    status: "accepted",
+  });
+
+  assert.equal(result.status, "accepted");
+  assert.equal(result.jobId, "job-2");
+  assert.equal(result.coalescedInto, "job-1");
+  assert.equal(result.queuePosition, 2);
 });
 
 void test("parseSnapshotSubmissionResult parses multi-page LabArchives payloads", () => {
@@ -103,6 +118,17 @@ void test("parseSnapshotSubmissionResult parses multi-page LabArchives payloads"
   assert.equal(result.labarchivesPageCount, 3);
   assert.equal(result.labarchivesPageId, "page-1");
   assert.equal(result.labarchivesPageName, "00 Metadata");
+});
+
+void test("parseSnapshotSubmissionResult parses coalesced accepted payloads", () => {
+  const result = parseSnapshotSubmissionResult({
+    coalescedInto: "job-1",
+    jobId: "job-2",
+    status: "accepted",
+  });
+
+  assert.equal(result.status, "accepted");
+  assert.equal(result.coalescedInto, "job-1");
 });
 
 void test("parseAuthStartResponse parses auth bootstrap payloads", () => {
@@ -135,13 +161,26 @@ void test("parseAuthState preserves stored profile details", () => {
 
 void test("parseConfigInitResponse parses starter config responses", () => {
   const result = parseConfigInitResponse({
-    configPath: "C:/repo/.save-my-jupyter.toml",
-    rootDirectory: "C:/repo",
+    configPath: ".save-my-jupyter.toml",
+    message: "Created starter config at .save-my-jupyter.toml.",
+    rootDirectory: "",
     status: "created",
   });
 
   assert.equal(result.status, "created");
-  assert.equal(result.configPath, "C:/repo/.save-my-jupyter.toml");
+  assert.equal(result.configPath, ".save-my-jupyter.toml");
+  assert.equal(result.message, "Created starter config at .save-my-jupyter.toml.");
+});
+
+void test("parseConfigStatusResponse parses starter config status responses", () => {
+  const result = parseConfigStatusResponse({
+    configPath: "project/.save-my-jupyter.toml",
+    exists: false,
+    rootDirectory: "project",
+  });
+
+  assert.equal(result.exists, false);
+  assert.equal(result.rootDirectory, "project");
 });
 
 void test("parseEffectiveState parses state payloads from the backend", () => {
@@ -196,6 +235,30 @@ void test("parseEffectiveState parses state payloads from the backend", () => {
   assert.equal(state.repoConfigPath, "/repo/.save-my-jupyter.toml");
 });
 
+void test("parseEffectiveState accepts default ask commit mode", () => {
+  const state = parseEffectiveState({
+    auth: { status: "unauthenticated" },
+    effectiveConfig: {
+      allCellsTrigger: false,
+      commitMessageTemplate: "snapshot: {notebook_name} {timestamp}",
+      commitMode: "ask",
+      includeDiffWhenDirty: true,
+      includeNotebookFile: true,
+      metadataTemplate: {},
+      stageNotebookOnCommit: true,
+      stageWatchedPathsOnCommit: false,
+      target: { notebookName: "Jupyter Snapshots", rootPath: "Notebook Log" },
+      watchedPaths: [],
+    },
+    notebookMetadata: null,
+    repo: null,
+    repoConfigLoaded: false,
+    repoConfigPath: null,
+  });
+
+  assert.equal(state.effectiveConfig?.commitMode, "ask");
+});
+
 void test("parseSnapshotPreviewResponse applies defaults for optional fields", () => {
   const preview = parseSnapshotPreviewResponse({
     generatedAt: "2026-05-26T12:00:00.000Z",
@@ -206,16 +269,45 @@ void test("parseSnapshotPreviewResponse applies defaults for optional fields", (
   assert.deepEqual(preview.artifacts, []);
   assert.deepEqual(preview.tags, []);
   assert.deepEqual(preview.provenance, {});
+  assert.equal(preview.effectiveConfig, null);
+  assert.equal(preview.repo, null);
+  assert.equal(preview.repoConfigLoaded, false);
+  assert.equal(preview.repoConfigPath, null);
   assert.equal(preview.runLabel, null);
+  assert.equal(preview.notes, null);
+  assert.deepEqual(preview.extraFields, {});
   assert.equal(preview.source, "disk");
 });
 
 void test("parseSnapshotPreviewResponse parses artifacts and provenance layers", () => {
   const preview = parseSnapshotPreviewResponse({
     artifacts: [{ kind: "notebook", summary: "Notebook" }],
+    effectiveConfig: {
+      allCellsTrigger: true,
+      commitMessageTemplate: "snapshot: {notebook_name}",
+      commitMode: "always",
+      includeDiffWhenDirty: true,
+      includeNotebookFile: true,
+      metadataTemplate: {},
+      stageNotebookOnCommit: true,
+      stageWatchedPathsOnCommit: true,
+      target: { notebookName: "NB", rootPath: "Root" },
+      watchedPaths: ["outputs"],
+    },
     generatedAt: "2026-05-26T12:00:00.000Z",
     provenance: { targetRootPath: "inferred", commitMode: "user" },
+    repo: {
+      headCommit: "abcdef123456",
+      isDirty: true,
+      relativeNotebookPath: "nb.ipynb",
+      remoteUrl: null,
+      repoRoot: "/repo",
+    },
+    repoConfigLoaded: true,
+    repoConfigPath: "/repo/.save-my-jupyter.toml",
     runLabel: "run-1",
+    notes: "operator note",
+    extraFields: { operator: "Ada" },
     source: "frontend",
     tags: ["a"],
     target: { notebookName: "NB", rootPath: "Root" },
@@ -224,6 +316,21 @@ void test("parseSnapshotPreviewResponse parses artifacts and provenance layers",
   assert.equal(preview.artifacts[0]?.kind, "notebook");
   assert.equal(preview.provenance["targetRootPath"], "inferred");
   assert.equal(preview.provenance["commitMode"], "user");
+  assert.equal(preview.effectiveConfig?.commitMode, "always");
+  assert.equal(preview.repo?.repoRoot, "/repo");
+  assert.equal(preview.repoConfigLoaded, true);
+  assert.equal(preview.notes, "operator note");
+  assert.deepEqual(preview.extraFields, { operator: "Ada" });
+});
+
+void test("parseSnapshotPreviewResponse accepts legacy request source", () => {
+  const preview = parseSnapshotPreviewResponse({
+    generatedAt: "2026-05-26T12:00:00.000Z",
+    source: "request",
+    target: { notebookName: "NB", rootPath: "Root" },
+  });
+
+  assert.equal(preview.source, "frontend");
 });
 
 void test("parseSnapshotPreviewResponse rejects unknown provenance layers", () => {
@@ -239,7 +346,7 @@ void test("parseSnapshotPreviewResponse rejects unknown provenance layers", () =
 
 void test("parseUserPreferences ignores removed experiment context settings", () => {
   const preferences = parseUserPreferences({
-    defaultCommitMode: "always",
+    defaultCommitMode: "prompt",
     defaultExperimentContext: "legacy-hidden-value",
     defaultRunLabel: "run-1",
     defaultTags: ["baseline"],
@@ -247,7 +354,7 @@ void test("parseUserPreferences ignores removed experiment context settings", ()
   });
 
   assert.deepEqual(preferences, {
-    defaultCommitMode: "always",
+    defaultCommitMode: "ask",
     defaultRunLabel: "run-1",
     defaultTags: ["baseline"],
     rememberCommitChoice: true,
