@@ -12,6 +12,7 @@
     "style/**/*.css"
   ],
   "main": "lib/index.js",
+  "style": "style/index.css",
   "types": "lib/index.d.ts",
   "scripts": {
     "clean": "rimraf lib save_my_jupyter/labextension tsconfig.tsbuildinfo",

@@ -3,13 +3,30 @@
   "additionalProperties": false,
   "description": "User preferences for Save My Jupyter.",
   "jupyter.lab.setting-deprecated": false,
+  "jupyter.lab.toolbars": {
+    "Notebook": [
+      {
+        "caption": "Open Save My Jupyter sidebar",
+        "command": "save-my-jupyter:open-panel",
+        "label": "SMJ",
+        "name": "save-my-jupyter-open-panel",
+        "rank": 39
+      }
+    ]
+  },
   "properties": {
     "defaultCommitMode": {
-      "default": "prompt",
+      "default": "ask",
       "description": "Default commit behavior for new snapshot actions.",
-      "enum": ["prompt", "always", "never"],
+      "enum": ["ask", "always", "never"],
       "title": "Default Commit Mode",
       "type": "string"
+    },
+    "defaultExperimentContext": {
+      "deprecated": true,
+      "description": "Legacy setting ignored by Save My Jupyter.",
+      "title": "Default Experiment Context",
+      "type": ["string", "null"]
     },
     "defaultRunLabel": {
       "default": null,
@@ -28,7 +45,7 @@
     },
     "rememberCommitChoice": {
       "default": false,
-      "description": "Persist the next prompt decision as the default commit mode.",
+      "description": "Persist the next commit decision as the default commit mode.",
       "title": "Remember Commit Choice",
       "type": "boolean"
     }
