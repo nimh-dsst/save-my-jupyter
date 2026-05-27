@@ -1,0 +1,104 @@
+"""Composition root: wires the adapters, application use-cases, and worker into
+one ServiceContainer the Tornado handlers read from. Lives outside the layered
+core (it depends on everything) and is exercised only via the running server."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from save_my_jupyter.adapters.activity_sqlite import SqliteActivityStore
+from save_my_jupyter.adapters.clock_system import SystemClock
+from save_my_jupyter.adapters.fake_delivery import FakeDelivery
+from save_my_jupyter.adapters.filesystem_local import LocalFileSystem
+from save_my_jupyter.adapters.git_dulwich import DulwichGitInspector, DulwichGitMutator
+from save_my_jupyter.adapters.keyring_system import SystemKeyring
+from save_my_jupyter.adapters.labarchives.auth import AuthService
+from save_my_jupyter.adapters.labarchives.delivery import LabArchivesDelivery
+from save_my_jupyter.adapters.labarchives.labapi_client import LabApiClient
+from save_my_jupyter.application.snapshot.admission import SnapshotAdmission
+from save_my_jupyter.application.snapshot.coordinator import SnapshotCoordinator
+from save_my_jupyter.application.snapshot.pipeline import (
+    PipelineDependencies,
+    run_snapshot_pipeline,
+)
+from save_my_jupyter.domain.config import UserSettingsConfig
+from save_my_jupyter.worker.pool import WorkerPool
+
+if TYPE_CHECKING:
+    from save_my_jupyter.domain.activity import ActivityRecord
+    from save_my_jupyter.domain.requests import SnapshotRequest
+    from save_my_jupyter.ports import ActivityStore, Clock, FileSystem, GitInspector
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ServiceContainer:
+    coordinator: SnapshotCoordinator
+    activity: ActivityStore
+    auth: AuthService
+    git_inspector: GitInspector
+    filesystem: FileSystem
+    user_settings: UserSettingsConfig
+    clock: Clock
+    worker_pool: WorkerPool
+    extension_version: str
+
+
+def build_services(
+    *,
+    data_dir: Path,
+    user_id: str,
+    extension_version: str,
+    user_id_aliases: tuple[str, ...] = (),
+) -> ServiceContainer:
+    clock: Clock = SystemClock()
+    filesystem: FileSystem = LocalFileSystem()
+    git_inspector = DulwichGitInspector()
+    git_mutator = DulwichGitMutator()
+    activity = SqliteActivityStore(data_dir / "activity.sqlite")
+    activity.abandon_inflight()
+    keyring = SystemKeyring()
+    auth = AuthService(keyring, user_id=user_id, user_id_aliases=user_id_aliases)
+    user_settings = UserSettingsConfig()
+    pool = WorkerPool()
+
+    def pipeline(job_id: str, request: SnapshotRequest) -> ActivityRecord:
+        session = auth.current_session()
+        delivery = (
+            LabArchivesDelivery(LabApiClient(session))
+            if session is not None
+            else FakeDelivery()
+        )
+        deps = PipelineDependencies(
+            git_inspector=git_inspector,
+            git_mutator=git_mutator,
+            filesystem=filesystem,
+            delivery=delivery,
+            activity=activity,
+            clock=clock,
+            user_settings=user_settings,
+            user_email=auth.user_email(),
+            user_id=user_id,
+            extension_version=extension_version,
+        )
+        return run_snapshot_pipeline(job_id, request, deps)
+
+    coordinator = SnapshotCoordinator(
+        admission=SnapshotAdmission(clock),
+        activity=activity,
+        clock=clock,
+        enqueue=pool.submit,
+        pipeline=pipeline,
+    )
+    return ServiceContainer(
+        coordinator=coordinator,
+        activity=activity,
+        auth=auth,
+        git_inspector=git_inspector,
+        filesystem=filesystem,
+        user_settings=user_settings,
+        clock=clock,
+        worker_pool=pool,
+        extension_version=extension_version,
+    )

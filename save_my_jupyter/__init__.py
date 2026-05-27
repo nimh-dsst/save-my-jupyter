@@ -17,7 +17,6 @@ def _jupyter_server_extension_points() -> list[dict[str, str]]:
 
 
 def _load_jupyter_server_extension(server_app: object) -> None:
-    # Wiring is being rebuilt on the clean-sheet core: the composition root,
-    # Tornado handlers, and worker pool land in the integration phase. Until
-    # then the server extension registers no handlers (intentional, transient).
-    del server_app
+    from save_my_jupyter.extension import SaveMyJupyterApp
+
+    SaveMyJupyterApp.load_classic_server_extension(server_app)  # type: ignore[no-untyped-call]
