@@ -9,6 +9,10 @@ class SnapshotSource(StrEnum):
 
 
 class CommitMode(StrEnum):
+    # `ASK` is the rewrite's interactive mode (an in-panel prompt at snapshot
+    # time); legacy `PROMPT` is retained as a back-compat alias for one release
+    # (contracts C-GIT-02, C-CONFIG-07).
+    ASK = "ask"
     PROMPT = "prompt"
     ALWAYS = "always"
     NEVER = "never"
