@@ -140,7 +140,7 @@ Five layers, highest precedence first:
 4. Per-repo (`.save-my-jupyter.toml` — team defaults that travel in git)
 5. Inferred (deterministic, context-derived: destination from project + notebook path, run label from the triggering cell) — then a hardcoded fallback beneath that.
 
-The resolved config carries per-field **provenance** so the panel can label `(inferred)` values inline in "What will be saved." Inference is the burden-shifting layer: a user who configures nothing still gets a working, non-arbitrary, non-PII result they can see and override.
+The resolved config carries per-field **provenance** so the panel can label `(inferred)` values inline in "What will be saved." Inference is the burden-shifting layer: a user who configures nothing still gets a working, non-arbitrary result they can see (`(inferred)` labels) and override. The inferred destination is email-scoped by default because shared notebooks are the norm here (C-DEST-06).
 
 Configurable surface:
 - What gets captured: `include_notebook_file`, `include_diff_when_dirty`, the watched-paths list (opt-in; empty by default)
@@ -172,7 +172,7 @@ What protection prevents, and where it intervenes in the pipeline:
 | Page creation succeeded, body upload failed → orphan directory in LabArchives | DELIVER | Best-effort move-to-API-Deleted-Items |
 | User doesn't realize outputs are uploaded | CAPTURE / CONFIRM | Persistent disclosure banner in panel + docs |
 | Notebook is huge → snapshot times out mid-upload | CAPTURE | Hard 50 MiB notebook cap and 25 MiB per-watched-file cap, rejected before any LabArchives call |
-| Path-template default leaks user email into the LabArchives folder structure | CONFIGURE | Default starter config uses `{name}` (project), not `{user_email}` |
+| Inferred destination silently sends data somewhere the user didn't expect | CONFIGURE / CONFIRM | Inferred path is labelled `(inferred)` inline in "What will be saved" and is fully overridable; the email-scoped default is documented (C-DEST-06), not hidden |
 | User signed out but credentials still in keyring | AUTH | Sign-out deletes the keyring entry |
 
 **Why core:** LabArchives is institutional recordkeeping. The system writes to a system that won't be casually corrected. Mistakes have consequences — both privacy (uploaded `.env`) and integrity (overwritten page, lost data). The user can't audit every snapshot. The system has to be safe by default.
