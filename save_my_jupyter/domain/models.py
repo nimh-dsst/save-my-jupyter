@@ -31,7 +31,6 @@ if TYPE_CHECKING:
     from save_my_jupyter.config.models import (
         EffectiveConfig,
         LabArchivesTarget,
-        ResolvedPathRule,
     )
 
 type ArtifactRelativePath = RelativeRepoPath | RelativeWatchPath | None
@@ -58,6 +57,7 @@ class NotebookContext:
     kernel_id: KernelId | None = None
     cell_ids: tuple[CellId, ...] = ()
     triggering_cell_id: CellId | None = None
+    cell_execution_count: int | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -147,7 +147,6 @@ type ArtifactRef = NotebookArtifact | FigureArtifact | FileArtifact | DiffArtifa
 class ResolvedSnapshotPlan:
     request: SnapshotRequest
     repo: ResolvedRepoContext
-    path_rule: ResolvedPathRule | None
     effective_config: EffectiveConfig
     run_fingerprint: RunFingerprint
 
@@ -160,7 +159,6 @@ class SnapshotRecord:
     user_id: UserId
     notebook_context: NotebookContext
     repo: ResolvedRepoContext
-    path_rule_name: str | None
     commit_hash: CommitHash | None
     commit_url: str | None
     dirty_diff: str | None
@@ -172,12 +170,24 @@ class SnapshotRecord:
     metadata: UserMetadata
     labarchives_target: LabArchivesTarget
     extension_version: str
+    diff_base_commit: CommitHash | None = None
+    commit_created: bool = False
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SnapshotAccepted:
     job_id: str
     queue_position: int
+    snapshot_id: SnapshotId | None = None
+    commit_hash: CommitHash | None = None
+    commit_url: str | None = None
+    commit_created: bool = False
+    labarchives_page_id: str | None = None
+    labarchives_page_name: str | None = None
+    labarchives_directory_name: str | None = None
+    labarchives_meta_page_id: str | None = None
+    labarchives_meta_page_name: str | None = None
+    labarchives_page_count: int | None = None
     status: Literal["accepted"] = "accepted"
 
 
@@ -192,6 +202,11 @@ class SnapshotRejected:
 class SnapshotPersisted:
     snapshot_id: SnapshotId
     labarchives_page_id: str
+    labarchives_page_name: str | None = None
+    labarchives_directory_name: str | None = None
+    labarchives_meta_page_id: str | None = None
+    labarchives_meta_page_name: str | None = None
+    labarchives_page_count: int | None = None
     status: Literal["persisted"] = "persisted"
 
 

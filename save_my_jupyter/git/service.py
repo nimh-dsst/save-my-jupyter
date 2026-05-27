@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 import re
 from datetime import UTC, datetime
 from io import BytesIO
@@ -7,8 +8,10 @@ from pathlib import Path
 
 from dulwich import porcelain
 from dulwich.errors import NotGitRepository
+from dulwich.objects import Blob
 from dulwich.repo import Repo
 
+from save_my_jupyter.config.service import ConfigService
 from save_my_jupyter.domain import (
     CommitHash,
     RelativeRepoPath,
@@ -19,8 +22,10 @@ from save_my_jupyter.domain import (
 )
 from save_my_jupyter.errors import CommitCreationError, GitResolutionError
 from save_my_jupyter.parsing import normalize_path
+from save_my_jupyter.watch_paths import resolve_watch_targets
 
 _COMMIT_HASH_PATTERN = re.compile(r"^[0-9a-f]{7,40}$")
+_IGNORED_PATH_PARTS = frozenset({".ipynb_checkpoints"})
 
 
 class DefaultGitService:
@@ -52,17 +57,16 @@ class DefaultGitService:
             is_dirty=is_dirty,
         )
 
-    def stage_snapshot_paths(self, plan: ResolvedSnapshotPlan) -> None:
+    def stage_snapshot_paths(self, plan: ResolvedSnapshotPlan) -> list[str]:
         if plan.repo.repo_root is None:
-            return
+            return []
 
         repo_root = Path(plan.repo.repo_root)
-        paths = self._stage_targets(plan, repo_root)
-        if not paths:
-            return
-
         try:
             with Repo(str(repo_root)) as repo:
+                paths = self._stage_targets(plan, repo_root, repo)
+                if not paths:
+                    return []
                 _added_paths, ignored_paths = porcelain.add(repo, paths=paths)
         except Exception as exc:
             raise CommitCreationError(
@@ -82,13 +86,14 @@ class DefaultGitService:
                     )
                 },
             )
+        return paths
 
     def create_commit(self, plan: ResolvedSnapshotPlan) -> CommitHash | None:
         if plan.repo.repo_root is None:
             return None
 
         repo_root = Path(plan.repo.repo_root)
-        self.stage_snapshot_paths(plan)
+        target_paths = self.stage_snapshot_paths(plan)
 
         timestamp = datetime.now(UTC).isoformat(timespec="seconds")
         message = plan.effective_config.commit_message_template.format(
@@ -97,7 +102,7 @@ class DefaultGitService:
         )
         try:
             with Repo(str(repo_root)) as repo:
-                if not self._has_staged_changes(repo):
+                if not self._has_staged_changes(repo, target_paths):
                     return plan.repo.head_commit
                 commit_bytes = porcelain.commit(repo, message=message)
         except Exception as exc:
@@ -121,22 +126,27 @@ class DefaultGitService:
 
         repo_root = Path(plan.repo.repo_root)
         diff_targets = self._diff_targets(plan, repo_root)
+        if not diff_targets:
+            return None
         outstream = BytesIO()
+        untracked_diff = ""
         try:
             with Repo(str(repo_root)) as repo:
                 if self._head_commit(repo) is None:
-                    raise GitResolutionError(
-                        "Unable to generate git diff.",
-                        code="git_diff_failed",
-                        context={
-                            "stderr": ("HEAD is not available for diff generation.")
-                        },
+                    return self._diff_without_head(
+                        repo_root=repo_root,
+                        diff_targets=diff_targets,
                     )
                 porcelain.diff(
                     repo,
                     commit=b"HEAD",
                     paths=diff_targets,
                     outstream=outstream,
+                )
+                untracked_diff = self._untracked_diff(
+                    repo,
+                    repo_root=repo_root,
+                    diff_targets=diff_targets,
                 )
         except Exception as exc:
             if isinstance(exc, GitResolutionError):
@@ -147,8 +157,27 @@ class DefaultGitService:
                 context={"stderr": self._error_message(exc)},
             ) from exc
 
-        diff_text = outstream.getvalue().decode("utf-8").strip()
-        return diff_text or None
+        tracked_diff = outstream.getvalue().decode("utf-8").strip()
+        diff_sections = [
+            section for section in (tracked_diff, untracked_diff) if section != ""
+        ]
+        return "\n\n".join(diff_sections) or None
+
+    def _diff_without_head(
+        self,
+        *,
+        repo_root: Path,
+        diff_targets: list[str],
+    ) -> str:
+        sections: list[str] = []
+        for relative_path in diff_targets:
+            if _is_ignored_repo_path(relative_path):
+                continue
+            absolute_path = (repo_root / relative_path).resolve()
+            if not absolute_path.is_file():
+                continue
+            sections.append(_render_added_file_diff(absolute_path, relative_path))
+        return "\n\n".join(sections)
 
     def build_commit_url(
         self,
@@ -174,6 +203,7 @@ class DefaultGitService:
         self,
         plan: ResolvedSnapshotPlan,
         repo_root: Path,
+        repo: Repo,
     ) -> list[str]:
         targets: list[str] = []
         if plan.effective_config.stage_notebook_on_commit:
@@ -185,10 +215,19 @@ class DefaultGitService:
             )
         if plan.effective_config.stage_watched_paths_on_commit:
             targets.extend(
-                normalize_path(str(watch_path))
-                for watch_path in plan.effective_config.watched_paths
+                resolve_watch_targets(
+                    repo_root=repo_root,
+                    watch_paths=plan.effective_config.watched_paths,
+                )
             )
-        return targets
+        repo_config_target = self._repo_config_target(
+            plan,
+            repo_root=repo_root,
+            repo=repo,
+        )
+        if repo_config_target is not None:
+            targets.append(repo_config_target)
+        return sorted(dict.fromkeys(targets))
 
     def _diff_targets(
         self,
@@ -202,14 +241,46 @@ class DefaultGitService:
             )
         ]
         targets.extend(
-            normalize_path(str(watch_path))
-            for watch_path in plan.effective_config.watched_paths
+            resolve_watch_targets(
+                repo_root=repo_root,
+                watch_paths=plan.effective_config.watched_paths,
+            )
         )
-        return targets
+        return sorted(dict.fromkeys(targets))
 
-    def _has_staged_changes(self, repo: Repo) -> bool:
+    def _has_staged_changes(self, repo: Repo, target_paths: list[str]) -> bool:
+        if not target_paths:
+            return False
         status = porcelain.status(repo, untracked_files="no")
-        return any(status.staged.values())
+        staged_paths = {
+            _normalize_repo_path(path)
+            for paths in status.staged.values()
+            for path in paths
+        }
+        return bool(staged_paths & set(target_paths))
+
+    def _untracked_diff(
+        self,
+        repo: Repo,
+        *,
+        repo_root: Path,
+        diff_targets: list[str],
+    ) -> str:
+        status = self._status_with_fallback(repo)
+        untracked_targets = {
+            normalized_path
+            for path in status.untracked
+            if not _is_ignored_repo_path(normalized_path := _normalize_repo_path(path))
+        }
+        sections: list[str] = []
+        for relative_path in diff_targets:
+            if relative_path not in untracked_targets:
+                continue
+            absolute_path = (repo_root / relative_path).resolve()
+            if not absolute_path.is_file():
+                continue
+            sections.append(_render_added_file_diff(absolute_path, relative_path))
+        return "\n\n".join(sections)
 
     def _head_commit(self, repo: Repo) -> CommitHash | None:
         try:
@@ -218,11 +289,30 @@ class DefaultGitService:
             return None
 
     def _is_dirty(self, repo: Repo) -> bool:
+        status = self._status_with_fallback(repo)
+        staged_paths = {
+            normalized_path
+            for paths in status.staged.values()
+            for path in paths
+            if not _is_ignored_repo_path(normalized_path := _normalize_repo_path(path))
+        }
+        unstaged_paths = {
+            normalized_path
+            for path in status.unstaged
+            if not _is_ignored_repo_path(normalized_path := _normalize_repo_path(path))
+        }
+        untracked_paths = {
+            normalized_path
+            for path in status.untracked
+            if not _is_ignored_repo_path(normalized_path := _normalize_repo_path(path))
+        }
+        return bool(staged_paths or unstaged_paths or untracked_paths)
+
+    def _status_with_fallback(self, repo: Repo) -> porcelain.GitStatus:
         try:
-            status = porcelain.status(repo, untracked_files="all")
+            return porcelain.status(repo, untracked_files="all")
         except OSError:
-            status = porcelain.status(repo, untracked_files="no")
-        return bool(status.unstaged or status.untracked or any(status.staged.values()))
+            return porcelain.status(repo, untracked_files="no")
 
     def _remote_url(self, repo: Repo) -> str | None:
         config = repo.get_config()
@@ -234,6 +324,39 @@ class DefaultGitService:
 
     def _relative_repo_path(self, repo_root: Path, path: Path) -> str:
         return normalize_path(str(path.relative_to(repo_root)).replace("\\", "/"))
+
+    def _repo_config_target(
+        self,
+        plan: ResolvedSnapshotPlan,
+        *,
+        repo_root: Path,
+        repo: Repo,
+    ) -> str | None:
+        config_path = ConfigService().suggested_repo_config_path(
+            notebook_path=plan.request.notebook_context.notebook_path,
+            repo_root=repo_root,
+        )
+        try:
+            relative_path = self._relative_repo_path(repo_root, config_path.resolve())
+        except ValueError:
+            return None
+
+        status = self._status_with_fallback(repo)
+        touched_paths = {
+            _normalize_repo_path(path)
+            for paths in status.staged.values()
+            for path in paths
+        }
+        touched_paths.update(_normalize_repo_path(path) for path in status.unstaged)
+        touched_paths.update(_normalize_repo_path(path) for path in status.untracked)
+        if relative_path in touched_paths:
+            return relative_path
+
+        try:
+            repo.open_index().get_mode(relative_path.encode("utf-8"))
+        except KeyError:
+            return None
+        return relative_path
 
     def _decode_text(self, value: object) -> str:
         if isinstance(value, bytes):
@@ -260,3 +383,60 @@ def parse_commit_hash(raw: str | None) -> CommitHash | None:
     if _COMMIT_HASH_PATTERN.match(normalized) is None:
         return None
     return CommitHash(normalized)
+
+
+def _normalize_repo_path(path: bytes | str) -> str:
+    if isinstance(path, bytes):
+        decoded = path.decode("utf-8", errors="surrogateescape")
+    else:
+        decoded = path
+    return normalize_path(decoded.replace("\\", "/"))
+
+
+def _is_ignored_repo_path(path: str) -> bool:
+    normalized = normalize_path(path.replace("\\", "/"))
+    return any(part in _IGNORED_PATH_PARTS for part in normalized.split("/"))
+
+
+def _render_added_file_diff(path: Path, relative_path: str) -> str:
+    payload = path.read_bytes()
+    blob_hash = Blob.from_string(payload).id.decode("ascii")[:7]
+    header = [
+        f"diff --git a/{relative_path} b/{relative_path}",
+        f"new file mode {_git_file_mode(path)}",
+        f"index 0000000..{blob_hash}",
+    ]
+    body = _render_added_file_body(payload, relative_path)
+    return "\n".join([*header, body]).strip()
+
+
+def _render_added_file_body(payload: bytes, relative_path: str) -> str:
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError:
+        return f"Binary files /dev/null and b/{relative_path} differ"
+    if "\x00" in text:
+        return f"Binary files /dev/null and b/{relative_path} differ"
+
+    lines = text.splitlines()
+    rendered = "\n".join(
+        difflib.unified_diff(
+            [],
+            lines,
+            fromfile="/dev/null",
+            tofile=f"b/{relative_path}",
+            lineterm="",
+        )
+    )
+    if rendered != "":
+        return rendered
+    return "\n".join(
+        [
+            "--- /dev/null",
+            f"+++ b/{relative_path}",
+        ]
+    )
+
+
+def _git_file_mode(path: Path) -> str:
+    return "100755" if path.stat().st_mode & 0o111 else "100644"

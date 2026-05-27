@@ -319,77 +319,16 @@
   font-weight: 600;
 }
 
-.jp-Notebook .jp-Cell .jp-cell-toolbar.smj-CellToolbar .smj-CellTriggerToolbarItem {
-  order: 999;
-}
-
-.jp-Notebook .jp-Cell .jp-cell-toolbar.smj-CellToolbar .smj-CellTriggerButton,
-.jp-Notebook .jp-Cell .jp-CellHeader.smj-CellHeader .smj-CellTriggerButton {
-  align-items: center;
-  background: transparent;
-  border: none;
-  border-radius: var(--jp-border-radius);
-  box-shadow: none;
-  color: var(--jp-ui-font-color2);
-  cursor: pointer;
-  display: inline-flex;
-  justify-content: center;
-  min-height: 22px;
-  min-width: 22px;
-  opacity: 0;
-  padding: 2px;
-  transition: opacity 120ms ease, color 120ms ease;
-}
-
-.jp-Notebook .jp-Cell .jp-cell-toolbar.smj-CellToolbar .smj-CellTriggerButton {
-  margin: 0;
-  opacity: 1;
-  pointer-events: auto;
-  position: static;
-  transform: none;
-}
-
-.jp-Notebook .jp-Cell .jp-CellHeader.smj-CellHeader {
-  align-items: center;
-  display: flex;
-  justify-content: flex-end;
-  min-height: 0;
-  overflow: visible;
-  padding-right: 8px;
-  pointer-events: none;
-}
-
-.jp-Notebook .jp-Cell .jp-CellHeader.smj-CellHeader .smj-CellTriggerButton {
-  pointer-events: none;
-  transform: translateY(6px);
-}
-
-.jp-Notebook .jp-Cell:hover .jp-CellHeader.smj-CellHeader .smj-CellTriggerButton,
-.jp-Notebook
-  .jp-Cell.jp-mod-active
-  .jp-CellHeader.smj-CellHeader
-  .smj-CellTriggerButton {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.jp-Notebook .jp-Cell .smj-CellTriggerButton:hover {
-  background: var(--jp-layout-color2);
-  color: var(--jp-ui-font-color1);
-}
-
-.jp-Notebook .jp-Cell .smj-CellTriggerButton:focus-visible {
-  opacity: 1;
-  outline: var(--jp-border-width) solid var(--jp-brand-color1);
-  outline-offset: 1px;
-  pointer-events: auto;
-}
-
-.jp-Notebook .jp-Cell .smj-CellTriggerButton--active {
-  color: var(--jp-brand-color1);
-}
-
 .jp-Notebook .jp-Cell.smj-Cell--trigger {
-  box-shadow: inset 3px 0 0 var(--jp-brand-color1);
   position: relative;
+}
+
+.jp-Notebook .jp-Cell.smj-Cell--trigger::after {
+  background: var(--jp-brand-color1);
+  border-radius: 999px;
+  content: "";
+  inset: 0 auto 0 0;
+  pointer-events: none;
+  position: absolute;
+  width: 3px;
 }

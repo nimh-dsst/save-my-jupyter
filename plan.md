@@ -804,7 +804,7 @@ Snapshot should still succeed when:
 Require:
 
 - `ruff` for formatting and linting
-- `mypy --strict`
+- `ty`
 - `pyright` strict mode if retained
 - `pytest`
 
@@ -863,19 +863,13 @@ Rules:
 - no mutable default arguments
 - minimal `cast()`
 
-### Mypy
+### Ty
 
 Require:
 
-- strict mode
-- no implicit optional
-- no return-any
-- no untyped defs
-- no incomplete defs
-- warn unused ignores
-- warn redundant casts
-- disallow any generics
-- check untyped defs
+- repo-wide Python type checking
+- narrow boundary validation before service logic
+- consistent type checking in CI and local development
 
 ### Python syntax policy
 
@@ -1039,7 +1033,7 @@ CI must fail if any of these fail:
 
 - `ruff format --check`
 - `ruff check`
-- `mypy`
+- `ty check`
 - `pyright` if retained
 - `tsc --noEmit`
 - `eslint`

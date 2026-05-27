@@ -1,4 +1,7 @@
 import sys
 from types import ModuleType
 
-sys.modules.setdefault("labapi", ModuleType("labapi"))
+try:
+    import labapi  # noqa: F401
+except ImportError:
+    sys.modules.setdefault("labapi", ModuleType("labapi"))

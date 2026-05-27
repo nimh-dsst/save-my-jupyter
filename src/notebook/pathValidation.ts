@@ -9,7 +9,7 @@ export function validateWatchedPath(path: string): ValidationResult {
   if (trimmedPath.length === 0) {
     return {
       ok: false,
-      message: "Watched paths must not be empty."
+      message: "Watched paths must not be empty.",
     };
   }
 
@@ -20,7 +20,7 @@ export function validateWatchedPath(path: string): ValidationResult {
   ) {
     return {
       ok: false,
-      message: "Watched paths must be relative."
+      message: "Watched paths must be relative.",
     };
   }
 
@@ -32,7 +32,7 @@ export function validateWatchedPath(path: string): ValidationResult {
     if (segment === "..") {
       return {
         ok: false,
-        message: "Watched paths must stay within the notebook or repo root."
+        message: "Watched paths must stay within the notebook or repo root.",
       };
     }
     normalizedSegments.push(segment);
@@ -41,12 +41,12 @@ export function validateWatchedPath(path: string): ValidationResult {
   if (normalizedSegments.length === 0) {
     return {
       ok: false,
-      message: "Watched paths must include at least one path segment."
+      message: "Watched paths must include at least one path segment.",
     };
   }
 
   return {
     ok: true,
-    normalizedPath: normalizedSegments.join("/")
+    normalizedPath: normalizedSegments.join("/"),
   };
 }

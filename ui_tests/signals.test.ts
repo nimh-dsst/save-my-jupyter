@@ -5,7 +5,7 @@ import { createSignal, patchSignal } from "../src/signals";
 
 void test("createSignal notifies subscribers when the value changes", () => {
   const signal = createSignal({
-    count: 1
+    count: 1,
   });
   const snapshots: number[] = [];
 
@@ -14,14 +14,14 @@ void test("createSignal notifies subscribers when the value changes", () => {
   });
 
   signal.set({
-    count: 2
+    count: 2,
   });
   patchSignal(signal, {
-    count: 3
+    count: 3,
   });
   unsubscribe();
   signal.set({
-    count: 4
+    count: 4,
   });
 
   assert.deepEqual(snapshots, [2, 3]);

@@ -12,31 +12,31 @@ export function requiresPanelSetup(auth: AuthState): boolean {
 export function getSnapshotAvailability(
   auth: AuthState,
   notebookPath: string | null,
-  isBusy: boolean
+  isBusy: boolean,
 ): SnapshotAvailability {
   if (notebookPath === null) {
     return {
       enabled: false,
-      message: "Open a notebook to configure and create snapshots."
+      message: "Open a notebook to configure and create snapshots.",
     };
   }
 
   if (isBusy) {
     return {
       enabled: false,
-      message: "Save My Jupyter is working on the current request."
+      message: "Save My Jupyter is working on the current request.",
     };
   }
 
   if (requiresPanelSetup(auth)) {
     return {
       enabled: false,
-      message: "Connect LabArchives to enable snapshot creation."
+      message: "Connect LabArchives to enable snapshot creation.",
     };
   }
 
   return {
     enabled: true,
-    message: "Ready to create a snapshot for this notebook."
+    message: "Ready to create a snapshot for this notebook.",
   };
 }

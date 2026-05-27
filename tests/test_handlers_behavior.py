@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -9,6 +10,7 @@ from typing import cast
 from uuid import uuid4
 
 import pytest
+from jupyter_server.auth.identity import User as JupyterUser
 from save_my_jupyter.domain import (
     CommitMode,
     EffectiveConfig,
@@ -36,9 +38,12 @@ from save_my_jupyter.domain import (
 )
 from save_my_jupyter.errors import LabArchivesWriteError
 from save_my_jupyter.handlers import (
+    _current_user_id,
+    _current_user_id_aliases,
     _render_auth_callback_page,
     process_snapshot_request,
 )
+from save_my_jupyter.services.auth import AuthStatusResult
 from save_my_jupyter.services.container import ServiceContainer
 
 
@@ -96,14 +101,17 @@ class FakeSnapshotService:
         self._record = record
         self._persistence_result = persistence_result
         self.plan_calls: list[object] = []
+        self.plan_call_kwargs: list[dict[str, object]] = []
         self.execute_calls: list[tuple[ResolvedSnapshotPlan, UserId]] = []
         self.persist_calls: list[tuple[SnapshotRecord, UserId]] = []
 
     def plan_snapshot(
         self,
         snapshot_request: object,
+        **kwargs: object,
     ) -> ResolvedSnapshotPlan:
         self.plan_calls.append(snapshot_request)
+        self.plan_call_kwargs.append(dict(kwargs))
         return self._plan
 
     def execute_snapshot(
@@ -121,6 +129,24 @@ class FakeSnapshotService:
     ) -> SnapshotPersisted | SnapshotFailed:
         self.persist_calls.append((record, user_id))
         return self._persistence_result
+
+
+class FakeAuthService:
+    def __init__(self, status: str = "authenticated") -> None:
+        self.status = status
+        self.cleared_sessions: list[str] = []
+
+    def get_auth_status(
+        self,
+        _user_id: str,
+        *,
+        user_id_aliases: tuple[str, ...] = (),
+    ) -> AuthStatusResult:
+        del user_id_aliases
+        return AuthStatusResult(status=self.status)
+
+    def clear_session(self, user_id: str) -> None:
+        self.cleared_sessions.append(user_id)
 
 
 def test_process_snapshot_request_executes_and_persists_accepted_snapshot() -> None:
@@ -144,6 +170,11 @@ def test_process_snapshot_request_executes_and_persists_accepted_snapshot() -> N
             persistence_result=SnapshotPersisted(
                 snapshot_id=record.snapshot_id,
                 labarchives_page_id="page-1",
+                labarchives_page_name="00 Metadata",
+                labarchives_directory_name="2026-04-15T20-00-00.000_snapshot",
+                labarchives_meta_page_id="page-1",
+                labarchives_meta_page_name="00 Metadata",
+                labarchives_page_count=3,
             ),
         )
         services = _service_container(
@@ -158,6 +189,14 @@ def test_process_snapshot_request_executes_and_persists_accepted_snapshot() -> N
         )
 
         assert result.status == "accepted"
+        assert isinstance(result, SnapshotAccepted)
+        assert result.snapshot_id == record.snapshot_id
+        assert result.labarchives_page_id == "page-1"
+        assert result.labarchives_page_name == "00 Metadata"
+        assert result.labarchives_directory_name == "2026-04-15T20-00-00.000_snapshot"
+        assert result.labarchives_meta_page_id == "page-1"
+        assert result.labarchives_meta_page_name == "00 Metadata"
+        assert result.labarchives_page_count == 3
         assert snapshot_service.plan_calls == [plan.request]
         assert snapshot_service.execute_calls == [(plan, UserId("user-1"))]
         assert snapshot_service.persist_calls == [(record, UserId("user-1"))]
@@ -202,6 +241,8 @@ def test_process_snapshot_request_marks_queue_unfinished_on_persist_failure() ->
             )
 
         assert exc_info.value.code == "labarchives_write_failed"
+        assert exc_info.value.context["snapshot_id"] == str(record.snapshot_id)
+        assert exc_info.value.context["commit_created"] == "False"
         assert queue.finished == [(plan.run_fingerprint, False)]
         assert snapshot_service.execute_calls == [(plan, UserId("user-1"))]
         assert snapshot_service.persist_calls == [(record, UserId("user-1"))]
@@ -253,6 +294,151 @@ def test_process_snapshot_request_does_not_execute_rejected_snapshot() -> None:
         shutil.rmtree(root, ignore_errors=True)
 
 
+def test_process_snapshot_request_rejects_unauthenticated_snapshot() -> None:
+    root = _make_workspace_temp_dir()
+    try:
+        plan = _snapshot_plan(
+            notebook_path=root / "analysis.ipynb",
+            repo_root=root,
+            watched_paths=(RelativeWatchPath("outputs"),),
+        )
+        record = _snapshot_record(plan, user_id=UserId("user-1"))
+        queue = FakeQueue(next_plan=plan, finished=[])
+        coordinator = FakeCoordinator(
+            submit_result=SnapshotAccepted(job_id="job-1", queue_position=1),
+            queue=queue,
+        )
+        snapshot_service = FakeSnapshotService(
+            plan=plan,
+            record=record,
+            persistence_result=SnapshotPersisted(
+                snapshot_id=record.snapshot_id,
+                labarchives_page_id="page-1",
+            ),
+        )
+        services = _service_container(
+            auth_service=FakeAuthService(status="unauthenticated"),
+            snapshot_service=snapshot_service,
+            snapshot_coordinator=coordinator,
+        )
+
+        result = process_snapshot_request(
+            services,
+            snapshot_request=plan.request,
+            user_id=UserId("user-1"),
+        )
+
+        assert isinstance(result, SnapshotRejected)
+        assert result.reason_code == "authentication_required"
+        assert snapshot_service.plan_calls == []
+        assert snapshot_service.execute_calls == []
+        assert snapshot_service.persist_calls == []
+        assert queue.finished == []
+        assert coordinator.submitted_plans == []
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_process_snapshot_request_loads_notebook_metadata_for_planning() -> None:
+    root = _make_workspace_temp_dir()
+    try:
+        notebook_path = root / "analysis.ipynb"
+        plan = _snapshot_plan(
+            notebook_path=notebook_path,
+            repo_root=root,
+            watched_paths=(),
+        )
+        notebook_path.write_text(
+            json.dumps(
+                {
+                    "cells": [],
+                    "metadata": {
+                        "save_my_jupyter": {
+                            "labarchives_target_notebook": "OverriddenNotebook",
+                        },
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        record = _snapshot_record(plan, user_id=UserId("user-1"))
+        queue = FakeQueue(next_plan=plan, finished=[])
+        coordinator = FakeCoordinator(
+            submit_result=SnapshotAccepted(job_id="job-1", queue_position=1),
+            queue=queue,
+        )
+        snapshot_service = FakeSnapshotService(
+            plan=plan,
+            record=record,
+            persistence_result=SnapshotPersisted(
+                snapshot_id=record.snapshot_id,
+                labarchives_page_id="page-1",
+            ),
+        )
+        services = _service_container(
+            snapshot_service=snapshot_service,
+            snapshot_coordinator=coordinator,
+        )
+
+        process_snapshot_request(
+            services,
+            snapshot_request=plan.request,
+            user_id=UserId("user-1"),
+        )
+
+        assert len(snapshot_service.plan_call_kwargs) == 1
+        notebook_metadata = snapshot_service.plan_call_kwargs[0].get(
+            "notebook_metadata"
+        )
+        assert notebook_metadata == {
+            "labarchives_target_notebook": "OverriddenNotebook",
+        }
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_process_snapshot_request_clears_session_when_labarchives_expired() -> None:
+    root = _make_workspace_temp_dir()
+    try:
+        plan = _snapshot_plan(
+            notebook_path=root / "analysis.ipynb",
+            repo_root=root,
+            watched_paths=(),
+        )
+        record = _snapshot_record(plan, user_id=UserId("user-1"))
+        queue = FakeQueue(next_plan=plan, finished=[])
+        coordinator = FakeCoordinator(
+            submit_result=SnapshotAccepted(job_id="job-1", queue_position=1),
+            queue=queue,
+        )
+        snapshot_service = FakeSnapshotService(
+            plan=plan,
+            record=record,
+            persistence_result=SnapshotFailed(
+                error_code="labarchives_session_expired",
+                message="LabArchives session expired; sign in again.",
+            ),
+        )
+        auth_service = FakeAuthService()
+        services = _service_container(
+            snapshot_service=snapshot_service,
+            snapshot_coordinator=coordinator,
+            auth_service=auth_service,
+        )
+
+        with pytest.raises(LabArchivesWriteError) as exc_info:
+            process_snapshot_request(
+                services,
+                snapshot_request=plan.request,
+                user_id=UserId("user-1"),
+            )
+
+        assert exc_info.value.code == "labarchives_session_expired"
+        assert auth_service.cleared_sessions == ["user-1"]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def test_render_auth_callback_page_notifies_the_main_tab() -> None:
     html = _render_auth_callback_page(
         message="Authenticated as user@example.com <admin>.",
@@ -267,6 +453,16 @@ def test_render_auth_callback_page_notifies_the_main_tab() -> None:
     assert '"requestId": "request-123"' in html
     assert '"status": "authenticated"' in html
     assert "Authenticated as user@example.com &lt;admin&gt;." in html
+
+
+def test_current_user_id_prefers_username_and_keeps_legacy_repr_as_alias() -> None:
+    current_user = JupyterUser(
+        username="user-1",
+        color="cerulean",
+    )
+
+    assert _current_user_id(current_user) == UserId("user-1")
+    assert _current_user_id_aliases(current_user) == (UserId(str(current_user)),)
 
 
 def _snapshot_plan(
@@ -305,7 +501,6 @@ def _snapshot_plan(
             head_commit=None,
             is_dirty=False,
         ),
-        path_rule=None,
         effective_config=EffectiveConfig(
             all_cells_trigger=False,
             commit_mode=commit_mode,
@@ -337,7 +532,6 @@ def _snapshot_record(
         user_id=user_id,
         notebook_context=plan.request.notebook_context,
         repo=plan.repo,
-        path_rule_name=None,
         commit_hash=None,
         commit_url=None,
         dirty_diff=None,
@@ -359,4 +553,8 @@ def _make_workspace_temp_dir() -> Path:
 
 
 def _service_container(**kwargs: object) -> ServiceContainer:
-    return cast(ServiceContainer, SimpleNamespace(**kwargs))
+    defaults: dict[str, object] = {
+        "auth_service": FakeAuthService(),
+    }
+    defaults.update(kwargs)
+    return cast(ServiceContainer, SimpleNamespace(**defaults))

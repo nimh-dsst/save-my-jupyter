@@ -2,6 +2,14 @@ import { ReactWidget } from "@jupyterlab/apputils";
 import React from "react";
 
 import { getSnapshotAvailability } from "../panelBehavior";
+import {
+  NOTEBOOK_UPLOAD_WARNING,
+  describeBoolean,
+  describeCommitMode,
+  describeTriggerMode,
+  formatStringList,
+  formatTemplateValues,
+} from "../panelFormatting";
 import { type SnapshotPanelViewState, type StatusKind } from "../panelState";
 import type { ReadableSignal } from "../signals";
 import type { CommitMode } from "../types";
@@ -15,6 +23,7 @@ export interface SnapshotPanelCallbacks {
   onRememberCommitChoiceChange(value: boolean): void;
   onRemoveWatchedPath(path: string): void;
   onRunLabelChange(value: string): void;
+  onSignOut(): void;
   onSnapshot(): void;
   onTagsChange(value: string): void;
   onToggleAllCells(value: boolean): void;
@@ -30,7 +39,7 @@ interface SetupActionRowProps {
   buttonDisabled?: boolean;
   buttonLabel: string;
   description: string;
-  extraHint?: string;
+  extraHint?: React.ReactNode;
   onClick: () => void;
   statusKind: StatusKind;
   statusMessage: string | null;
@@ -46,7 +55,7 @@ function getStatusClassName(kind: StatusKind): string {
 
 function StatusMessage({
   kind,
-  message
+  message,
 }: {
   kind: StatusKind;
   message: string | null;
@@ -56,11 +65,7 @@ function StatusMessage({
   }
 
   return (
-    <p
-      aria-live="polite"
-      className={getStatusClassName(kind)}
-      role="status"
-    >
+    <p aria-live="polite" className={getStatusClassName(kind)} role="status">
       {message}
     </p>
   );
@@ -75,13 +80,10 @@ function SetupActionRow({
   statusKind,
   statusMessage,
   testId,
-  title
+  title,
 }: SetupActionRowProps): React.JSX.Element {
   return (
-    <div
-      className="smj-SnapshotPanel__actionRow"
-      data-smj-action={testId}
-    >
+    <div className="smj-SnapshotPanel__actionRow" data-smj-action={testId}>
       <div className="smj-SnapshotPanel__row">
         <div className="smj-SnapshotPanel__rowCopy">
           <strong className="smj-SnapshotPanel__rowTitle">{title}</strong>
@@ -98,25 +100,22 @@ function SetupActionRow({
           {buttonLabel}
         </button>
       </div>
-      {extraHint === undefined ? null : (
+      {extraHint === undefined || extraHint === null ? null : (
         <p className="smj-SnapshotPanel__hint">{extraHint}</p>
       )}
-      <StatusMessage
-        kind={statusKind}
-        message={statusMessage}
-      />
+      <StatusMessage kind={statusKind} message={statusMessage} />
     </div>
   );
 }
 
 function SnapshotPanelBody({
   callbacks,
-  viewStateSignal
+  viewStateSignal,
 }: SnapshotPanelProps): React.JSX.Element {
   const viewState = React.useSyncExternalStore(
     viewStateSignal.subscribe,
     viewStateSignal.get,
-    viewStateSignal.get
+    viewStateSignal.get,
   );
   const [watchPathInput, setWatchPathInput] = React.useState("");
 
@@ -124,30 +123,37 @@ function SnapshotPanelBody({
     setWatchPathInput("");
   }, [viewState.notebookPath]);
 
+  const effectiveConfig = viewState.effectiveState?.effectiveConfig ?? null;
   const watchedPathSummary =
-    viewState.effectiveState?.effectiveConfig?.watchedPaths ??
-    viewState.metadata.watched_paths;
+    effectiveConfig?.watchedPaths ?? viewState.metadata.watched_paths;
 
   const authLabel =
     viewState.auth.status === "authenticated"
-      ? `Authenticated as ${viewState.auth.userEmail ?? "unknown"}`
+      ? `Authenticated as ${viewState.auth.userEmail ?? "unknown"}.`
       : viewState.auth.status === "pending"
-        ? "Authentication pending"
+        ? "Authentication pending."
         : viewState.auth.storedUserEmail !== null
-          ? `Not authenticated. Previously connected as ${viewState.auth.storedUserEmail}`
-        : "Not authenticated";
-  const selectedCellLabel = viewState.activeCellId ?? "No selected cell";
+          ? `Not authenticated. Previously connected as ${viewState.auth.storedUserEmail}.`
+          : "Not authenticated.";
+  const selectedCellLabel = viewState.activeCellId ?? "(none)";
+  const triggerStateLabel =
+    viewState.activeCellId === null
+      ? "(unavailable)"
+      : viewState.activeCellIsTrigger
+        ? "Marked"
+        : "Not marked";
   const repoConfigPath =
-    viewState.effectiveState?.repoConfigPath ?? "Open a notebook to choose a config location.";
+    viewState.effectiveState?.repoConfigPath ??
+    "Open a notebook to choose a config location.";
   const repoConfigButtonLabel = viewState.effectiveState?.repoConfigLoaded
     ? "Ensure config exists"
     : "Create starter config";
-  const pathRuleLabel = viewState.effectiveState?.pathRule?.name ?? "(none)";
-  const gitLabel = viewState.effectiveState?.repo?.repoRoot ?? "(no repository detected)";
+  const gitLabel =
+    viewState.effectiveState?.repo?.repoRoot ?? "(no repository detected)";
   const snapshotAvailability = getSnapshotAvailability(
     viewState.auth,
     viewState.notebookPath,
-    viewState.isBusy
+    viewState.isBusy,
   );
 
   return (
@@ -181,13 +187,10 @@ function SnapshotPanelBody({
           <div className="smj-SnapshotPanel__summary">
             <span className="smj-SnapshotPanel__summaryLabel">Notebook</span>
             <p className="smj-SnapshotPanel__summaryPath">
-              {viewState.notebookPath ?? "Open a notebook to configure snapshots."}
+              {viewState.notebookPath ??
+                "Open a notebook to configure snapshots."}
             </p>
             <dl className="smj-SnapshotPanel__summaryFacts">
-              <div>
-                <dt>Path rule</dt>
-                <dd>{pathRuleLabel}</dd>
-              </div>
               <div>
                 <dt>Git</dt>
                 <dd>{gitLabel}</dd>
@@ -197,14 +200,29 @@ function SnapshotPanelBody({
           <p className="smj-SnapshotPanel__hint smj-SnapshotPanel__availability">
             {snapshotAvailability.message}
           </p>
+          <p
+            className="smj-SnapshotPanel__hint smj-SnapshotPanel__warning"
+            data-smj-warning="notebook-upload"
+            role="note"
+          >
+            {NOTEBOOK_UPLOAD_WARNING}
+          </p>
 
           <section className="smj-SnapshotPanel__section">
             <h3 className="smj-SnapshotPanel__sectionTitle">Setup</h3>
             <SetupActionRow
-              buttonLabel="Connect"
+              buttonLabel={
+                viewState.auth.status === "authenticated"
+                  ? "Sign out"
+                  : "Connect"
+              }
               description={authLabel}
               onClick={() => {
-                callbacks.onAuthenticate();
+                if (viewState.auth.status === "authenticated") {
+                  callbacks.onSignOut();
+                } else {
+                  callbacks.onAuthenticate();
+                }
               }}
               statusKind={viewState.authStatusKind}
               statusMessage={viewState.authStatusMessage}
@@ -216,9 +234,14 @@ function SnapshotPanelBody({
               buttonLabel={repoConfigButtonLabel}
               description={repoConfigPath}
               extraHint={
-                viewState.effectiveState?.repoConfigLoaded
-                  ? "This config is already available for the current notebook."
-                  : "Create a starter .save-my-jupyter.toml to share defaults for this workspace."
+                viewState.effectiveState?.repoConfigLoaded ? (
+                  "This config is already available for the current notebook."
+                ) : (
+                  <>
+                    Create a starter <code>.save-my-jupyter.toml</code> to share
+                    defaults for this workspace.
+                  </>
+                )
               }
               onClick={() => {
                 callbacks.onGenerateRepoConfig();
@@ -231,14 +254,112 @@ function SnapshotPanelBody({
           </section>
 
           <section className="smj-SnapshotPanel__section">
+            <h3 className="smj-SnapshotPanel__sectionTitle">Resolved config</h3>
+            <p className="smj-SnapshotPanel__hint">
+              These values come from the current notebook state and the active{" "}
+              <code>.save-my-jupyter.toml</code>.
+            </p>
+            <dl className="smj-SnapshotPanel__facts">
+              <div>
+                <dt>Target notebook</dt>
+                <dd>
+                  {effectiveConfig?.target.notebookName ?? "(unavailable)"}
+                </dd>
+              </div>
+              <div>
+                <dt>Target root</dt>
+                <dd>{effectiveConfig?.target.rootPath ?? "(unavailable)"}</dd>
+              </div>
+              <div>
+                <dt>Commit mode</dt>
+                <dd>
+                  {effectiveConfig === null
+                    ? "(unavailable)"
+                    : describeCommitMode(effectiveConfig.commitMode)}
+                </dd>
+              </div>
+              <div>
+                <dt>Trigger mode</dt>
+                <dd>
+                  {effectiveConfig === null
+                    ? "(unavailable)"
+                    : describeTriggerMode(effectiveConfig.allCellsTrigger)}
+                </dd>
+              </div>
+              <div>
+                <dt>Include notebook</dt>
+                <dd>
+                  {effectiveConfig === null
+                    ? "(unavailable)"
+                    : describeBoolean(effectiveConfig.includeNotebookFile)}
+                </dd>
+              </div>
+              <div>
+                <dt>Include dirty diff</dt>
+                <dd>
+                  {effectiveConfig === null
+                    ? "(unavailable)"
+                    : describeBoolean(effectiveConfig.includeDiffWhenDirty)}
+                </dd>
+              </div>
+              <div>
+                <dt>Stage notebook</dt>
+                <dd>
+                  {effectiveConfig === null
+                    ? "(unavailable)"
+                    : describeBoolean(effectiveConfig.stageNotebookOnCommit)}
+                </dd>
+              </div>
+              <div>
+                <dt>Stage watched paths</dt>
+                <dd>
+                  {effectiveConfig === null
+                    ? "(unavailable)"
+                    : describeBoolean(
+                        effectiveConfig.stageWatchedPathsOnCommit,
+                      )}
+                </dd>
+              </div>
+              <div>
+                <dt>Watched paths</dt>
+                <dd>{formatStringList(effectiveConfig?.watchedPaths ?? [])}</dd>
+              </div>
+              <div>
+                <dt>Metadata defaults</dt>
+                <dd>
+                  {formatTemplateValues(
+                    effectiveConfig?.metadataTemplate ?? {},
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>Commit template</dt>
+                <dd>
+                  {effectiveConfig === null ? (
+                    "(unavailable)"
+                  ) : (
+                    <code>{effectiveConfig.commitMessageTemplate}</code>
+                  )}
+                </dd>
+              </div>
+            </dl>
+          </section>
+
+          <section className="smj-SnapshotPanel__section">
             <h3 className="smj-SnapshotPanel__sectionTitle">Capture</h3>
+            <p className="smj-SnapshotPanel__hint">
+              These controls change notebook-local or user-local overrides. The
+              resolved config above shows the current effective values.
+            </p>
             <label className="smj-SnapshotPanel__field">
               <span>Commit mode</span>
               <select
                 className="jp-mod-styled"
                 value={viewState.selectedCommitMode}
-                onChange={event => {
-                  callbacks.onCommitModeChange(event.target.value as CommitMode);
+                onChange={(event) => {
+                  callbacks.onCommitModeChange(
+                    event.target.value as CommitMode,
+                  );
                 }}
               >
                 <option value="prompt">Prompt</option>
@@ -250,7 +371,7 @@ function SnapshotPanelBody({
               <input
                 type="checkbox"
                 checked={viewState.metadata.all_cells_trigger}
-                onChange={event => {
+                onChange={(event) => {
                   callbacks.onToggleAllCells(event.target.checked);
                 }}
               />
@@ -260,14 +381,16 @@ function SnapshotPanelBody({
               <input
                 type="checkbox"
                 checked={viewState.rememberCommitChoice}
-                onChange={event => {
+                onChange={(event) => {
                   callbacks.onRememberCommitChoiceChange(event.target.checked);
                 }}
               />
               Remember prompt decisions
             </label>
             <div className="smj-SnapshotPanel__subsection">
-              <h4 className="smj-SnapshotPanel__subsectionTitle">Trigger cells</h4>
+              <h4 className="smj-SnapshotPanel__subsectionTitle">
+                Trigger cells
+              </h4>
             </div>
             <dl className="smj-SnapshotPanel__facts">
               <div>
@@ -276,16 +399,13 @@ function SnapshotPanelBody({
               </div>
               <div>
                 <dt>Trigger state</dt>
-                <dd>{viewState.activeCellIsTrigger ? "Marked" : "Not marked"}</dd>
+                <dd>{triggerStateLabel}</dd>
               </div>
             </dl>
-            <p className="smj-SnapshotPanel__hint">
-              Use the cell action button to mark trigger cells. Trigger cells in this
-              notebook:{" "}
-              {viewState.metadata.trigger_cell_ids.join(", ") || "(none)"}
-            </p>
             <div className="smj-SnapshotPanel__subsection">
-              <h4 className="smj-SnapshotPanel__subsectionTitle">Watched paths</h4>
+              <h4 className="smj-SnapshotPanel__subsectionTitle">
+                Watched paths
+              </h4>
             </div>
             <div className="smj-SnapshotPanel__inlineForm">
               <input
@@ -293,7 +413,7 @@ function SnapshotPanelBody({
                 type="text"
                 value={watchPathInput}
                 placeholder="relative/path/to/watch"
-                onChange={event => {
+                onChange={(event) => {
                   setWatchPathInput(event.target.value);
                 }}
               />
@@ -312,7 +432,7 @@ function SnapshotPanelBody({
               <p className="smj-SnapshotPanel__hint">No watched paths yet.</p>
             ) : (
               <ul className="smj-SnapshotPanel__list">
-                {viewState.metadata.watched_paths.map(path => (
+                {viewState.metadata.watched_paths.map((path) => (
                   <li key={path}>
                     <code>{path}</code>
                     <button
@@ -329,7 +449,7 @@ function SnapshotPanelBody({
               </ul>
             )}
             <p className="smj-SnapshotPanel__hint">
-              Effective: {watchedPathSummary.join(", ") || "(none)"}
+              Effective: {formatStringList(watchedPathSummary)}
             </p>
           </section>
 
@@ -342,7 +462,7 @@ function SnapshotPanelBody({
                 type="text"
                 value={viewState.tagsInput}
                 placeholder="baseline, experiment-1"
-                onChange={event => {
+                onChange={(event) => {
                   callbacks.onTagsChange(event.target.value);
                 }}
               />
@@ -353,7 +473,7 @@ function SnapshotPanelBody({
                 className="jp-mod-styled"
                 type="text"
                 value={viewState.userMetadata.run_label ?? ""}
-                onChange={event => {
+                onChange={(event) => {
                   callbacks.onRunLabelChange(event.target.value);
                 }}
               />
@@ -363,7 +483,7 @@ function SnapshotPanelBody({
               <textarea
                 className="jp-mod-styled"
                 value={viewState.userMetadata.notes ?? ""}
-                onChange={event => {
+                onChange={(event) => {
                   callbacks.onNotesChange(event.target.value);
                 }}
               />
@@ -383,7 +503,7 @@ function SnapshotPanelBody({
 export class SnapshotPanel extends ReactWidget {
   constructor(
     private readonly callbacks: SnapshotPanelCallbacks,
-    private readonly viewStateSignal: ReadableSignal<SnapshotPanelViewState>
+    private readonly viewStateSignal: ReadableSignal<SnapshotPanelViewState>,
   ) {
     super();
     this.addClass("jp-SidePanel");

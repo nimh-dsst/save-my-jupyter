@@ -19,14 +19,16 @@ Each snapshot can include:
 - watched files that changed during the run
 - visible notebook output summaries and PNG figures already present in the
   notebook document
-- user-entered tags, notes, run labels, and experiment context
+- user-entered tags, notes, run labels, and opt-in metadata fields
 
 Snapshots can be created by:
 
 - clicking `Snapshot Now`
 - executing a marked trigger cell
 - enabling `Trigger on every executed cell`
-- changing a watched relative path
+
+Watched paths are not a snapshot trigger today — they are file globs that get
+resolved and attached when a snapshot fires through one of the above sources.
 
 Each snapshot becomes one LabArchives page.
 
@@ -83,7 +85,7 @@ editable frontend wiring.
    `save-my-jupyter` is installed.
 2. Open a notebook.
 3. Run `Open Snapshot Settings` from the command palette to open the `Save My
-   Jupyter` side panel.
+Jupyter` side panel.
 4. Click `Connect` and finish the LabArchives sign-in flow.
 5. Choose a commit mode and optional watched paths.
 6. Mark trigger cells or enable `Trigger on every executed cell`.
@@ -128,7 +130,7 @@ Implemented:
 - shared `.save-my-jupyter.toml` repo config
 - manual snapshots
 - trigger-cell snapshots
-- watched-path snapshots
+- watched files attached at snapshot time
 - Git commit/diff capture
 - LabArchives auth flow and adapter
 - strict Python and TypeScript lint/type/test gates
@@ -137,6 +139,8 @@ Current limitations:
 
 - runtime state is in-memory only
 - no retry queue for failed LabArchives writes
+- watched paths are matched at snapshot time only; they are not polled and do
+  not fire snapshots on file changes
 - artifact capture is intentionally kernel-independent, so it only uses notebook
   document state and watched files
 - richer kernel-specific enrichment is not implemented yet

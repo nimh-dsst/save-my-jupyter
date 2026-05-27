@@ -5,7 +5,7 @@ import {
   AUTH_COMPLETION_CHANNEL_NAME,
   AUTH_COMPLETION_STORAGE_KEY,
   subscribeToAuthCompletionEvents,
-  type AuthCompletionEvent
+  type AuthCompletionEvent,
 } from "../src/authEvents";
 
 type MessageListener = (event: { data: unknown }) => void;
@@ -87,15 +87,15 @@ void test("subscribeToAuthCompletionEvents receives broadcast messages", () => {
 
   Object.defineProperty(globalThis, "window", {
     configurable: true,
-    value: fakeWindow
+    value: fakeWindow,
   });
   Object.defineProperty(globalThis, "BroadcastChannel", {
     configurable: true,
-    value: FakeBroadcastChannel
+    value: FakeBroadcastChannel,
   });
 
   try {
-    const subscription = subscribeToAuthCompletionEvents(event => {
+    const subscription = subscribeToAuthCompletionEvents((event) => {
       events.push(event);
     });
     const sender = new FakeBroadcastChannel(AUTH_COMPLETION_CHANNEL_NAME);
@@ -103,15 +103,15 @@ void test("subscribeToAuthCompletionEvents receives broadcast messages", () => {
     sender.postMessage({
       message: null,
       requestId: "request-123",
-      status: "authenticated"
+      status: "authenticated",
     });
 
     assert.deepEqual(events, [
       {
         message: null,
         requestId: "request-123",
-        status: "authenticated"
-      }
+        status: "authenticated",
+      },
     ]);
 
     subscription.dispose();
@@ -119,25 +119,25 @@ void test("subscribeToAuthCompletionEvents receives broadcast messages", () => {
     sender.postMessage({
       message: "should be ignored",
       requestId: "request-123",
-      status: "error"
+      status: "error",
     });
 
     assert.deepEqual(events, [
       {
         message: null,
         requestId: "request-123",
-        status: "authenticated"
-      }
+        status: "authenticated",
+      },
     ]);
     assert.equal(FakeBroadcastChannel.instances[0]?.closed, true);
   } finally {
     Object.defineProperty(globalThis, "window", {
       configurable: true,
-      value: originalWindow
+      value: originalWindow,
     });
     Object.defineProperty(globalThis, "BroadcastChannel", {
       configurable: true,
-      value: originalBroadcastChannel
+      value: originalBroadcastChannel,
     });
   }
 });
@@ -150,15 +150,15 @@ void test("subscribeToAuthCompletionEvents falls back to storage events", () => 
 
   Object.defineProperty(globalThis, "window", {
     configurable: true,
-    value: fakeWindow
+    value: fakeWindow,
   });
   Object.defineProperty(globalThis, "BroadcastChannel", {
     configurable: true,
-    value: undefined
+    value: undefined,
   });
 
   try {
-    const subscription = subscribeToAuthCompletionEvents(event => {
+    const subscription = subscribeToAuthCompletionEvents((event) => {
       events.push(event);
     });
 
@@ -168,31 +168,31 @@ void test("subscribeToAuthCompletionEvents falls back to storage events", () => 
         message: "Authentication failed.",
         requestId: "request-456",
         status: "error",
-        timestamp: Date.now()
-      })
+        timestamp: Date.now(),
+      }),
     });
     fakeWindow.emitStorageEvent({
       key: AUTH_COMPLETION_STORAGE_KEY,
-      newValue: JSON.stringify({ invalid: true })
+      newValue: JSON.stringify({ invalid: true }),
     });
 
     assert.deepEqual(events, [
       {
         message: "Authentication failed.",
         requestId: "request-456",
-        status: "error"
-      }
+        status: "error",
+      },
     ]);
 
     subscription.dispose();
   } finally {
     Object.defineProperty(globalThis, "window", {
       configurable: true,
-      value: originalWindow
+      value: originalWindow,
     });
     Object.defineProperty(globalThis, "BroadcastChannel", {
       configurable: true,
-      value: originalBroadcastChannel
+      value: originalBroadcastChannel,
     });
   }
 });

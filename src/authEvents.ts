@@ -6,7 +6,7 @@ export const AUTH_COMPLETION_STORAGE_KEY = "save-my-jupyter.auth-event";
 const authCompletionEventSchema = z.object({
   message: z.string().nullable().default(null),
   requestId: z.string(),
-  status: z.enum(["authenticated", "error"])
+  status: z.enum(["authenticated", "error"]),
 });
 
 export type AuthCompletionEvent = z.infer<typeof authCompletionEventSchema>;
@@ -17,7 +17,7 @@ export interface AuthCompletionSubscription {
 
 function emitIfValid(
   onEvent: (event: AuthCompletionEvent) => void,
-  raw: unknown
+  raw: unknown,
 ): void {
   const parsed = authCompletionEventSchema.safeParse(raw);
   if (!parsed.success) {
@@ -27,7 +27,7 @@ function emitIfValid(
 }
 
 export function subscribeToAuthCompletionEvents(
-  onEvent: (event: AuthCompletionEvent) => void
+  onEvent: (event: AuthCompletionEvent) => void,
 ): AuthCompletionSubscription {
   const cleanupCallbacks: (() => void)[] = [];
 
@@ -45,7 +45,10 @@ export function subscribeToAuthCompletionEvents(
 
   if (typeof window !== "undefined") {
     const handleStorage = (event: StorageEvent): void => {
-      if (event.key !== AUTH_COMPLETION_STORAGE_KEY || event.newValue === null) {
+      if (
+        event.key !== AUTH_COMPLETION_STORAGE_KEY ||
+        event.newValue === null
+      ) {
         return;
       }
 
@@ -67,6 +70,6 @@ export function subscribeToAuthCompletionEvents(
       for (const cleanup of cleanupCallbacks) {
         cleanup();
       }
-    }
+    },
   };
 }

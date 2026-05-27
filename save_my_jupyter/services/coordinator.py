@@ -12,6 +12,8 @@ from save_my_jupyter.domain import (
     SnapshotRejected,
 )
 
+_MAX_PENDING_SNAPSHOTS_PER_NOTEBOOK = 5
+
 
 @dataclass(slots=True)
 class NotebookSnapshotQueue:
@@ -66,6 +68,15 @@ class SnapshotCoordinator:
             return SnapshotAccepted(
                 job_id=str(uuid4()),
                 queue_position=len(queue.pending_jobs),
+            )
+
+        if len(queue.pending_jobs) >= _MAX_PENDING_SNAPSHOTS_PER_NOTEBOOK:
+            return SnapshotRejected(
+                reason_code="snapshot_queue_full",
+                message=(
+                    "Too many snapshots are already queued for this notebook. "
+                    "Wait for the current save to finish before starting another."
+                ),
             )
 
         queue.enqueue(plan)

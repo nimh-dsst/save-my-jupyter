@@ -6,13 +6,12 @@ from pathlib import Path
 from typing import Literal, cast
 
 from save_my_jupyter.config.models import (
+    DEFAULT_PYTHON_WATCH_PATHS,
     EffectiveConfig,
     LabArchivesNotebookName,
     LabArchivesRootPath,
     LabArchivesTarget,
     NotebookMetadataConfig,
-    PathRuleConfig,
-    RelativeRepoPath,
     RelativeWatchPath,
     RepoConfig,
     UserSettingsConfig,
@@ -63,19 +62,6 @@ def parse_repo_config(raw: Mapping[str, object]) -> RepoConfig:
             code="invalid_repo_root_strategy",
         )
 
-    path_rules_raw = raw.get("path_rule", ())
-    if not isinstance(path_rules_raw, tuple | list):
-        raise ConfigValidationError(
-            "path_rule entries must be a list of tables.",
-            code="invalid_path_rules",
-        )
-
-    path_rules = tuple(
-        parse_path_rule(expect(item, Mapping, field="path_rule"))
-        for item in path_rules_raw
-    )
-    _validate_path_rule_names(path_rules)
-
     return RepoConfig(
         project_name=project_name,
         repo_root_strategy=cast("Literal['git', 'fixed']", repo_root_strategy),
@@ -94,7 +80,10 @@ def parse_repo_config(raw: Mapping[str, object]) -> RepoConfig:
         default_watch_paths=tuple(
             RelativeWatchPath(normalize_path(path))
             for path in tuple_of(
-                defaults.get("watch_paths"),
+                defaults.get(
+                    "watch_paths",
+                    [str(path) for path in DEFAULT_PYTHON_WATCH_PATHS],
+                ),
                 str,
                 field="defaults.watch_paths",
             )
@@ -135,65 +124,6 @@ def parse_repo_config(raw: Mapping[str, object]) -> RepoConfig:
             git.get("commit_message_template", "snapshot: {notebook_name} {timestamp}"),
             str,
             field="git.commit_message_template",
-        ),
-        path_rules=path_rules,
-    )
-
-
-def parse_path_rule(raw: Mapping[str, object]) -> PathRuleConfig:
-    return PathRuleConfig(
-        name=expect(raw.get("name"), str, field="path_rule.name"),
-        match_paths=tuple(
-            RelativeRepoPath(normalize_path(path))
-            for path in tuple_of(
-                raw.get("match_paths"),
-                str,
-                field="path_rule.match_paths",
-            )
-        ),
-        watch_paths=tuple(
-            RelativeWatchPath(normalize_path(path))
-            for path in tuple_of(
-                raw.get("watch_paths"),
-                str,
-                field="path_rule.watch_paths",
-            )
-        ),
-        include_paths=tuple(
-            RelativeWatchPath(normalize_path(path))
-            for path in tuple_of(
-                raw.get("include_paths"),
-                str,
-                field="path_rule.include_paths",
-            )
-        ),
-        exclude_paths=tuple(
-            RelativeWatchPath(normalize_path(path))
-            for path in tuple_of(
-                raw.get("exclude_paths"),
-                str,
-                field="path_rule.exclude_paths",
-            )
-        ),
-        target=_parse_target(
-            notebook_name=maybe(
-                raw.get("labarchives_target_notebook"),
-                str,
-                field="path_rule.labarchives_target_notebook",
-            ),
-            root_path=maybe(
-                raw.get("labarchives_target_root_path"),
-                str,
-                field="path_rule.labarchives_target_root_path",
-            ),
-        ),
-        metadata_template=_parse_string_mapping(
-            maybe(
-                raw.get("metadata_template"),
-                Mapping,
-                field="path_rule.metadata_template",
-            )
-            or {}
         ),
     )
 
@@ -273,35 +203,21 @@ def merge_effective_config(
     repo_config: RepoConfig | None,
     notebook_metadata: NotebookMetadataConfig,
     user_settings: UserSettingsConfig,
-    path_rule: PathRuleConfig | None,
     request_commit_mode: CommitMode,
 ) -> EffectiveConfig:
-    path_rule_target = (
-        path_rule.target
-        if path_rule is not None and path_rule.target is not None
-        else None
-    )
     repo_target = repo_config.default_target if repo_config is not None else None
     target_notebook_name = (
         notebook_metadata.labarchives_target_notebook
-        or (path_rule_target.notebook_name if path_rule_target is not None else None)
         or (repo_target.notebook_name if repo_target is not None else None)
         or LabArchivesNotebookName("Jupyter Snapshots")
     )
     target_root_path = (
         notebook_metadata.labarchives_target_root_path
-        or (path_rule_target.root_path if path_rule_target is not None else None)
         or (repo_target.root_path if repo_target is not None else None)
         or LabArchivesRootPath("Notebook Log")
     )
     metadata_template = (
-        notebook_metadata.default_metadata
-        if notebook_metadata.default_metadata
-        else (
-            path_rule.metadata_template
-            if path_rule is not None and path_rule.metadata_template
-            else {}
-        )
+        notebook_metadata.default_metadata if notebook_metadata.default_metadata else {}
     )
     effective_commit_mode = request_commit_mode
     if effective_commit_mode is CommitMode.PROMPT:
@@ -316,8 +232,11 @@ def merge_effective_config(
         ),
         commit_mode=effective_commit_mode,
         watched_paths=notebook_metadata.watched_paths
-        or (path_rule.watch_paths if path_rule is not None else ())
-        or (repo_config.default_watch_paths if repo_config is not None else ()),
+        or (
+            repo_config.default_watch_paths
+            if repo_config is not None
+            else DEFAULT_PYTHON_WATCH_PATHS
+        ),
         include_notebook_file=repo_config.include_notebook_file
         if repo_config is not None
         else True,
@@ -327,6 +246,9 @@ def merge_effective_config(
         target=LabArchivesTarget(
             notebook_name=target_notebook_name,
             root_path=target_root_path,
+            project_name=repo_config.project_name
+            if repo_config is not None
+            else "save-my-jupyter",
         ),
         metadata_template=metadata_template,
         stage_notebook_on_commit=repo_config.stage_notebook_on_commit
@@ -339,17 +261,6 @@ def merge_effective_config(
         if repo_config is not None
         else "snapshot: {notebook_name} {timestamp}",
     )
-
-
-def _validate_path_rule_names(path_rules: tuple[PathRuleConfig, ...]) -> None:
-    names: set[str] = set()
-    for rule in path_rules:
-        if rule.name in names:
-            raise ConfigValidationError(
-                f"Duplicate path rule name: {rule.name}.",
-                code="duplicate_path_rule",
-            )
-        names.add(rule.name)
 
 
 def _parse_target(

@@ -8,7 +8,7 @@ void test("validateWatchedPath accepts and normalizes relative paths", () => {
 
   assert.deepEqual(result, {
     ok: true,
-    normalizedPath: "outputs/figures/result.png"
+    normalizedPath: "outputs/figures/result.png",
   });
 });
 
@@ -23,6 +23,6 @@ void test("validateWatchedPath rejects escaping parent traversals", () => {
 
   assert.deepEqual(result, {
     ok: false,
-    message: "Watched paths must stay within the notebook or repo root."
+    message: "Watched paths must stay within the notebook or repo root.",
   });
 });

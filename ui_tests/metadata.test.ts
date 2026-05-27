@@ -26,18 +26,18 @@ function createPanel(sharedModel: FakeSharedModel): NotebookPanel {
   return {
     content: {
       model: {
-        sharedModel
-      }
+        sharedModel,
+      },
     },
     context: {
       save: async () => {
         await Promise.resolve();
         saveCount += 1;
-      }
+      },
     },
     get saveCount(): number {
       return saveCount;
-    }
+    },
   } as unknown as NotebookPanel;
 }
 
@@ -45,8 +45,8 @@ function createCell(sharedModel: FakeSharedModel, id: string): Cell {
   return {
     model: {
       id,
-      sharedModel
-    }
+      sharedModel,
+    },
   } as unknown as Cell;
 }
 
@@ -64,7 +64,7 @@ void test("NotebookMetadataStore writes defaults and syncs trigger ids", async (
     labarchives_target_notebook: null,
     labarchives_target_root_path: null,
     trigger_cell_ids: [],
-    watched_paths: []
+    watched_paths: [],
   });
 
   const nextMetadata = await store.setCellTriggerForPanel(panel, cell, true);
@@ -73,7 +73,7 @@ void test("NotebookMetadataStore writes defaults and syncs trigger ids", async (
   assert.deepEqual(nextMetadata.trigger_cell_ids, ["cell-1"]);
   assert.deepEqual(
     notebookSharedModel.getMetadata(NOTEBOOK_METADATA_KEY),
-    nextMetadata
+    nextMetadata,
   );
 });
 
@@ -91,7 +91,7 @@ void test("NotebookMetadataStore removes trigger ids when cells are unmarked", a
     labarchives_target_notebook: null,
     labarchives_target_root_path: null,
     trigger_cell_ids: ["cell-2"],
-    watched_paths: []
+    watched_paths: [],
   });
 
   const nextMetadata = await store.setCellTriggerForPanel(panel, cell, false);
@@ -111,12 +111,12 @@ void test("NotebookMetadataStore reports the active cell trigger state", () => {
     content: {
       activeCell: secondCell,
       model: {
-        sharedModel: notebookSharedModel
-      }
+        sharedModel: notebookSharedModel,
+      },
     },
     context: {
-      save: () => Promise.resolve()
-    }
+      save: () => Promise.resolve(),
+    },
   } as unknown as NotebookPanel;
 
   store.setCellTrigger(firstCell, true);
@@ -124,6 +124,6 @@ void test("NotebookMetadataStore reports the active cell trigger state", () => {
 
   assert.deepEqual(store.readActiveCellTriggerState(panel), {
     cellId: "cell-2",
-    isTrigger: false
+    isTrigger: false,
   });
 });

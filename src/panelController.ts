@@ -3,35 +3,36 @@ import type { Cell } from "@jupyterlab/cells";
 import type { INotebookTracker, NotebookPanel } from "@jupyterlab/notebook";
 import { historyIcon } from "@jupyterlab/ui-components";
 
-import { ApiClient } from "./apiClient";
+import type { ApiClient } from "./apiClient";
 import {
   subscribeToAuthCompletionEvents,
   type AuthCompletionEvent,
-  type AuthCompletionSubscription
+  type AuthCompletionSubscription,
 } from "./authEvents";
-import { NotebookMetadataStore } from "./metadata";
+import type { NotebookMetadataStore } from "./metadata";
 import { syncCellTriggerDecoration } from "./notebook/cellTriggerButtons";
 import { validateWatchedPath } from "./notebook/pathValidation";
 import {
   buildManualSnapshotPayload,
-  buildNotebookContextPayload
+  buildNotebookContextPayload,
 } from "./notebook/requestBuilders";
 import { requiresPanelSetup } from "./panelBehavior";
+import { formatSnapshotSubmissionStatus } from "./panelFormatting";
 import {
   buildDetachedViewState,
   buildLoadedViewState,
   buildLoadErrorViewState,
   normalizeUserMetadata,
-  type SnapshotPanelViewState
+  type SnapshotPanelViewState,
 } from "./panelState";
+import type { UserPreferencesStore } from "./settings";
 import { patchSignal, type WritableSignal } from "./signals";
-import { UserPreferencesStore } from "./settings";
 import { parseTagsInput } from "./tags";
 import type {
   CommitMode,
   NotebookExtensionMetadata,
   SnapshotSubmissionResult,
-  SnapshotUserMetadata
+  SnapshotUserMetadata,
 } from "./types";
 
 const SNAPSHOT_TOOLBAR_ITEM = "save-my-jupyter:snapshot";
@@ -47,21 +48,14 @@ interface BusyTaskOptions {
   startPatch?: ViewStatePatch;
 }
 
+const CELL_DECORATION_SELECTOR = ".jp-Cell";
+
 function currentPanel(tracker: INotebookTracker): NotebookPanel {
   const panel = tracker.currentWidget;
   if (panel === null) {
     throw new Error("No active notebook panel.");
   }
   return panel;
-}
-
-function toStatusMessage(result: SnapshotSubmissionResult): string {
-  switch (result.status) {
-    case "accepted":
-      return `Snapshot queued as ${result.jobId}.`;
-    case "rejected":
-      return `Snapshot rejected: ${result.message}`;
-  }
 }
 
 function toErrorMessage(error: unknown, fallbackMessage: string): string {
@@ -71,23 +65,23 @@ function toErrorMessage(error: unknown, fallbackMessage: string): string {
 function createStatusPatch(
   channel: StatusChannel,
   kind: SnapshotPanelViewState["statusKind"],
-  message: string | null
+  message: string | null,
 ): ViewStatePatch {
   switch (channel) {
     case "authStatus":
       return {
         authStatusKind: kind,
-        authStatusMessage: message
+        authStatusMessage: message,
       };
     case "configStatus":
       return {
         configStatusKind: kind,
-        configStatusMessage: message
+        configStatusMessage: message,
       };
     case "status":
       return {
         statusKind: kind,
-        statusMessage: message
+        statusMessage: message,
       };
   }
 }
@@ -95,7 +89,7 @@ function createStatusPatch(
 function createAuthStatusPatch(
   auth: SnapshotPanelViewState["auth"],
   unauthenticatedKind: NonNullStatusKind,
-  unauthenticatedMessage: string
+  unauthenticatedMessage: string,
 ): ViewStatePatch {
   return {
     auth,
@@ -104,8 +98,8 @@ function createAuthStatusPatch(
       auth.status === "authenticated" ? "success" : unauthenticatedKind,
       auth.status === "authenticated"
         ? `Authenticated as ${auth.userEmail ?? "unknown"}.`
-        : unauthenticatedMessage
-    )
+        : unauthenticatedMessage,
+    ),
   };
 }
 
@@ -119,13 +113,15 @@ export class SnapshotPanelController {
     private readonly openPanel: () => void,
     private readonly preferencesStore: UserPreferencesStore,
     private readonly tracker: INotebookTracker,
-    private readonly viewStateSignal: WritableSignal<SnapshotPanelViewState>
+    private readonly viewStateSignal: WritableSignal<SnapshotPanelViewState>,
   ) {}
 
   initialize(): void {
-    this.authCompletionSubscription ??= subscribeToAuthCompletionEvents(event => {
-      void this.handleAuthCompletionEvent(event);
-    });
+    this.authCompletionSubscription ??= subscribeToAuthCompletionEvents(
+      (event) => {
+        void this.handleAuthCompletionEvent(event);
+      },
+    );
 
     this.tracker.currentChanged.connect(() => {
       void this.refresh();
@@ -162,22 +158,25 @@ export class SnapshotPanelController {
       await panel.context.ready;
       const state = await this.apiClient.getState(panel.context.path);
       const metadata =
-        state.notebookMetadata ?? this.metadataStore.readNotebookMetadata(panel);
-      const activeCellState = this.metadataStore.readActiveCellTriggerState(panel);
+        state.notebookMetadata ??
+        this.metadataStore.readNotebookMetadata(panel);
+      const activeCellState =
+        this.metadataStore.readActiveCellTriggerState(panel);
       const nextViewState = buildLoadedViewState({
         activeCell: activeCellState,
         current: this.viewState,
         metadata,
         notebookPath: panel.context.path,
         preferences,
-        state
+        state,
       });
       this.setViewState(nextViewState);
       this.decoratePanelCells(panel);
       await this.syncWatchRegistration(panel, nextViewState, { silent: true });
     } catch (error: unknown) {
       const metadata = this.metadataStore.readNotebookMetadata(panel);
-      const activeCellState = this.metadataStore.readActiveCellTriggerState(panel);
+      const activeCellState =
+        this.metadataStore.readActiveCellTriggerState(panel);
       this.setViewState(
         buildLoadErrorViewState({
           activeCell: activeCellState,
@@ -185,8 +184,8 @@ export class SnapshotPanelController {
           error,
           metadata,
           notebookPath: panel.context.path,
-          preferences
-        })
+          preferences,
+        }),
       );
     }
   }
@@ -196,13 +195,12 @@ export class SnapshotPanelController {
       this.openPanel();
       this.setStatus(
         "warning",
-        "Connect LabArchives before creating a snapshot."
+        "Connect LabArchives before creating a snapshot.",
       );
       await showDialog({
-        body:
-          "Connect LabArchives in the Save My Jupyter sidebar before creating a snapshot.",
+        body: "Connect LabArchives in the Save My Jupyter sidebar before creating a snapshot.",
         buttons: [Dialog.okButton({ label: "Open Save My Jupyter" })],
-        title: "LabArchives connection required"
+        title: "LabArchives connection required",
       });
       return;
     }
@@ -214,14 +212,24 @@ export class SnapshotPanelController {
       panel,
       this.viewState.metadata,
       commitMode,
-      this.viewState.userMetadata
+      this.viewState.userMetadata,
     );
 
-    await this.runBusyTask(async () => {
-      const result = await this.apiClient.postSnapshot(payload);
-      this.applySubmissionResult(result);
-      await this.persistPreferences();
-    });
+    await this.runBusyTask(
+      async () => {
+        const result = await this.apiClient.postSnapshot(payload);
+        this.applySubmissionResult(result);
+        await this.persistPreferences();
+      },
+      {
+        fallbackErrorMessage: "Unable to save the snapshot.",
+        startPatch: createStatusPatch(
+          "status",
+          "info",
+          "Saving notebook, creating snapshot artifacts, and uploading to LabArchives.",
+        ),
+      },
+    );
   }
 
   handleToolbarAction(): void {
@@ -230,7 +238,7 @@ export class SnapshotPanelController {
       this.viewState.auth.status === "authenticated" ? "info" : "warning",
       this.viewState.auth.status === "authenticated"
         ? "Review the current notebook context and click Snapshot Now when ready."
-        : "Connect LabArchives to enable snapshots for this notebook."
+        : "Connect LabArchives to enable snapshots for this notebook.",
     );
   }
 
@@ -238,12 +246,12 @@ export class SnapshotPanelController {
     const panel = currentPanel(this.tracker);
     const nextMetadata: NotebookExtensionMetadata = {
       ...this.viewState.metadata,
-      all_cells_trigger: enabled
+      all_cells_trigger: enabled,
     };
     await this.savePanelMetadata(panel, nextMetadata, {
       statusMessage: enabled
         ? "Every executed cell will trigger snapshots."
-        : "Only marked trigger cells will create automatic snapshots."
+        : "Only marked trigger cells will create automatic snapshots.",
     });
   }
 
@@ -260,11 +268,14 @@ export class SnapshotPanelController {
 
     const panel = currentPanel(this.tracker);
     const watchedPaths = Array.from(
-      new Set([...this.viewState.metadata.watched_paths, validation.normalizedPath])
+      new Set([
+        ...this.viewState.metadata.watched_paths,
+        validation.normalizedPath,
+      ]),
     );
     const nextMetadata: NotebookExtensionMetadata = {
       ...this.viewState.metadata,
-      watched_paths: watchedPaths
+      watched_paths: watchedPaths,
     };
 
     await this.savePanelMetadata(
@@ -272,9 +283,9 @@ export class SnapshotPanelController {
       nextMetadata,
       {
         statusKind: "success",
-        statusMessage: `Watching ${validation.normalizedPath}.`
+        statusMessage: `Watching ${validation.normalizedPath}.`,
       },
-      { syncWatchRegistration: true }
+      { syncWatchRegistration: true },
     );
   }
 
@@ -283,8 +294,8 @@ export class SnapshotPanelController {
     const nextMetadata: NotebookExtensionMetadata = {
       ...this.viewState.metadata,
       watched_paths: this.viewState.metadata.watched_paths.filter(
-        candidate => candidate !== path
-      )
+        (candidate) => candidate !== path,
+      ),
     };
 
     await this.savePanelMetadata(
@@ -292,9 +303,9 @@ export class SnapshotPanelController {
       nextMetadata,
       {
         statusKind: "info",
-        statusMessage: `Stopped watching ${path}.`
+        statusMessage: `Stopped watching ${path}.`,
       },
-      { syncWatchRegistration: true }
+      { syncWatchRegistration: true },
     );
   }
 
@@ -302,7 +313,10 @@ export class SnapshotPanelController {
     const panel = currentPanel(this.tracker);
     const activeCell = panel.content.activeCell;
     if (activeCell === null) {
-      this.setStatus("warning", "Select a cell before changing trigger status.");
+      this.setStatus(
+        "warning",
+        "Select a cell before changing trigger status.",
+      );
       return;
     }
 
@@ -317,22 +331,22 @@ export class SnapshotPanelController {
     await this.runBusyTask(
       async () => {
         const result = await this.apiClient.startAuth();
-        this.updateViewState(current => ({
+        this.updateViewState((current) => ({
           ...current,
           auth: {
             pendingRequestId: result.requestId,
             status: "pending",
             storedNotebookNames: current.auth.storedNotebookNames,
             storedUserEmail: current.auth.storedUserEmail,
-            userEmail: current.auth.userEmail
+            userEmail: current.auth.userEmail,
           },
           ...createStatusPatch(
             "authStatus",
             "info",
             result.authUrl === null
               ? result.message
-              : "Complete the LabArchives sign-in flow in the opened tab. This panel will update automatically."
-          )
+              : "Complete the LabArchives sign-in flow in the opened tab. This panel will update automatically.",
+          ),
         }));
         if (result.authUrl !== null) {
           window.open(result.authUrl, "_blank", "noopener,noreferrer");
@@ -341,8 +355,8 @@ export class SnapshotPanelController {
       {
         errorChannel: "authStatus",
         fallbackErrorMessage: "Unable to start LabArchives authentication.",
-        startPatch: createStatusPatch("authStatus", null, null)
-      }
+        startPatch: createStatusPatch("authStatus", null, null),
+      },
     );
   }
 
@@ -352,8 +366,24 @@ export class SnapshotPanelController {
       createAuthStatusPatch(
         auth,
         "warning",
-        "Not authenticated with LabArchives yet."
-      )
+        "Not authenticated with LabArchives yet.",
+      ),
+    );
+  }
+
+  async signOut(): Promise<void> {
+    await this.runBusyTask(
+      async () => {
+        const auth = await this.apiClient.logout();
+        this.patchViewState(
+          createAuthStatusPatch(auth, "info", "Signed out of LabArchives."),
+        );
+      },
+      {
+        errorChannel: "authStatus",
+        fallbackErrorMessage: "Unable to sign out of LabArchives.",
+        startPatch: createStatusPatch("authStatus", "info", "Signing out..."),
+      },
     );
   }
 
@@ -363,7 +393,7 @@ export class SnapshotPanelController {
       this.setStatus(
         "warning",
         "Open a notebook before creating a repo config.",
-        "configStatus"
+        "configStatus",
       );
       return;
     }
@@ -377,70 +407,74 @@ export class SnapshotPanelController {
           result.status === "created"
             ? `Created starter config at ${result.configPath}.`
             : `Config already exists at ${result.configPath}.`,
-          "configStatus"
+          "configStatus",
         );
       },
       {
         errorChannel: "configStatus",
         fallbackErrorMessage: "Unable to create the starter config.",
-        startPatch: createStatusPatch("configStatus", null, null)
-      }
+        startPatch: createStatusPatch("configStatus", null, null),
+      },
     );
   }
 
   setCommitMode(value: CommitMode): void {
     this.patchViewState({
-      selectedCommitMode: value
+      selectedCommitMode: value,
     });
     void this.persistPreferences();
   }
 
   setRememberCommitChoice(value: boolean): void {
     this.patchViewState({
-      rememberCommitChoice: value
+      rememberCommitChoice: value,
     });
     void this.persistPreferences();
   }
 
   setTags(value: string): void {
     const tags = parseTagsInput(value);
-    this.updateViewState(current => ({
+    this.updateViewState((current) => ({
       ...current,
       tagsInput: value,
       userMetadata: {
         ...current.userMetadata,
-        tags
-      }
+        tags,
+      },
     }));
     void this.persistPreferences();
   }
 
   setRunLabel(value: string): void {
-    this.updateViewState(current => ({
+    this.updateViewState((current) => ({
       ...current,
       userMetadata: {
         ...current.userMetadata,
-        run_label: value === "" ? null : value
-      }
+        run_label: value === "" ? null : value,
+      },
     }));
     void this.persistPreferences();
   }
 
   setNotes(value: string): void {
-    this.updateViewState(current => ({
+    this.updateViewState((current) => ({
       ...current,
       userMetadata: normalizeUserMetadata({
         ...current.userMetadata,
-        notes: value === "" ? null : value
-      })
+        notes: value === "" ? null : value,
+      }),
     }));
   }
 
   applySubmissionResult(result: SnapshotSubmissionResult): void {
     this.setStatus(
       result.status === "accepted" ? "success" : "error",
-      toStatusMessage(result)
+      formatSnapshotSubmissionStatus(result),
     );
+  }
+
+  applySubmissionError(error: unknown, fallbackMessage: string): void {
+    this.setStatus("error", toErrorMessage(error, fallbackMessage));
   }
 
   private get viewState(): SnapshotPanelViewState {
@@ -448,7 +482,7 @@ export class SnapshotPanelController {
   }
 
   private async handleAuthCompletionEvent(
-    event: AuthCompletionEvent
+    event: AuthCompletionEvent,
   ): Promise<void> {
     if (this.viewState.auth.pendingRequestId !== event.requestId) {
       return;
@@ -460,17 +494,17 @@ export class SnapshotPanelController {
         createAuthStatusPatch(
           auth,
           event.status === "error" ? "error" : "warning",
-          event.message ?? "LabArchives authentication did not complete."
-        )
+          event.message ?? "LabArchives authentication did not complete.",
+        ),
       );
     } catch (error: unknown) {
       this.setStatus(
         "error",
         toErrorMessage(
           error,
-          "Unable to refresh LabArchives authentication status."
+          "Unable to refresh LabArchives authentication status.",
         ),
-        "authStatus"
+        "authStatus",
       );
     }
   }
@@ -490,8 +524,8 @@ export class SnapshotPanelController {
         onClick: () => {
           this.handleToolbarAction();
         },
-        tooltip: "Open Save My Jupyter"
-      })
+        tooltip: "Open Save My Jupyter",
+      }),
     );
   }
 
@@ -501,10 +535,38 @@ export class SnapshotPanelController {
     }
 
     this.observedPanels.add(panel);
+    let pendingDecorationFrame: number | null = null;
+    const scheduleDecoration = (): void => {
+      if (panel.isDisposed || pendingDecorationFrame !== null) {
+        return;
+      }
+
+      pendingDecorationFrame = window.requestAnimationFrame(() => {
+        pendingDecorationFrame = null;
+        if (!panel.isDisposed) {
+          this.decoratePanelCells(panel);
+        }
+      });
+    };
+
     this.decoratePanelCells(panel);
-    window.requestAnimationFrame(() => {
-      if (!panel.isDisposed) {
-        this.decoratePanelCells(panel);
+    scheduleDecoration();
+    const observer = new MutationObserver((mutations) => {
+      if (shouldRefreshCellDecorations(mutations)) {
+        scheduleDecoration();
+      }
+    });
+    observer.observe(panel.content.node, {
+      attributeFilter: ["class"],
+      attributes: true,
+      childList: true,
+      subtree: true,
+    });
+    panel.disposed.connect(() => {
+      observer.disconnect();
+      if (pendingDecorationFrame !== null) {
+        window.cancelAnimationFrame(pendingDecorationFrame);
+        pendingDecorationFrame = null;
       }
     });
     panel.content.activeCellChanged.connect(() => {
@@ -512,11 +574,12 @@ export class SnapshotPanelController {
         return;
       }
 
-      const activeCellState = this.metadataStore.readActiveCellTriggerState(panel);
+      const activeCellState =
+        this.metadataStore.readActiveCellTriggerState(panel);
       this.decoratePanelCells(panel);
       this.patchViewState({
         activeCellId: activeCellState.cellId,
-        activeCellIsTrigger: activeCellState.isTrigger
+        activeCellIsTrigger: activeCellState.isTrigger,
       });
     });
   }
@@ -529,20 +592,13 @@ export class SnapshotPanelController {
 
   private decorateCell(cell: Cell): void {
     const isTrigger = this.metadataStore.readCellMetadata(cell).trigger;
-    syncCellTriggerDecoration(cell, {
-      isTrigger,
-      onToggle: targetCell => {
-        void this.toggleCellTriggerFromButton(targetCell);
-      }
-    });
+    syncCellTriggerDecoration(cell, isTrigger);
   }
 
-  private async toggleCellTriggerFromButton(cell: Cell): Promise<void> {
-    const panel = this.tracker.currentWidget;
-    if (panel === null) {
-      return;
-    }
-
+  async toggleCellTriggerForCell(
+    panel: NotebookPanel,
+    cell: Cell,
+  ): Promise<void> {
     const cellIndex = panel.content.widgets.indexOf(cell);
     if (cellIndex === -1) {
       return;
@@ -556,12 +612,12 @@ export class SnapshotPanelController {
   private async setCellTriggerForCell(
     panel: NotebookPanel,
     cell: Cell,
-    enabled: boolean
+    enabled: boolean,
   ): Promise<void> {
     const metadata = await this.metadataStore.setCellTriggerForPanel(
       panel,
       cell,
-      enabled
+      enabled,
     );
     this.decoratePanelCells(panel);
     this.patchViewState({
@@ -571,7 +627,7 @@ export class SnapshotPanelController {
       statusKind: "success",
       statusMessage: enabled
         ? `Marked ${cell.model.id} as a trigger cell.`
-        : `Removed ${cell.model.id} from trigger cells.`
+        : `Removed ${cell.model.id} from trigger cells.`,
     });
   }
 
@@ -581,7 +637,7 @@ export class SnapshotPanelController {
     }
 
     const resolvedCommitMode: CommitMode = window.confirm(
-      `Create a git commit before ${actionLabel}?`
+      `Create a git commit before ${actionLabel}?`,
     )
       ? "always"
       : "never";
@@ -593,8 +649,8 @@ export class SnapshotPanelController {
           "info",
           `Future snapshots will ${
             resolvedCommitMode === "always" ? "create" : "skip"
-          } commits until you change the commit mode.`
-        )
+          } commits until you change the commit mode.`,
+        ),
       });
       void this.persistPreferences();
     }
@@ -606,17 +662,17 @@ export class SnapshotPanelController {
       defaultCommitMode: this.viewState.selectedCommitMode,
       defaultRunLabel: this.viewState.userMetadata.run_label,
       defaultTags: this.viewState.userMetadata.tags,
-      rememberCommitChoice: this.viewState.rememberCommitChoice
+      rememberCommitChoice: this.viewState.rememberCommitChoice,
     });
   }
 
   private async runBusyTask(
     task: () => Promise<void>,
-    options: BusyTaskOptions = {}
+    options: BusyTaskOptions = {},
   ): Promise<void> {
     this.patchViewState({
       ...options.startPatch,
-      isBusy: true
+      isBusy: true,
     });
     try {
       await task();
@@ -625,13 +681,13 @@ export class SnapshotPanelController {
         "error",
         toErrorMessage(
           error,
-          options.fallbackErrorMessage ?? "Unexpected snapshot error."
+          options.fallbackErrorMessage ?? "Unexpected snapshot error.",
         ),
-        options.errorChannel
+        options.errorChannel,
       );
     } finally {
       this.patchViewState({
-        isBusy: false
+        isBusy: false,
       });
     }
   }
@@ -640,13 +696,13 @@ export class SnapshotPanelController {
     panel: NotebookPanel,
     metadata: NotebookExtensionMetadata,
     patch: ViewStatePatch = {},
-    options: { syncWatchRegistration?: boolean } = {}
+    options: { syncWatchRegistration?: boolean } = {},
   ): Promise<void> {
     await this.metadataStore.writeNotebookMetadata(panel, metadata);
     const nextViewState = {
       ...this.viewState,
       ...patch,
-      metadata
+      metadata,
     };
     this.setViewState(nextViewState);
     if (options.syncWatchRegistration === true) {
@@ -657,13 +713,13 @@ export class SnapshotPanelController {
   private async syncWatchRegistration(
     panel: NotebookPanel,
     viewState: SnapshotPanelViewState,
-    options: { silent?: boolean } = {}
+    options: { silent?: boolean } = {},
   ): Promise<void> {
     const result = await this.apiClient.syncWatchRegistration(
       buildNotebookContextPayload(panel, viewState.metadata, null),
       viewState.metadata.watched_paths,
       viewState.selectedCommitMode,
-      viewState.userMetadata
+      viewState.userMetadata,
     );
     if (options.silent !== true) {
       this.patchViewState({
@@ -671,9 +727,9 @@ export class SnapshotPanelController {
         statusMessage:
           result.status === "registered"
             ? `Registered ${String(
-                result.registeredWatchPaths.length
+                result.registeredWatchPaths.length,
               )} watched path(s).`
-            : "Removed watched-path registrations."
+            : "Removed watched-path registrations.",
       });
     }
   }
@@ -683,7 +739,7 @@ export class SnapshotPanelController {
   }
 
   private updateViewState(
-    updater: (current: SnapshotPanelViewState) => SnapshotPanelViewState
+    updater: (current: SnapshotPanelViewState) => SnapshotPanelViewState,
   ): void {
     this.viewStateSignal.update(updater);
   }
@@ -695,8 +751,36 @@ export class SnapshotPanelController {
   private setStatus(
     statusKind: SnapshotPanelViewState["statusKind"],
     statusMessage: string | null,
-    channel: StatusChannel = "status"
+    channel: StatusChannel = "status",
   ): void {
     this.patchViewState(createStatusPatch(channel, statusKind, statusMessage));
   }
+}
+
+function shouldRefreshCellDecorations(mutations: MutationRecord[]): boolean {
+  return mutations.some((mutation) => {
+    if (mutation.type === "attributes") {
+      return nodeCanAffectCellDecorations(mutation.target);
+    }
+
+    if (nodeCanAffectCellDecorations(mutation.target)) {
+      return true;
+    }
+
+    return (
+      Array.from(mutation.addedNodes).some(nodeCanAffectCellDecorations) ||
+      Array.from(mutation.removedNodes).some(nodeCanAffectCellDecorations)
+    );
+  });
+}
+
+function nodeCanAffectCellDecorations(node: Node): boolean {
+  if (!(node instanceof Element)) {
+    return false;
+  }
+
+  return (
+    node.matches(CELL_DECORATION_SELECTOR) ||
+    node.querySelector(CELL_DECORATION_SELECTOR) !== null
+  );
 }

@@ -7,7 +7,7 @@ void test("parseTagsInput splits comma-separated tags", () => {
   assert.deepEqual(parseTagsInput("baseline, experiment-1, final"), [
     "baseline",
     "experiment-1",
-    "final"
+    "final",
   ]);
 });
 
@@ -16,5 +16,8 @@ void test("parseTagsInput ignores empty entries while allowing trailing commas",
 });
 
 void test("formatTagsInput renders tags for the sidebar input", () => {
-  assert.equal(formatTagsInput(["baseline", "experiment-1"]), "baseline, experiment-1");
+  assert.equal(
+    formatTagsInput(["baseline", "experiment-1"]),
+    "baseline, experiment-1",
+  );
 });

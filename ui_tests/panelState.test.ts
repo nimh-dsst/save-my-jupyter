@@ -7,7 +7,7 @@ import {
   createInitialViewState,
   DEFAULT_METADATA,
   mergeMetadataDefaults,
-  normalizeUserMetadata
+  normalizeUserMetadata,
 } from "../src/panelState";
 
 void test("createInitialViewState returns the default sidebar state", () => {
@@ -26,7 +26,7 @@ void test("normalizeUserMetadata clears experiment context", () => {
     extra_fields: {},
     notes: "notes",
     run_label: "run-1",
-    tags: ["baseline"]
+    tags: ["baseline"],
   });
 
   assert.deepEqual(normalized, {
@@ -34,7 +34,7 @@ void test("normalizeUserMetadata clears experiment context", () => {
     extra_fields: {},
     notes: "notes",
     run_label: "run-1",
-    tags: ["baseline"]
+    tags: ["baseline"],
   });
 });
 
@@ -42,24 +42,24 @@ void test("mergeMetadataDefaults combines notebook defaults and user preferences
   const metadata = {
     ...DEFAULT_METADATA,
     default_metadata: {
-      owner: "alice"
-    }
+      owner: "alice",
+    },
   };
   const merged = mergeMetadataDefaults(metadata, {
     defaultCommitMode: "always",
     defaultRunLabel: "baseline",
     defaultTags: ["tag-a"],
-    rememberCommitChoice: true
+    rememberCommitChoice: true,
   });
 
   assert.deepEqual(merged, {
     experiment_context: null,
     extra_fields: {
-      owner: "alice"
+      owner: "alice",
     },
     notes: null,
     run_label: "baseline",
-    tags: ["tag-a"]
+    tags: ["tag-a"],
   });
 });
 
@@ -75,7 +75,7 @@ void test("buildDetachedViewState resets notebook-specific state", () => {
     defaultCommitMode: "never",
     defaultRunLabel: "run-2",
     defaultTags: ["tag-b"],
-    rememberCommitChoice: true
+    rememberCommitChoice: true,
   });
 
   assert.equal(detached.notebookPath, null);
@@ -95,7 +95,7 @@ void test("buildLoadedViewState preserves drafts for the same notebook", () => {
     extra_fields: {},
     notes: "draft notes",
     run_label: "draft-run",
-    tags: ["draft-tag"]
+    tags: ["draft-tag"],
   };
   current.statusKind = "info";
   current.statusMessage = "draft status";
@@ -103,7 +103,7 @@ void test("buildLoadedViewState preserves drafts for the same notebook", () => {
   const loaded = buildLoadedViewState({
     activeCell: {
       cellId: "cell-1",
-      isTrigger: true
+      isTrigger: true,
     },
     current,
     metadata: DEFAULT_METADATA,
@@ -112,7 +112,7 @@ void test("buildLoadedViewState preserves drafts for the same notebook", () => {
       defaultCommitMode: "always",
       defaultRunLabel: "pref-run",
       defaultTags: ["pref-tag"],
-      rememberCommitChoice: false
+      rememberCommitChoice: false,
     },
     state: {
       auth: {
@@ -120,15 +120,14 @@ void test("buildLoadedViewState preserves drafts for the same notebook", () => {
         status: "authenticated",
         storedNotebookNames: [],
         storedUserEmail: null,
-        userEmail: "user@example.com"
+        userEmail: "user@example.com",
       },
       effectiveConfig: null,
       notebookMetadata: null,
-      pathRule: null,
       repo: null,
       repoConfigPath: null,
-      repoConfigLoaded: false
-    }
+      repoConfigLoaded: false,
+    },
   });
 
   assert.equal(loaded.activeCellId, "cell-1");

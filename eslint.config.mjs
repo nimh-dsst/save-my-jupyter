@@ -9,24 +9,37 @@ import tseslint from "typescript-eslint";
 export default tseslint.config(
   {
     ignores: [
+      ".appdata-test/**",
+      ".claude/**",
+      ".jupyter-config-test/**",
+      ".jupyter-runtime-test/**",
+      ".localappdata-test/**",
+      ".mypy_cache/**",
+      ".pytest_cache/**",
+      ".pytest_tmp/**",
+      ".pytest_tmp_verify/**",
+      ".ruff_cache/**",
+      ".selenium-cache/**",
+      ".selenium-profile/**",
+      ".selenium-venv/**",
+      ".userprofile-test/**",
       ".uv-cache/**",
       ".venv/**",
       ".venv_pkgtest/**",
-      ".pytest_tmp/**",
-      ".selenium-cache/**",
-      ".selenium-venv/**",
       "dist/**",
       "eslint.config.mjs",
       "jupyter-workspaces-*/**",
+      "jupyterlab_core/**",
       "lib/**",
       "node_modules/**",
-      "pytest-cache-files*/**",
+      "pytest-cache-files-*/**",
+      "pytest-temp-root/**",
       "save_my_jupyter/labextension/**",
       "scripts/**",
       "selenium-profile-*/**",
       "test-dist/**",
-      "tmp*/**"
-    ]
+      "tmp*/**",
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
@@ -37,18 +50,18 @@ export default tseslint.config(
       ecmaVersion: "latest",
       globals: {
         ...globals.browser,
-        ...globals.node
+        ...globals.node,
       },
       parserOptions: {
         project: ["./tsconfig.json", "./tsconfig.test.json"],
-        tsconfigRootDir: import.meta.dirname
-      }
+        tsconfigRootDir: import.meta.dirname,
+      },
     },
     plugins: {
       import: importPlugin,
       react: reactPlugin,
       "react-hooks": reactHooksPlugin,
-      "unused-imports": unusedImportsPlugin
+      "unused-imports": unusedImportsPlugin,
     },
     rules: {
       "@typescript-eslint/consistent-type-imports": "error",
@@ -63,18 +76,18 @@ export default tseslint.config(
       "import/order": [
         "error",
         {
-          "alphabetize": { "order": "asc", "caseInsensitive": true },
-          "newlines-between": "always"
-        }
+          alphabetize: { order: "asc", caseInsensitive: true },
+          "newlines-between": "always",
+        },
       ],
       "react-hooks/exhaustive-deps": "error",
       "react-hooks/rules-of-hooks": "error",
-      "unused-imports/no-unused-imports": "error"
+      "unused-imports/no-unused-imports": "error",
     },
     settings: {
       react: {
-        version: "detect"
-      }
-    }
-  }
+        version: "detect",
+      },
+    },
+  },
 );

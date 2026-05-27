@@ -8,7 +8,7 @@ This checklist turns [plan.md](C:\Users\licc\projects\save-my-jupyter\plan.md) i
 - [x] Add `pyproject.toml` with `requires-python = ">=3.12"`
 - [x] Add frontend package metadata and build scripts
 - [x] Configure Ruff as the canonical Python formatter and linter
-- [x] Configure `mypy --strict`
+- [x] Configure `ty`
 - [x] Configure `pyright` strict mode if retained
 - [x] Configure TypeScript strict mode
 - [x] Configure ESLint for TypeScript, React, and Jupyter frontend code
@@ -240,7 +240,7 @@ This checklist turns [plan.md](C:\Users\licc\projects\save-my-jupyter\plan.md) i
 ## Phase 12: Strict Quality Gates
 
 - [x] Enforce Ruff format and lint in CI
-- [x] Enforce mypy strict in CI
+- [x] Enforce `ty` in CI
 - [x] Enforce pyright strict in CI if retained
 - [x] Enforce `tsc --noEmit` in CI
 - [x] Enforce ESLint in CI

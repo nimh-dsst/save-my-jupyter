@@ -18,6 +18,7 @@ from save_my_jupyter.domain import (
     SnapshotRequest,
     UserId,
 )
+from save_my_jupyter.errors import CommitCreationError
 from save_my_jupyter.git.service import DefaultGitService
 from save_my_jupyter.services.artifacts import DocumentArtifactCollector
 from save_my_jupyter.services.auth import AuthServiceImpl
@@ -59,7 +60,6 @@ class SnapshotService:
         return ResolvedSnapshotPlan(
             request=request,
             repo=repo,
-            path_rule=resolved_config.path_rule,
             effective_config=resolved_config.effective_config,
             run_fingerprint=self._run_fingerprint_service.compute(request),
         )
@@ -69,9 +69,21 @@ class SnapshotService:
         plan: ResolvedSnapshotPlan,
         user_id: UserId,
     ) -> SnapshotRecord:
-        commit_hash = self._resolve_commit_hash(plan)
-        resolved_repo = self._resolve_repo_state(plan)
-        resolved_plan = replace(plan, repo=resolved_repo)
+        snapshot_start_repo = self._resolve_repo_state(plan)
+        snapshot_start_plan = replace(plan, repo=snapshot_start_repo)
+        file_artifacts = self._artifact_collector.collect_file_artifacts(
+            snapshot_start_plan
+        )
+        dirty_diff = None
+        if (
+            snapshot_start_repo.is_dirty
+            and snapshot_start_plan.effective_config.include_diff_when_dirty
+        ):
+            dirty_diff = self._git_service.generate_diff(snapshot_start_plan)
+
+        commit_hash, commit_created = self._resolve_commit_result(snapshot_start_plan)
+        resolved_repo = self._resolve_repo_state(snapshot_start_plan)
+        resolved_plan = replace(snapshot_start_plan, repo=resolved_repo)
         remote_url = (
             str(resolved_repo.remote_url)
             if resolved_repo.remote_url is not None
@@ -81,11 +93,12 @@ class SnapshotService:
             remote_url,
             commit_hash,
         )
-        dirty_diff = None
-        if resolved_repo.is_dirty and plan.effective_config.include_diff_when_dirty:
-            dirty_diff = self._git_service.generate_diff(resolved_plan)
 
-        artifacts = self._artifact_collector.collect_all(resolved_plan, dirty_diff)
+        artifacts = self._artifact_collector.collect_all(
+            resolved_plan,
+            dirty_diff,
+            file_artifacts=file_artifacts,
+        )
         produced_value_summary = self._artifact_collector.collect_value_summary(
             resolved_plan
         )
@@ -97,12 +110,11 @@ class SnapshotService:
             user_id=user_id,
             notebook_context=plan.request.notebook_context,
             repo=resolved_repo,
-            path_rule_name=plan.path_rule.rule_name
-            if plan.path_rule is not None
-            else None,
             commit_hash=commit_hash,
             commit_url=commit_url,
             dirty_diff=dirty_diff,
+            diff_base_commit=snapshot_start_repo.head_commit,
+            commit_created=commit_created,
             run_fingerprint=plan.run_fingerprint,
             trigger_cell_ids=(
                 (plan.request.notebook_context.triggering_cell_id,)
@@ -125,15 +137,25 @@ class SnapshotService:
         session = self._auth_service.get_authenticated_user(str(user_id))
         return self._labarchives_adapter.write_snapshot(record, session)
 
-    def _resolve_commit_hash(
+    def _resolve_commit_result(
         self,
         plan: ResolvedSnapshotPlan,
-    ) -> CommitHash | None:
+    ) -> tuple[CommitHash | None, bool]:
         if plan.repo.repo_root is None:
-            return None
+            return None, False
         if plan.effective_config.commit_mode is CommitMode.NEVER:
-            return None
-        return self._git_service.create_commit(plan)
+            return None, False
+        if plan.effective_config.commit_mode is CommitMode.PROMPT:
+            raise CommitCreationError(
+                "Commit mode must be resolved before snapshot execution.",
+                code="unresolved_commit_mode",
+            )
+
+        commit_hash = self._git_service.create_commit(plan)
+        return (
+            commit_hash,
+            commit_hash is not None and commit_hash != plan.repo.head_commit,
+        )
 
     def _resolve_repo_state(
         self,

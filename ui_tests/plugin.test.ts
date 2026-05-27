@@ -3,7 +3,7 @@ import test from "node:test";
 
 import {
   getSnapshotAvailability,
-  requiresPanelSetup
+  requiresPanelSetup,
 } from "../src/panelBehavior";
 
 void test("requiresPanelSetup blocks unauthenticated states", () => {
@@ -13,9 +13,9 @@ void test("requiresPanelSetup blocks unauthenticated states", () => {
       status: "unauthenticated",
       storedNotebookNames: [],
       storedUserEmail: null,
-      userEmail: null
+      userEmail: null,
     }),
-    true
+    true,
   );
   assert.equal(
     requiresPanelSetup({
@@ -23,9 +23,9 @@ void test("requiresPanelSetup blocks unauthenticated states", () => {
       status: "pending",
       storedNotebookNames: [],
       storedUserEmail: null,
-      userEmail: null
+      userEmail: null,
     }),
-    true
+    true,
   );
 });
 
@@ -36,9 +36,9 @@ void test("requiresPanelSetup allows authenticated state", () => {
       status: "authenticated",
       storedNotebookNames: [],
       storedUserEmail: null,
-      userEmail: "user@example.com"
+      userEmail: "user@example.com",
     }),
-    false
+    false,
   );
 });
 
@@ -50,15 +50,15 @@ void test("getSnapshotAvailability explains disabled states", () => {
         status: "unauthenticated",
         storedNotebookNames: [],
         storedUserEmail: null,
-        userEmail: null
+        userEmail: null,
       },
       "analysis/notebook.ipynb",
-      false
+      false,
     ),
     {
       enabled: false,
-      message: "Connect LabArchives to enable snapshot creation."
-    }
+      message: "Connect LabArchives to enable snapshot creation.",
+    },
   );
   assert.deepEqual(
     getSnapshotAvailability(
@@ -67,15 +67,15 @@ void test("getSnapshotAvailability explains disabled states", () => {
         status: "authenticated",
         storedNotebookNames: [],
         storedUserEmail: null,
-        userEmail: "user@example.com"
+        userEmail: "user@example.com",
       },
       null,
-      false
+      false,
     ),
     {
       enabled: false,
-      message: "Open a notebook to configure and create snapshots."
-    }
+      message: "Open a notebook to configure and create snapshots.",
+    },
   );
   assert.deepEqual(
     getSnapshotAvailability(
@@ -84,15 +84,15 @@ void test("getSnapshotAvailability explains disabled states", () => {
         status: "authenticated",
         storedNotebookNames: [],
         storedUserEmail: null,
-        userEmail: "user@example.com"
+        userEmail: "user@example.com",
       },
       "analysis/notebook.ipynb",
-      true
+      true,
     ),
     {
       enabled: false,
-      message: "Save My Jupyter is working on the current request."
-    }
+      message: "Save My Jupyter is working on the current request.",
+    },
   );
 });
 
@@ -104,14 +104,14 @@ void test("getSnapshotAvailability allows ready snapshots", () => {
         status: "authenticated",
         storedNotebookNames: [],
         storedUserEmail: null,
-        userEmail: "user@example.com"
+        userEmail: "user@example.com",
       },
       "analysis/notebook.ipynb",
-      false
+      false,
     ),
     {
       enabled: true,
-      message: "Ready to create a snapshot for this notebook."
-    }
+      message: "Ready to create a snapshot for this notebook.",
+    },
   );
 });

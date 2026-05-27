@@ -192,6 +192,8 @@ class KeyringBackend(Protocol):
 
     def set_password(self, service_name: str, username: str, password: str) -> None: ...
 
+    def delete_password(self, service_name: str, username: str) -> None: ...
+
 
 class _NotebookLike(Protocol):
     id: str
@@ -233,7 +235,35 @@ class _ProfileStore:
         except ImportError:
             self._keyring_backend = None
 
-    def load(self, *, user_id: str) -> StoredProfile | None:
+    def load(
+        self,
+        *,
+        user_id: str,
+        aliases: tuple[str, ...] = (),
+    ) -> StoredProfile | None:
+        loaded_profile = self.load_with_source(user_id=user_id, aliases=aliases)
+        if loaded_profile is None:
+            return None
+        _source_user_id, profile = loaded_profile
+        return profile
+
+    def load_with_source(
+        self,
+        *,
+        user_id: str,
+        aliases: tuple[str, ...] = (),
+    ) -> tuple[str, StoredProfile] | None:
+        seen_user_ids: set[str] = set()
+        for candidate_user_id in (user_id, *aliases):
+            if candidate_user_id in seen_user_ids or candidate_user_id == "":
+                continue
+            seen_user_ids.add(candidate_user_id)
+            profile = self._load_one(user_id=candidate_user_id)
+            if profile is not None:
+                return candidate_user_id, profile
+        return None
+
+    def _load_one(self, *, user_id: str) -> StoredProfile | None:
         keyring_backend = self._keyring_backend
         if keyring_backend is None:
             return None
@@ -266,6 +296,21 @@ class _ProfileStore:
         except Exception:
             return
 
+    def delete(self, *, user_id: str, aliases: tuple[str, ...] = ()) -> None:
+        keyring_backend = self._keyring_backend
+        if keyring_backend is None:
+            return
+        seen_user_ids: set[str] = set()
+        for candidate_user_id in (user_id, *aliases):
+            if candidate_user_id in seen_user_ids or candidate_user_id == "":
+                continue
+            seen_user_ids.add(candidate_user_id)
+            with suppress(Exception):
+                keyring_backend.delete_password(
+                    self._service_name,
+                    candidate_user_id,
+                )
+
 
 class AuthServiceImpl:
     def __init__(self, *, keyring_backend: KeyringBackend | None = None) -> None:
@@ -280,10 +325,19 @@ class AuthServiceImpl:
             backend=keyring_backend,
         )
 
-    def start_auth(self, user_id: str, callback_base_url: str) -> AuthStartResult:
+    def start_auth(
+        self,
+        user_id: str,
+        callback_base_url: str,
+        *,
+        user_id_aliases: tuple[str, ...] = (),
+    ) -> AuthStartResult:
         request_id = uuid4().hex
         callback_url = f"{callback_base_url.rstrip('/')}/{request_id}"
-        stored_profile = self.get_stored_profile(user_id)
+        stored_profile = self.get_stored_profile(
+            user_id,
+            user_id_aliases=user_id_aliases,
+        )
         client: Any | None = None
         try:
             client = labapi.Client(base_url=self._api_url)
@@ -319,8 +373,16 @@ class AuthServiceImpl:
             request_id=request_id,
         )
 
-    def get_authenticated_user(self, user_id: str) -> LabArchivesSession:
-        session = self._sessions.get(user_id)
+    def get_authenticated_user(
+        self,
+        user_id: str,
+        *,
+        user_id_aliases: tuple[str, ...] = (),
+    ) -> LabArchivesSession:
+        session = self._get_or_restore_session(
+            user_id,
+            user_id_aliases=user_id_aliases,
+        )
         if session is None:
             raise LabArchivesWriteError(
                 "No LabArchives session is available for this user.",
@@ -377,8 +439,16 @@ class AuthServiceImpl:
             return
         pending_auth.client.close()
 
-    def get_auth_status(self, user_id: str) -> AuthStatusResult:
-        stored_profile = self.get_stored_profile(user_id)
+    def get_auth_status(
+        self,
+        user_id: str,
+        *,
+        user_id_aliases: tuple[str, ...] = (),
+    ) -> AuthStatusResult:
+        stored_profile = self.get_stored_profile(
+            user_id,
+            user_id_aliases=user_id_aliases,
+        )
         stored_user_email = (
             stored_profile.user_email if stored_profile is not None else None
         )
@@ -386,7 +456,10 @@ class AuthServiceImpl:
             stored_profile.notebook_names if stored_profile is not None else ()
         )
 
-        session = self._sessions.get(user_id)
+        session = self._get_or_restore_session(
+            user_id,
+            user_id_aliases=user_id_aliases,
+        )
         if session is not None:
             return AuthStatusResult(
                 status="authenticated",
@@ -429,8 +502,28 @@ class AuthServiceImpl:
         if session is not None:
             session.client.close()
 
-    def get_stored_profile(self, user_id: str) -> StoredProfile | None:
-        return self._profile_store.load(user_id=user_id)
+    def logout(
+        self,
+        user_id: str,
+        *,
+        user_id_aliases: tuple[str, ...] = (),
+    ) -> None:
+        self.clear_session(user_id)
+        for alias in user_id_aliases:
+            if alias and alias != user_id:
+                self.clear_session(alias)
+        self._profile_store.delete(user_id=user_id, aliases=user_id_aliases)
+
+    def get_stored_profile(
+        self,
+        user_id: str,
+        *,
+        user_id_aliases: tuple[str, ...] = (),
+    ) -> StoredProfile | None:
+        return self._profile_store.load(
+            user_id=user_id,
+            aliases=user_id_aliases,
+        )
 
     def _persist_profile(self, user_id: str, client: Any, user: Any) -> None:
         profile = StoredProfile.from_user(
@@ -443,6 +536,62 @@ class AuthServiceImpl:
             user_id=user_id,
             profile=profile,
         )
+
+    def _get_or_restore_session(
+        self,
+        user_id: str,
+        *,
+        user_id_aliases: tuple[str, ...] = (),
+    ) -> LabArchivesSession | None:
+        session = self._sessions.get(user_id)
+        if session is not None:
+            return session
+
+        loaded_profile = self._profile_store.load_with_source(
+            user_id=user_id,
+            aliases=user_id_aliases,
+        )
+        if loaded_profile is None:
+            return None
+        stored_profile_user_id, stored_profile = loaded_profile
+
+        client: Any | None = None
+        try:
+            from labapi.user import User
+            from labapi.util import NotebookInit
+
+            client = labapi.Client(base_url=stored_profile.api_url)
+            user = User(
+                stored_profile.labarchives_user_id,
+                stored_profile.user_email,
+                [
+                    NotebookInit(
+                        notebook.notebook_id,
+                        notebook.notebook_name,
+                        notebook.is_default,
+                    )
+                    for notebook in stored_profile.notebooks
+                ],
+                client,
+            )
+        except Exception:
+            if client is not None:
+                with suppress(Exception):
+                    client.close()
+            return None
+
+        session = LabArchivesSession(
+            user_email=stored_profile.user_email,
+            user=user,
+            client=client,
+        )
+        self._sessions[user_id] = session
+        if stored_profile_user_id != user_id:
+            self._profile_store.save(
+                user_id=user_id,
+                profile=stored_profile,
+            )
+        return session
 
 
 def _raise_auth_error(

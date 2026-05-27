@@ -3,7 +3,7 @@ import type { ISettingRegistry } from "@jupyterlab/settingregistry";
 import {
   type UserPreferences,
   parseUserPreferences,
-  userPreferencesSchema
+  userPreferencesSchema,
 } from "./types";
 
 const LOCAL_STORAGE_KEY = "@save-my-jupyter/preferences";
@@ -11,7 +11,7 @@ const LOCAL_STORAGE_KEY = "@save-my-jupyter/preferences";
 export class UserPreferencesStore {
   constructor(
     private readonly pluginId: string,
-    private readonly settingRegistry: ISettingRegistry | null
+    private readonly settingRegistry: ISettingRegistry | null,
   ) {}
 
   async load(): Promise<UserPreferences> {
@@ -43,7 +43,7 @@ export class UserPreferencesStore {
       await settings.set("defaultTags", preferences.defaultTags);
       await settings.set(
         "rememberCommitChoice",
-        preferences.rememberCommitChoice
+        preferences.rememberCommitChoice,
       );
       return;
     }

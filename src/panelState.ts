@@ -5,7 +5,7 @@ import type {
   EffectiveState,
   NotebookExtensionMetadata,
   SnapshotUserMetadata,
-  UserPreferences
+  UserPreferences,
 } from "./types";
 
 export type StatusKind = "error" | "info" | "success" | "warning" | null;
@@ -42,7 +42,7 @@ export const DEFAULT_METADATA: NotebookExtensionMetadata = {
   labarchives_target_notebook: null,
   labarchives_target_root_path: null,
   trigger_cell_ids: [],
-  watched_paths: []
+  watched_paths: [],
 };
 
 export const DEFAULT_USER_METADATA: SnapshotUserMetadata = {
@@ -50,28 +50,28 @@ export const DEFAULT_USER_METADATA: SnapshotUserMetadata = {
   extra_fields: {},
   notes: null,
   run_label: null,
-  tags: []
+  tags: [],
 };
 
 export function normalizeUserMetadata(
-  metadata: SnapshotUserMetadata
+  metadata: SnapshotUserMetadata,
 ): SnapshotUserMetadata {
   return {
     ...metadata,
-    experiment_context: null
+    experiment_context: null,
   };
 }
 
 export function mergeMetadataDefaults(
   metadata: NotebookExtensionMetadata,
-  preferences: UserPreferences
+  preferences: UserPreferences,
 ): SnapshotUserMetadata {
   return normalizeUserMetadata({
     experiment_context: null,
     extra_fields: metadata.default_metadata,
     notes: null,
     run_label: preferences.defaultRunLabel,
-    tags: preferences.defaultTags
+    tags: preferences.defaultTags,
   });
 }
 
@@ -84,7 +84,7 @@ export function createInitialViewState(): SnapshotPanelViewState {
       status: "unauthenticated",
       storedNotebookNames: [],
       storedUserEmail: null,
-      userEmail: null
+      userEmail: null,
     },
     authStatusKind: null,
     authStatusMessage: null,
@@ -99,13 +99,13 @@ export function createInitialViewState(): SnapshotPanelViewState {
     statusKind: null,
     statusMessage: null,
     tagsInput: formatTagsInput([]),
-    userMetadata: DEFAULT_USER_METADATA
+    userMetadata: DEFAULT_USER_METADATA,
   };
 }
 
 export function buildDetachedViewState(
   current: SnapshotPanelViewState,
-  preferences: UserPreferences
+  preferences: UserPreferences,
 ): SnapshotPanelViewState {
   return {
     ...current,
@@ -120,7 +120,7 @@ export function buildDetachedViewState(
     statusKind: null,
     statusMessage: null,
     tagsInput: formatTagsInput(preferences.defaultTags),
-    userMetadata: mergeMetadataDefaults(DEFAULT_METADATA, preferences)
+    userMetadata: mergeMetadataDefaults(DEFAULT_METADATA, preferences),
   };
 }
 
@@ -139,7 +139,7 @@ export function buildLoadedViewState({
   metadata,
   notebookPath,
   preferences,
-  state
+  state,
 }: BuildLoadedViewStateOptions): SnapshotPanelViewState {
   const shouldPreserveDrafts = current.notebookPath === notebookPath;
   return {
@@ -149,7 +149,9 @@ export function buildLoadedViewState({
     authStatusKind: shouldPreserveDrafts ? current.authStatusKind : null,
     authStatusMessage: shouldPreserveDrafts ? current.authStatusMessage : null,
     configStatusKind: shouldPreserveDrafts ? current.configStatusKind : null,
-    configStatusMessage: shouldPreserveDrafts ? current.configStatusMessage : null,
+    configStatusMessage: shouldPreserveDrafts
+      ? current.configStatusMessage
+      : null,
     effectiveState: state,
     isBusy: false,
     metadata,
@@ -167,7 +169,7 @@ export function buildLoadedViewState({
       : formatTagsInput(mergeMetadataDefaults(metadata, preferences).tags),
     userMetadata: shouldPreserveDrafts
       ? normalizeUserMetadata(current.userMetadata)
-      : mergeMetadataDefaults(metadata, preferences)
+      : mergeMetadataDefaults(metadata, preferences),
   };
 }
 
@@ -186,7 +188,7 @@ export function buildLoadErrorViewState({
   error,
   metadata,
   notebookPath,
-  preferences
+  preferences,
 }: BuildErrorViewStateOptions): SnapshotPanelViewState {
   return {
     activeCellId: activeCell.cellId,
@@ -207,7 +209,9 @@ export function buildLoadErrorViewState({
       error instanceof Error
         ? error.message
         : "Failed to load Save My Jupyter state.",
-    tagsInput: formatTagsInput(mergeMetadataDefaults(metadata, preferences).tags),
-    userMetadata: mergeMetadataDefaults(metadata, preferences)
+    tagsInput: formatTagsInput(
+      mergeMetadataDefaults(metadata, preferences).tags,
+    ),
+    userMetadata: mergeMetadataDefaults(metadata, preferences),
   };
 }

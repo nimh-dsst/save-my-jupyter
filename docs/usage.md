@@ -54,6 +54,28 @@ The panel shows one of:
 If the browser finishes the callback but the panel still shows `Authentication
 pending`, click `Refresh`.
 
+## What Gets Uploaded
+
+Every snapshot uploads the **full notebook file**, including:
+
+- all cell outputs (`stdout`, `stderr`, rendered data, tracebacks)
+- inline figures and embedded base64 image data
+- whatever is currently visible in the notebook document
+
+If a cell printed credentials, debug payloads, or anything else you would not
+share with LabArchives, clear those outputs **before** triggering the snapshot.
+There is no per-output redaction step today.
+
+Watched files are also uploaded as separate attachments. The extension drops
+common sensitive filenames (`.env`, `*.pem`, `*.key`, `id_rsa*`, `.netrc`,
+files under `.ssh`/`.aws`, virtualenvs, and cache directories), but you should
+still review your watched-paths list.
+
+Upload guardrails stop oversized inline saves before they are sent to
+LabArchives: notebooks are limited to 50 MiB, watched-file attachments are
+limited to 25 MiB each, and raw diff attachments are truncated at 1 MiB. Rich
+notebook diffs are still rendered separately when available.
+
 ## Configure Snapshot Behavior
 
 ### Commit mode
@@ -98,19 +120,26 @@ Rules:
 - paths cannot escape the repo or notebook root
 - file and directory-subtree watches are both supported
 
-Watched-path change detection currently uses backend polling. It is not instant,
-but it does not require kernel-side code.
+Watched paths are **not polled**. They are resolved and attached at snapshot
+time — when you trigger a manual or trigger-cell snapshot, the backend matches
+the configured globs against the current working tree and bundles the matching
+files into the snapshot.
 
 ### Metadata
 
 Each snapshot can include:
 
-- tags
+- tags stored as snapshot metadata text
 - run label
-- experiment context
 - notes
 
 These are sent with both manual and automatic snapshots.
+
+Tags are not native LabArchives tag fields. They are written into the snapshot
+metadata entry for search and review. For opt-in metadata extraction, add a
+`tagme` key to notebook default metadata or snapshot extra fields with a
+comma-, semicolon-, or newline-separated tag list; those values are merged into
+the snapshot tags.
 
 ## Create Snapshots
 
@@ -120,9 +149,14 @@ Use either:
 
 - the notebook toolbar `Snapshot` button
 - the command palette `Snapshot Now`
-- the `Snapshot Now` button in the side panel
+- the `Snapshot now` button in the side panel
 
 Manual snapshots always enqueue a new snapshot request.
+
+During a save, the side panel shows that snapshot artifacts are being prepared
+and uploaded. After the save completes, the status includes the job ID, snapshot
+ID, commit hash or URL when available, and the LabArchives page name or ID when
+available.
 
 ### Trigger-cell snapshots
 
@@ -134,17 +168,18 @@ Trigger-cell snapshots happen when:
 The backend deduplicates automatic snapshots so multiple trigger hits in one
 logical run produce at most one snapshot.
 
-### Watched-path snapshots
+Trigger-cell snapshots also emit JupyterLab notifications, so activity is
+visible even when the Save My Jupyter side panel is closed.
 
-Watched-path snapshots happen when a configured watched path is:
+### Watched-path attachments
 
-- created
-- modified
-- deleted
+There is no automatic "watched-path snapshot" trigger. Configured watched paths
+are resolved at snapshot time (manual or trigger-cell) and the matching files
+are uploaded as attachments alongside the notebook. The watch registration the
+UI syncs to the server is what drives this matching.
 
-The backend polls watched paths and emits a snapshot request when matching file
-events occur. Automatic watched-path snapshots use the current notebook's
-effective config and the watch registration most recently synced from the UI.
+If you need a snapshot to fire when a file changes, run the cell that produced
+the file as a trigger cell, or invoke `Snapshot Now` manually.
 
 ## What Gets Stored
 
@@ -153,11 +188,11 @@ Each snapshot becomes one LabArchives page and may include:
 - notebook summary information
 - snapshot metadata
 - Git metadata
-- a diff attachment or diff text when no commit is created
+- rich notebook diff text and a filtered raw patch for non-notebook files
 - the notebook file
 - PNG figures found in visible notebook outputs
 - watched file attachments
-- a text/plain execution summary from notebook outputs when available
+- execution summaries for text, image-only, multi-output, and error outputs
 
 ## Git Behavior
 
@@ -166,6 +201,8 @@ If the notebook is in a Git repository:
 - the extension resolves repo root, remote, commit hash, and dirty state
 - snapshot commits only stage the notebook and optionally watched paths
 - unrelated modified files are not staged automatically
+- LabArchives metadata distinguishes a new snapshot commit from an existing
+  `HEAD` hash reused because no snapshot paths changed
 
 If the notebook is not in a Git repository:
 
@@ -178,27 +215,35 @@ If the user declines commit:
 - the snapshot still succeeds
 - the working-tree diff against `HEAD` is stored
 
+Dirty diffs are scoped to the notebook and configured watched paths. The rich
+notebook diff omits raw notebook JSON noise; raw patch attachments omit notebook
+JSON and image patches when a rich notebook diff can represent those changes.
+
 ## Shared Repo Workflow
 
 If the repository has a `.save-my-jupyter.toml` file, the extension can:
 
 - apply default watched paths
-- route different notebook subpaths to different LabArchives destinations
+- define a default LabArchives notebook and root path
 - define commit defaults
-- apply metadata templates
+- define Git staging behavior
 
-This is the recommended mode for teams sharing one repository.
+The side panel shows the resolved config for the current notebook so you can
+see the actual values the backend will use.
+
+If one notebook needs a different LabArchives destination than the repo
+default, set notebook metadata overrides instead of adding repo path-matching
+rules.
 
 See [configuration.md](configuration.md) for the full format.
 
 ## Typical Shared-Repo Workflow
 
 1. Commit a repo-level `.save-my-jupyter.toml`.
-2. Add one `path_rule` per major notebook area.
-3. Open a notebook that lives under one of those paths.
-4. Confirm the side panel shows the resolved path rule and repo info.
-5. Add any notebook-specific overrides only where needed.
-6. Use manual snapshots for explicit checkpoints and trigger cells for automatic
+2. Open a notebook in that repository.
+3. Confirm the side panel shows the resolved config and repo info.
+4. Add notebook-specific overrides only where needed.
+5. Use manual snapshots for explicit checkpoints and trigger cells for automatic
    capture during long-running analyses.
 
 ## Troubleshooting

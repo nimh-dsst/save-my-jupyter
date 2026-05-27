@@ -1,11 +1,11 @@
 export interface ReadableSignal<T> {
-  get(): T;
-  subscribe(listener: () => void): () => void;
+  get: () => T;
+  subscribe: (listener: () => void) => () => void;
 }
 
 export interface WritableSignal<T> extends ReadableSignal<T> {
-  set(value: T): void;
-  update(updater: (current: T) => T): void;
+  set: (value: T) => void;
+  update: (updater: (current: T) => T) => void;
 }
 
 export function createSignal<T>(initialValue: T): WritableSignal<T> {
@@ -42,16 +42,16 @@ export function createSignal<T>(initialValue: T): WritableSignal<T> {
 
       currentValue = nextValue;
       notifyListeners();
-    }
+    },
   };
 }
 
 export function patchSignal<T extends object>(
   signal: WritableSignal<T>,
-  patch: Partial<T>
+  patch: Partial<T>,
 ): void {
-  signal.update(current => ({
+  signal.update((current) => ({
     ...current,
-    ...patch
+    ...patch,
   }));
 }

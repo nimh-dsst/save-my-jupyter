@@ -11,7 +11,6 @@ from save_my_jupyter.config.models import (
     LabArchivesTarget,
     NotebookMetadataConfig,
     RepoConfigBootstrapResult,
-    ResolvedPathRule,
 )
 from save_my_jupyter.domain import (
     ResolvedRepoContext,
@@ -36,7 +35,6 @@ def build_empty_state_payload(
         "auth": serialize_auth_status(auth_status),
         "effectiveConfig": None,
         "notebookMetadata": None,
-        "pathRule": None,
         "repo": None,
         "repoConfigPath": None,
         "repoConfigLoaded": False,
@@ -48,7 +46,6 @@ def build_state_payload(
     auth_status: AuthStatusResult,
     effective_config: EffectiveConfig,
     notebook_metadata: NotebookMetadataConfig,
-    path_rule: ResolvedPathRule | None,
     repo: ResolvedRepoContext | None,
     repo_config_loaded: bool,
     repo_config_path: Path,
@@ -57,7 +54,6 @@ def build_state_payload(
         "auth": serialize_auth_status(auth_status),
         "effectiveConfig": serialize_effective_config(effective_config),
         "notebookMetadata": serialize_notebook_metadata(notebook_metadata),
-        "pathRule": serialize_path_rule(path_rule),
         "repo": serialize_repo(repo),
         "repoConfigPath": str(repo_config_path),
         "repoConfigLoaded": repo_config_loaded,
@@ -107,6 +103,7 @@ def serialize_effective_config(
 ) -> JsonObject:
     return {
         "allCellsTrigger": effective_config.all_cells_trigger,
+        "commitMessageTemplate": effective_config.commit_message_template,
         "commitMode": effective_config.commit_mode.value,
         "includeDiffWhenDirty": effective_config.include_diff_when_dirty,
         "includeNotebookFile": effective_config.include_notebook_file,
@@ -140,21 +137,6 @@ def serialize_notebook_metadata(
     }
 
 
-def serialize_path_rule(
-    path_rule: ResolvedPathRule | None,
-) -> JsonObject | None:
-    if path_rule is None:
-        return None
-
-    return {
-        "includePaths": _serialize_paths(path_rule.include_paths),
-        "metadataTemplate": _serialize_string_map(path_rule.metadata_template),
-        "name": path_rule.rule_name,
-        "target": _serialize_target(path_rule.target),
-        "watchPaths": _serialize_paths(path_rule.watch_paths),
-    }
-
-
 def serialize_repo(repo: ResolvedRepoContext | None) -> JsonObject | None:
     if repo is None:
         return None
@@ -173,8 +155,18 @@ def serialize_submission_result(
 ) -> JsonObject:
     if isinstance(result, SnapshotAccepted):
         return {
+            "commitCreated": result.commit_created,
+            "commitHash": result.commit_hash,
+            "commitUrl": result.commit_url,
             "jobId": result.job_id,
+            "labarchivesDirectoryName": result.labarchives_directory_name,
+            "labarchivesMetaPageId": result.labarchives_meta_page_id,
+            "labarchivesMetaPageName": result.labarchives_meta_page_name,
+            "labarchivesPageCount": result.labarchives_page_count,
+            "labarchivesPageId": result.labarchives_page_id,
+            "labarchivesPageName": result.labarchives_page_name,
             "queuePosition": result.queue_position,
+            "snapshotId": result.snapshot_id,
             "status": result.status,
         }
 

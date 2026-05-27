@@ -43,6 +43,29 @@ def test_parse_manual_snapshot_request() -> None:
     assert request.client_timestamp == datetime(2026, 4, 10, 12, 30, tzinfo=UTC)
 
 
+def test_parse_user_metadata_extracts_opt_in_tagme_values() -> None:
+    request = parse_snapshot_request(
+        {
+            "source": "manual",
+            "commit_mode": "never",
+            "notebook_context": {
+                "notebook_path": "C:/repo/notebook.ipynb",
+                "notebook_name": "notebook.ipynb",
+            },
+            "user_metadata": {
+                "tags": ["baseline"],
+                "extra_fields": {"tagme": "baseline, treatment-a\nreplicate-1"},
+            },
+        }
+    )
+
+    assert request.user_metadata.tags == (
+        "baseline",
+        "treatment-a",
+        "replicate-1",
+    )
+
+
 def test_parse_trigger_snapshot_requires_triggering_cell() -> None:
     with pytest.raises(SnapshotParseError, match="Trigger cell snapshots require"):
         parse_snapshot_request(

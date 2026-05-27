@@ -67,6 +67,11 @@ def parse_notebook_context(raw: Mapping[str, object]) -> NotebookContext:
         str,
         field="triggering_cell_id",
     )
+    cell_execution_count = maybe(
+        raw.get("cell_execution_count"),
+        int,
+        field="cell_execution_count",
+    )
 
     return NotebookContext(
         notebook_path=NotebookPath(
@@ -82,14 +87,20 @@ def parse_notebook_context(raw: Mapping[str, object]) -> NotebookContext:
         triggering_cell_id=None
         if triggering_cell_id is None
         else CellId(triggering_cell_id),
+        cell_execution_count=cell_execution_count,
     )
 
 
 def parse_user_metadata(raw: Mapping[str, object]) -> UserMetadata:
     extra_fields = maybe(raw.get("extra_fields"), Mapping, field="extra_fields") or {}
+    parsed_extra_fields = {
+        str(key): expect(value, str, field=f"extra_fields.{key}")
+        for key, value in extra_fields.items()
+    }
+    tags = tuple_of(raw.get("tags"), str, field="tags")
 
     return UserMetadata(
-        tags=tuple_of(raw.get("tags"), str, field="tags"),
+        tags=_merge_tags(tags, _parse_tagme_field(parsed_extra_fields.get("tagme"))),
         notes=maybe(raw.get("notes"), str, field="notes"),
         run_label=maybe(raw.get("run_label"), str, field="run_label"),
         experiment_context=maybe(
@@ -97,10 +108,7 @@ def parse_user_metadata(raw: Mapping[str, object]) -> UserMetadata:
             str,
             field="experiment_context",
         ),
-        extra_fields={
-            str(key): expect(value, str, field=f"extra_fields.{key}")
-            for key, value in extra_fields.items()
-        },
+        extra_fields=parsed_extra_fields,
     )
 
 
@@ -167,3 +175,25 @@ def _require_triggering_cell(notebook_context: NotebookContext) -> None:
             "Trigger cell snapshots require a triggering cell ID.",
             code="missing_triggering_cell",
         )
+
+
+def _parse_tagme_field(value: str | None) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    tags: list[str] = []
+    for candidate in value.replace(";", ",").replace("\n", ",").split(","):
+        tag = candidate.strip()
+        if tag != "":
+            tags.append(tag)
+    return tuple(tags)
+
+
+def _merge_tags(
+    primary_tags: tuple[str, ...],
+    extracted_tags: tuple[str, ...],
+) -> tuple[str, ...]:
+    merged: list[str] = []
+    for tag in [*primary_tags, *extracted_tags]:
+        if tag not in merged:
+            merged.append(tag)
+    return tuple(merged)

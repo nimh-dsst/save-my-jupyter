@@ -13,17 +13,25 @@ from save_my_jupyter.errors import RunFingerprintError
 
 class RunFingerprintService:
     def compute(self, request: SnapshotRequest) -> RunFingerprint:
-        timestamp = request.client_timestamp.astimezone(UTC)
         notebook_path = str(request.notebook_context.notebook_path)
         document_id = str(request.notebook_context.document_id or "")
         kernel_id = str(request.notebook_context.kernel_id or "")
         match request.source:
             case SnapshotSource.MANUAL:
+                timestamp = request.client_timestamp.astimezone(UTC)
                 source_material = (
                     f"manual|{timestamp.isoformat(timespec='microseconds')}"
                 )
             case SnapshotSource.TRIGGER_CELL:
-                source_material = f"trigger|{int(timestamp.timestamp() // 5)}"
+                triggering_cell_id = str(
+                    request.notebook_context.triggering_cell_id or ""
+                )
+                execution_count = (
+                    str(request.notebook_context.cell_execution_count)
+                    if request.notebook_context.cell_execution_count is not None
+                    else ""
+                )
+                source_material = f"trigger|{triggering_cell_id}|{execution_count}"
         material = "|".join(
             [
                 notebook_path,

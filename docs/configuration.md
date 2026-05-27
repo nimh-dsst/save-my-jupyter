@@ -18,7 +18,8 @@ If no repo config or notebook overrides are present, the backend falls back to:
 
 - target notebook: `Jupyter Snapshots`
 - target root path: `Notebook Log`
-- commit mode: `prompt`, then user settings, then repo defaults if present
+- commit mode: request value, then user settings, then repo defaults if present
+- watched paths: `**/*.py`
 - notebook file included in snapshots
 - diff included when the repo is dirty and no commit is created
 
@@ -32,7 +33,6 @@ Supported top-level sections:
 - `[defaults]`
 - `[labarchives]`
 - `[git]`
-- `[[path_rule]]`
 
 ## Full Example
 
@@ -50,31 +50,12 @@ include_diff_when_dirty = true
 
 [labarchives]
 target_notebook = "Jupyter Snapshots"
-target_root_path = "Team A"
+target_root_path = "Notebook Log/{name}/{relative_notebook_path}"
 
 [git]
 stage_notebook_on_commit = true
 stage_watched_paths_on_commit = false
 commit_message_template = "snapshot: {notebook_name} {timestamp}"
-
-[[path_rule]]
-name = "analysis"
-match_paths = ["analysis"]
-watch_paths = ["analysis/outputs"]
-include_paths = ["analysis/outputs"]
-exclude_paths = ["analysis/tmp"]
-labarchives_target_notebook = "Jupyter Snapshots"
-labarchives_target_root_path = "Analysis"
-
-[path_rule.metadata_template]
-owner = "analysis-team"
-project = "baseline-study"
-
-[[path_rule]]
-name = "reports"
-match_paths = ["reports"]
-watch_paths = ["reports/generated"]
-labarchives_target_root_path = "Reports"
 ```
 
 ## Section Reference
@@ -82,7 +63,7 @@ labarchives_target_root_path = "Reports"
 ### `[project]`
 
 - `name`
-  Human-readable project name.
+  Human-readable project name. Available in `target_root_path` as `{name}`.
 - `repo_root_strategy`
   Must be `git` or `fixed`.
 
@@ -104,7 +85,15 @@ labarchives_target_root_path = "Reports"
 - `target_notebook`
   Default LabArchives notebook name.
 - `target_root_path`
-  Default root path inside the LabArchives notebook.
+  Default root path inside the LabArchives notebook. This is a Python format
+  string with these substitutions:
+  `{name}`, `{user_id}`, `{user_email}`, `{repo_name}`, `{notebook_name}`,
+  `{notebook_stem}`, `{relative_notebook_path}`, `{scope_path}`,
+  `{scope_name}`, `{run_label}`, `{experiment_context}`, `{timestamp}`,
+  `{date}`, `{time}`, `{source}`, `{commit_hash}`.
+
+`scope_path` is currently an alias for `relative_notebook_path`, and
+`scope_name` is the final path segment of that value.
 
 ### `[git]`
 
@@ -117,49 +106,9 @@ labarchives_target_root_path = "Reports"
   - `{notebook_name}`
   - `{timestamp}`
 
-### `[[path_rule]]`
+## Watched Path Syntax
 
-Path rules allow different repo subtrees to have different defaults.
-
-- `name`
-  Unique rule name.
-- `match_paths`
-  Relative repo paths that activate the rule.
-- `watch_paths`
-  Rule-specific watched paths.
-- `include_paths`
-  Paths that are in scope for attachments.
-- `exclude_paths`
-  Paths excluded from attachment scope.
-- `labarchives_target_notebook`
-  Rule-specific LabArchives notebook override.
-- `labarchives_target_root_path`
-  Rule-specific LabArchives root path override.
-- `metadata_template`
-  Default metadata values for notebooks matching the rule.
-
-## Path-Rule Targeting Example
-
-This is the intended shared-repo pattern:
-
-- notebooks under `analysis/` route to one LabArchives subtree
-- notebooks under `reports/` route to another
-- each area can watch different artifact folders
-- users still keep notebook-local trigger cells and metadata overrides
-
-## Matching Rules
-
-Path rules are matched against the notebook's repo-relative path.
-
-Behavior:
-
-- the most specific matching prefix wins
-- duplicate rule names are rejected
-- tied specificity is treated as a validation error
-
-## Allowed Path Syntax
-
-All path-like config values must be relative.
+Watched paths must be relative.
 
 Invalid values:
 
@@ -168,10 +117,8 @@ Invalid values:
 
 This applies to:
 
-- `watch_paths`
-- `include_paths`
-- `exclude_paths`
-- `match_paths`
+- `[defaults].watch_paths`
+- notebook metadata `watched_paths`
 
 ## Notebook Metadata
 
@@ -187,7 +134,7 @@ Supported fields:
   "trigger_cell_ids": ["cell-a", "cell-b"],
   "watched_paths": ["outputs", "reports/result.csv"],
   "labarchives_target_notebook": "Jupyter Snapshots",
-  "labarchives_target_root_path": "Notebook Log",
+  "labarchives_target_root_path": "Notebook Log/alice/reports/run1.ipynb",
   "default_metadata": {
     "owner": "alice"
   }
@@ -204,6 +151,9 @@ Cell-level trigger state is stored as:
 }
 ```
 
+Notebook metadata is the supported way to override LabArchives destination or
+metadata defaults for a specific notebook.
+
 ## User Settings
 
 The frontend stores user defaults in Jupyter settings or local storage.
@@ -214,9 +164,15 @@ Supported fields:
 - `rememberCommitChoice`
 - `defaultTags`
 - `defaultRunLabel`
-- `defaultExperimentContext`
 
 These are user-local defaults. They should not be used for shared repo policy.
+Older settings may still contain `defaultExperimentContext`; the frontend no
+longer exposes it and normalizes snapshot requests to `null`.
+
+To opt into tag extraction from metadata, add `tagme` to notebook
+`default_metadata`. Its value can be comma-, semicolon-, or newline-separated,
+and the backend merges those values into the snapshot tags while also retaining
+the original extra field.
 
 ## Effective Config Resolution
 
@@ -226,13 +182,12 @@ The backend resolves:
 - commit mode
 - watched paths
 - LabArchives target
-- metadata template
 - Git staging policy
 
 Rules worth noting:
 
 - notebook metadata overrides repo defaults
-- notebook metadata target fields override repo and path-rule targets
+- notebook metadata target fields override repo targets
 - a manual request can override commit mode
 - if commit mode remains `prompt`, user settings are applied before repo defaults
 
@@ -241,20 +196,15 @@ Rules worth noting:
 For a shared repo:
 
 1. put `.save-my-jupyter.toml` at the repo root
-2. create one `path_rule` per major notebook area
-3. keep watched paths narrow
-4. route each path rule to a distinct LabArchives subtree
-5. use notebook metadata only for notebook-specific overrides
+2. keep watched paths narrow and intentional
+3. define one shared default LabArchives destination in repo config
+4. use notebook metadata only for notebook-specific overrides
 
 ## Validation Rules
 
 The config parser rejects:
 
-- duplicate path-rule names
 - invalid `repo_root_strategy` values
 - invalid `commit_mode` values
-- non-relative watch/include/exclude/match paths
-- path values that normalize outside the allowed root
-
-Config parsing happens before the core services use the values, so invalid
-configuration fails early instead of producing partially typed runtime state.
+- malformed field types
+- unreadable or invalid TOML

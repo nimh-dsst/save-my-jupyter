@@ -5,7 +5,7 @@ import {
   type CellExtensionMetadata,
   type NotebookExtensionMetadata,
   parseCellExtensionMetadata,
-  parseNotebookExtensionMetadata
+  parseNotebookExtensionMetadata,
 } from "./types";
 
 export const NOTEBOOK_METADATA_KEY = "save_my_jupyter";
@@ -25,7 +25,7 @@ export class NotebookMetadataStore {
 
   async writeNotebookMetadata(
     panel: NotebookPanel,
-    metadata: NotebookExtensionMetadata
+    metadata: NotebookExtensionMetadata,
   ): Promise<void> {
     const model = panel.content.model;
     model?.sharedModel.setMetadata(NOTEBOOK_METADATA_KEY, metadata);
@@ -42,13 +42,13 @@ export class NotebookMetadataStore {
     if (activeCell === null) {
       return {
         cellId: null,
-        isTrigger: false
+        isTrigger: false,
       };
     }
 
     return {
       cellId: activeCell.model.id,
-      isTrigger: this.readCellMetadata(activeCell).trigger
+      isTrigger: this.readCellMetadata(activeCell).trigger,
     };
   }
 
@@ -56,14 +56,14 @@ export class NotebookMetadataStore {
     const metadata = this.readCellMetadata(cell);
     cell.model.sharedModel.setMetadata(CELL_METADATA_KEY, {
       ...metadata,
-      trigger: enabled
+      trigger: enabled,
     });
   }
 
   async setCellTriggerForPanel(
     panel: NotebookPanel,
     cell: Cell,
-    enabled: boolean
+    enabled: boolean,
   ): Promise<NotebookExtensionMetadata> {
     this.setCellTrigger(cell, enabled);
 
@@ -77,7 +77,7 @@ export class NotebookMetadataStore {
 
     const nextMetadata: NotebookExtensionMetadata = {
       ...metadata,
-      trigger_cell_ids: [...triggerCellIds]
+      trigger_cell_ids: [...triggerCellIds],
     };
     await this.writeNotebookMetadata(panel, nextMetadata);
     return nextMetadata;

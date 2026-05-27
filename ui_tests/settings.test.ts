@@ -19,7 +19,7 @@ void test("UserPreferencesStore falls back to defaults without storage", async (
   const originalWindow = globalThis.window;
   Object.defineProperty(globalThis, "window", {
     configurable: true,
-    value: { localStorage: new FakeStorage() }
+    value: { localStorage: new FakeStorage() },
   });
 
   try {
@@ -32,7 +32,7 @@ void test("UserPreferencesStore falls back to defaults without storage", async (
   } finally {
     Object.defineProperty(globalThis, "window", {
       configurable: true,
-      value: originalWindow
+      value: originalWindow,
     });
   }
 });
@@ -41,7 +41,7 @@ void test("UserPreferencesStore saves and reloads local preferences", async () =
   const originalWindow = globalThis.window;
   Object.defineProperty(globalThis, "window", {
     configurable: true,
-    value: { localStorage: new FakeStorage() }
+    value: { localStorage: new FakeStorage() },
   });
 
   try {
@@ -50,7 +50,7 @@ void test("UserPreferencesStore saves and reloads local preferences", async () =
       defaultCommitMode: "always",
       defaultRunLabel: "baseline",
       defaultTags: ["tag-a", "tag-b"],
-      rememberCommitChoice: true
+      rememberCommitChoice: true,
     });
 
     const preferences = await store.load();
@@ -62,7 +62,7 @@ void test("UserPreferencesStore saves and reloads local preferences", async () =
   } finally {
     Object.defineProperty(globalThis, "window", {
       configurable: true,
-      value: originalWindow
+      value: originalWindow,
     });
   }
 });

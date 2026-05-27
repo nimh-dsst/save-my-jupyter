@@ -53,9 +53,7 @@ if TYPE_CHECKING:
         EffectiveConfig,
         LabArchivesTarget,
         NotebookMetadataConfig,
-        PathRuleConfig,
         RepoConfig,
-        ResolvedPathRule,
         UserSettingsConfig,
     )
 
@@ -63,9 +61,7 @@ _CONFIG_EXPORTS = {
     "EffectiveConfig",
     "LabArchivesTarget",
     "NotebookMetadataConfig",
-    "PathRuleConfig",
     "RepoConfig",
-    "ResolvedPathRule",
     "UserSettingsConfig",
 }
 
@@ -90,13 +86,11 @@ __all__ = [
     "NotebookContext",
     "NotebookMetadataConfig",
     "NotebookPath",
-    "PathRuleConfig",
     "RelativeRepoPath",
     "RelativeWatchPath",
     "RemoteUrl",
     "RepoConfig",
     "RepoRootPath",
-    "ResolvedPathRule",
     "ResolvedRepoContext",
     "ResolvedSnapshotPlan",
     "RunFingerprint",

@@ -5,26 +5,29 @@ import type { NotebookPanel } from "@jupyterlab/notebook";
 
 import {
   buildManualSnapshotPayload,
-  buildTriggerCellSnapshotPayload
+  buildTriggerCellSnapshotPayload,
 } from "../src/notebook/requestBuilders";
-import type { NotebookExtensionMetadata, SnapshotUserMetadata } from "../src/types";
+import type {
+  NotebookExtensionMetadata,
+  SnapshotUserMetadata,
+} from "../src/types";
 
 function createPanel(): NotebookPanel {
   return {
     context: {
-      path: "analysis/notebook.ipynb"
+      path: "analysis/notebook.ipynb",
     },
     id: "panel-1",
     sessionContext: {
       session: {
         kernel: {
-          id: "kernel-1"
-        }
-      }
+          id: "kernel-1",
+        },
+      },
     },
     title: {
-      label: "Notebook Title"
-    }
+      label: "Notebook Title",
+    },
   } as unknown as NotebookPanel;
 }
 
@@ -35,7 +38,7 @@ const notebookMetadata: NotebookExtensionMetadata = {
   labarchives_target_notebook: null,
   labarchives_target_root_path: null,
   trigger_cell_ids: ["cell-a", "cell-b"],
-  watched_paths: ["outputs"]
+  watched_paths: ["outputs"],
 };
 
 const userMetadata: SnapshotUserMetadata = {
@@ -43,7 +46,7 @@ const userMetadata: SnapshotUserMetadata = {
   extra_fields: { owner: "alice" },
   notes: "run notes",
   run_label: "baseline",
-  tags: ["baseline"]
+  tags: ["baseline"],
 };
 
 void test("buildManualSnapshotPayload creates a manual request", () => {
@@ -51,7 +54,7 @@ void test("buildManualSnapshotPayload creates a manual request", () => {
     createPanel(),
     notebookMetadata,
     "prompt",
-    userMetadata
+    userMetadata,
   );
 
   assert.equal(payload.source, "manual");
@@ -66,11 +69,25 @@ void test("buildTriggerCellSnapshotPayload creates a trigger request", () => {
     notebookMetadata,
     "always",
     userMetadata,
-    "cell-a"
+    "cell-a",
   );
 
   assert.equal(payload.source, "trigger_cell");
   assert.equal(payload.commit_mode, "always");
   assert.equal(payload.notebook_context.kernel_id, "kernel-1");
   assert.equal(payload.notebook_context.triggering_cell_id, "cell-a");
+  assert.equal(payload.notebook_context.cell_execution_count, null);
+});
+
+void test("buildTriggerCellSnapshotPayload passes through execution count", () => {
+  const payload = buildTriggerCellSnapshotPayload(
+    createPanel(),
+    notebookMetadata,
+    "always",
+    userMetadata,
+    "cell-a",
+    7,
+  );
+
+  assert.equal(payload.notebook_context.cell_execution_count, 7);
 });

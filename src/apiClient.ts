@@ -17,12 +17,12 @@ import {
   parseConfigInitResponse,
   parseEffectiveState,
   parseSnapshotSubmissionResult,
-  parseWatchSyncResponse
+  parseWatchSyncResponse,
 } from "./types";
 
 export class ApiClient {
   constructor(
-    private readonly settings: ServerConnection.ISettings = ServerConnection.makeSettings()
+    private readonly settings: ServerConnection.ISettings = ServerConnection.makeSettings(),
   ) {}
 
   async getState(notebookPath: string): Promise<EffectiveState> {
@@ -30,7 +30,7 @@ export class ApiClient {
     const response = await ServerConnection.makeRequest(
       `${url}?notebook_path=${encodeURIComponent(notebookPath)}`,
       {},
-      this.settings
+      this.settings,
     );
     return this.parseJsonResponse(response, parseEffectiveState);
   }
@@ -40,28 +40,28 @@ export class ApiClient {
       this.settings.baseUrl,
       "save-my-jupyter",
       "auth",
-      "status"
+      "status",
     );
     const response = await ServerConnection.makeRequest(url, {}, this.settings);
     return this.parseJsonResponse(response, parseAuthState);
   }
 
   async postSnapshot(
-    payload: SnapshotRequestPayload
+    payload: SnapshotRequestPayload,
   ): Promise<SnapshotSubmissionResult> {
     const url = URLExt.join(
       this.settings.baseUrl,
       "save-my-jupyter",
-      "snapshot"
+      "snapshot",
     );
     const response = await ServerConnection.makeRequest(
       url,
       {
         body: JSON.stringify(payload),
         headers: { "Content-Type": "application/json" },
-        method: "POST"
+        method: "POST",
       },
-      this.settings
+      this.settings,
     );
     return this.parseJsonResponse(response, parseSnapshotSubmissionResult);
   }
@@ -71,14 +71,29 @@ export class ApiClient {
       this.settings.baseUrl,
       "save-my-jupyter",
       "auth",
-      "start"
+      "start",
     );
     const response = await ServerConnection.makeRequest(
       url,
       { method: "POST" },
-      this.settings
+      this.settings,
     );
     return this.parseJsonResponse(response, parseAuthStartResponse);
+  }
+
+  async logout(): Promise<AuthState> {
+    const url = URLExt.join(
+      this.settings.baseUrl,
+      "save-my-jupyter",
+      "auth",
+      "logout",
+    );
+    const response = await ServerConnection.makeRequest(
+      url,
+      { method: "POST" },
+      this.settings,
+    );
+    return this.parseJsonResponse(response, parseAuthState);
   }
 
   async generateRepoConfig(notebookPath: string): Promise<ConfigInitResponse> {
@@ -86,16 +101,16 @@ export class ApiClient {
       this.settings.baseUrl,
       "save-my-jupyter",
       "config",
-      "init"
+      "init",
     );
     const response = await ServerConnection.makeRequest(
       url,
       {
         body: JSON.stringify({ notebook_path: notebookPath }),
         headers: { "Content-Type": "application/json" },
-        method: "POST"
+        method: "POST",
       },
-      this.settings
+      this.settings,
     );
     return this.parseJsonResponse(response, parseConfigInitResponse);
   }
@@ -104,13 +119,13 @@ export class ApiClient {
     notebookContext: NotebookContext,
     watchPaths: string[],
     commitMode: SnapshotRequestPayload["commit_mode"],
-    userMetadata: SnapshotUserMetadata
+    userMetadata: SnapshotUserMetadata,
   ): Promise<WatchSyncResponse> {
     const url = URLExt.join(
       this.settings.baseUrl,
       "save-my-jupyter",
       "watch",
-      "sync"
+      "sync",
     );
     const response = await ServerConnection.makeRequest(
       url,
@@ -119,19 +134,19 @@ export class ApiClient {
           commit_mode: commitMode,
           notebook_context: notebookContext,
           user_metadata: userMetadata,
-          watch_paths: watchPaths
+          watch_paths: watchPaths,
         }),
         headers: { "Content-Type": "application/json" },
-        method: "POST"
+        method: "POST",
       },
-      this.settings
+      this.settings,
     );
     return this.parseJsonResponse(response, parseWatchSyncResponse);
   }
 
   private async parseJsonResponse<T>(
     response: Response,
-    parser: (raw: unknown) => T
+    parser: (raw: unknown) => T,
   ): Promise<T> {
     const payload: unknown = await response.json();
     if (!response.ok) {

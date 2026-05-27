@@ -8,6 +8,7 @@ from save_my_jupyter.config.service import ConfigService
 from save_my_jupyter.git.service import DefaultGitService
 from save_my_jupyter.handlers import (
     AuthCallbackHandler,
+    AuthLogoutHandler,
     AuthStartHandler,
     AuthStatusHandler,
     ConfigInitHandler,
@@ -82,6 +83,10 @@ class SaveMyJupyterApp(ExtensionApp):
             (
                 url_path_join(server_app.base_url, "save-my-jupyter", "auth", "status"),
                 AuthStatusHandler,
+            ),
+            (
+                url_path_join(server_app.base_url, "save-my-jupyter", "auth", "logout"),
+                AuthLogoutHandler,
             ),
             (
                 url_path_join(server_app.base_url, "save-my-jupyter", "config", "init"),

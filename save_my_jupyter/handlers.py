@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from http import HTTPStatus
 from pathlib import Path
 from typing import Any, cast
@@ -32,6 +33,8 @@ from save_my_jupyter.domain import (
     ResolvedSnapshotPlan,
     SnapshotAccepted,
     SnapshotFailed,
+    SnapshotPersisted,
+    SnapshotRecord,
     SnapshotRejected,
     SnapshotRequest,
     UserId,
@@ -56,6 +59,10 @@ class BaseSaveMyJupyterHandler(JupyterHandler):
     def user_id(self) -> UserId:
         return _current_user_id(self.current_user)
 
+    @property
+    def user_id_aliases(self) -> tuple[UserId, ...]:
+        return _current_user_id_aliases(self.current_user)
+
     def require_json_body(self) -> dict[str, Any]:
         return _require_json_body(self.get_json_body())
 
@@ -65,6 +72,18 @@ class BaseSaveMyJupyterHandler(JupyterHandler):
         *,
         status: HTTPStatus = HTTPStatus.BAD_REQUEST,
     ) -> None:
+        self.log.warning(
+            (
+                "Save My Jupyter request failed: method=%s uri=%s status=%s "
+                "code=%s message=%s context=%s"
+            ),
+            self.request.method,
+            self.request.uri,
+            status.value,
+            exc.code,
+            str(exc),
+            json.dumps(exc.context, sort_keys=True),
+        )
         self.write_json({"error": serialize_error(exc)}, status=status)
 
     def write_json(self, payload: dict[str, object], *, status: HTTPStatus) -> None:
@@ -77,7 +96,10 @@ class StateHandler(BaseSaveMyJupyterHandler):
     @authenticated
     def get(self) -> None:
         user_id = self.user_id
-        auth_status = self.services.auth_service.get_auth_status(str(user_id))
+        auth_status = self.services.auth_service.get_auth_status(
+            str(user_id),
+            user_id_aliases=tuple(str(alias) for alias in self.user_id_aliases),
+        )
         notebook_path_arg = self.get_query_argument("notebook_path", default="")
         if notebook_path_arg == "":
             self.write_json(
@@ -105,6 +127,7 @@ class SnapshotHandler(BaseSaveMyJupyterHandler):
                 self.services,
                 snapshot_request=snapshot_request,
                 user_id=self.user_id,
+                user_id_aliases=self.user_id_aliases,
             )
         except SaveMyJupyterError as exc:
             self.write_error_response(exc)
@@ -144,6 +167,7 @@ class AuthStartHandler(BaseSaveMyJupyterHandler):
             result = self.services.auth_service.start_auth(
                 str(self.user_id),
                 _build_auth_callback_base_url(self),
+                user_id_aliases=tuple(str(alias) for alias in self.user_id_aliases),
             )
         except SaveMyJupyterError as exc:
             self.write_error_response(exc)
@@ -159,7 +183,26 @@ class AuthStatusHandler(BaseSaveMyJupyterHandler):
     @authenticated
     def get(self) -> None:
         payload = serialize_auth_status(
-            self.services.auth_service.get_auth_status(str(self.user_id))
+            self.services.auth_service.get_auth_status(
+                str(self.user_id),
+                user_id_aliases=tuple(str(alias) for alias in self.user_id_aliases),
+            )
+        )
+        self.write_json(payload, status=HTTPStatus.OK)
+
+
+class AuthLogoutHandler(BaseSaveMyJupyterHandler):
+    @authenticated
+    def post(self) -> None:
+        self.services.auth_service.logout(
+            str(self.user_id),
+            user_id_aliases=tuple(str(alias) for alias in self.user_id_aliases),
+        )
+        payload = serialize_auth_status(
+            self.services.auth_service.get_auth_status(
+                str(self.user_id),
+                user_id_aliases=tuple(str(alias) for alias in self.user_id_aliases),
+            )
         )
         self.write_json(payload, status=HTTPStatus.OK)
 
@@ -237,18 +280,50 @@ def process_snapshot_request(
     *,
     snapshot_request: SnapshotRequest,
     user_id: UserId,
+    user_id_aliases: tuple[UserId, ...] = (),
 ) -> SnapshotAccepted | SnapshotRejected:
-    plan = services.snapshot_service.plan_snapshot(snapshot_request)
+    auth_status = services.auth_service.get_auth_status(
+        str(user_id),
+        user_id_aliases=tuple(str(alias) for alias in user_id_aliases),
+    )
+    if auth_status.status != "authenticated":
+        return SnapshotRejected(
+            reason_code="authentication_required",
+            message="Connect LabArchives before creating a snapshot.",
+        )
+
+    plan = services.snapshot_service.plan_snapshot(
+        snapshot_request,
+        notebook_metadata=load_notebook_extension_metadata(
+            snapshot_request.notebook_context.notebook_path,
+        ),
+    )
 
     result = services.snapshot_coordinator.submit(plan)
     if isinstance(result, SnapshotRejected):
         return result
 
-    _execute_next_snapshot(
+    persisted = _execute_next_snapshot(
         services,
         notebook_context=snapshot_request.notebook_context,
         user_id=user_id,
     )
+    if persisted is not None:
+        record, persistence_result = persisted
+        result = SnapshotAccepted(
+            job_id=result.job_id,
+            queue_position=result.queue_position,
+            snapshot_id=record.snapshot_id,
+            commit_hash=record.commit_hash,
+            commit_url=record.commit_url,
+            commit_created=record.commit_created,
+            labarchives_page_id=persistence_result.labarchives_page_id,
+            labarchives_page_name=persistence_result.labarchives_page_name,
+            labarchives_directory_name=persistence_result.labarchives_directory_name,
+            labarchives_meta_page_id=persistence_result.labarchives_meta_page_id,
+            labarchives_meta_page_name=persistence_result.labarchives_meta_page_name,
+            labarchives_page_count=persistence_result.labarchives_page_count,
+        )
     return result
 
 
@@ -273,7 +348,6 @@ def _resolve_state_payload(
         auth_status=auth_status,
         effective_config=resolved_config.effective_config,
         notebook_metadata=resolved_config.notebook_metadata,
-        path_rule=resolved_config.path_rule,
         repo=repo,
         repo_config_loaded=resolved_config.repo_config is not None,
         repo_config_path=repo_config_path,
@@ -337,17 +411,17 @@ def _execute_next_snapshot(
     *,
     notebook_context: NotebookContext,
     user_id: UserId,
-) -> None:
+) -> tuple[SnapshotRecord, SnapshotPersisted] | None:
     coordinator = services.snapshot_coordinator
     queue = coordinator.get_or_create_queue(
         coordinator.build_notebook_key(notebook_context)
     )
     next_plan = queue.start_next()
     if next_plan is None:
-        return
+        return None
 
     try:
-        _persist_planned_snapshot(services, plan=next_plan, user_id=user_id)
+        persisted = _persist_planned_snapshot(services, plan=next_plan, user_id=user_id)
     except SaveMyJupyterError:
         queue.mark_finished(
             next_plan.run_fingerprint,
@@ -359,6 +433,7 @@ def _execute_next_snapshot(
         next_plan.run_fingerprint,
         record_run=True,
     )
+    return persisted
 
 
 def _persist_planned_snapshot(
@@ -366,14 +441,30 @@ def _persist_planned_snapshot(
     *,
     plan: ResolvedSnapshotPlan,
     user_id: UserId,
-) -> None:
+) -> tuple[SnapshotRecord, SnapshotPersisted]:
     record = services.snapshot_service.execute_snapshot(plan, user_id)
     persistence_result = services.snapshot_service.persist_snapshot(record, user_id)
     if isinstance(persistence_result, SnapshotFailed):
+        if persistence_result.error_code == "labarchives_session_expired":
+            services.auth_service.clear_session(str(user_id))
         raise LabArchivesWriteError(
             persistence_result.message,
             code=persistence_result.error_code,
+            context=_snapshot_failure_context(record),
         )
+    return record, persistence_result
+
+
+def _snapshot_failure_context(record: SnapshotRecord) -> dict[str, str]:
+    context = {
+        "commit_created": str(record.commit_created),
+        "snapshot_id": str(record.snapshot_id),
+    }
+    if record.commit_hash is not None:
+        context["commit_hash"] = str(record.commit_hash)
+    if record.commit_url is not None:
+        context["commit_url"] = record.commit_url
+    return context
 
 
 def _repo_root_path(repo_root: str | None) -> Path | None:
@@ -389,9 +480,42 @@ def _require_notebook_path(raw_body: dict[str, Any]) -> NotebookPath:
 
 
 def _current_user_id(current_user: object) -> UserId:
-    if isinstance(current_user, bytes):
-        return UserId(current_user.decode())
-    return UserId(str(current_user))
+    current_user_ids = _current_user_id_candidates(current_user)
+    return UserId(current_user_ids[0])
+
+
+def _current_user_id_aliases(current_user: object) -> tuple[UserId, ...]:
+    current_user_ids = _current_user_id_candidates(current_user)
+    return tuple(UserId(candidate) for candidate in current_user_ids[1:])
+
+
+def _current_user_id_candidates(current_user: object) -> tuple[str, ...]:
+    candidates: list[str] = []
+
+    def add_candidate(value: object) -> None:
+        if isinstance(value, bytes):
+            text = value.decode()
+        elif isinstance(value, str):
+            text = value
+        else:
+            return
+
+        normalized = text.strip()
+        if normalized != "" and normalized not in candidates:
+            candidates.append(normalized)
+
+    add_candidate(getattr(current_user, "username", None))
+    if isinstance(current_user, Mapping):
+        user_mapping = cast("Mapping[str, object]", current_user)
+        add_candidate(user_mapping.get("username"))
+        if "username" not in user_mapping:
+            add_candidate(user_mapping.get("name"))
+    add_candidate(getattr(current_user, "name", None))
+    add_candidate(str(current_user))
+
+    if candidates == []:
+        candidates.append(str(current_user))
+    return tuple(candidates)
 
 
 def _require_json_body(raw_body: dict[str, Any] | None) -> dict[str, Any]:

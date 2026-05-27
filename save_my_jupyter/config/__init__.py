@@ -2,11 +2,9 @@ from .models import (
     EffectiveConfig,
     LabArchivesTarget,
     NotebookMetadataConfig,
-    PathRuleConfig,
     RepoConfig,
     RepoConfigBootstrapResult,
     ResolvedConfig,
-    ResolvedPathRule,
     UserSettingsConfig,
 )
 from .parsers import (
@@ -23,11 +21,9 @@ __all__ = [
     "EffectiveConfig",
     "LabArchivesTarget",
     "NotebookMetadataConfig",
-    "PathRuleConfig",
     "RepoConfig",
     "RepoConfigBootstrapResult",
     "ResolvedConfig",
-    "ResolvedPathRule",
     "UserSettingsConfig",
     "merge_effective_config",
     "parse_notebook_metadata",

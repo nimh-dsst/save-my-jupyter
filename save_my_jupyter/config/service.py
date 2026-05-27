@@ -6,11 +6,9 @@ from pathlib import Path
 from save_my_jupyter.config.models import (
     EffectiveConfig,
     NotebookMetadataConfig,
-    PathRuleConfig,
     RepoConfig,
     RepoConfigBootstrapResult,
     ResolvedConfig,
-    ResolvedPathRule,
     UserSettingsConfig,
 )
 from save_my_jupyter.config.parsers import (
@@ -22,7 +20,6 @@ from save_my_jupyter.config.parsers import (
 from save_my_jupyter.domain.enums import CommitMode
 from save_my_jupyter.domain.models import SnapshotRequest
 from save_my_jupyter.domain.types import NotebookPath, RelativeRepoPath
-from save_my_jupyter.errors import ConfigValidationError
 from save_my_jupyter.parsing import normalize_path
 
 
@@ -89,31 +86,22 @@ class ConfigService:
         notebook_path: NotebookPath,
         repo_root: Path | None,
     ) -> str:
-        notebook = Path(notebook_path).resolve()
-        config_root = self._resolve_config_root(
+        config_path = self.suggested_repo_config_path(
             notebook_path=notebook_path,
             repo_root=repo_root,
         )
-        relative_parent = (
-            notebook.parent.relative_to(config_root)
-            if notebook.parent != config_root
-            else Path()
-        )
-        match_path = normalize_path(str(relative_parent).replace("\\", "/"))
-        project_name = config_root.name or "save-my-jupyter"
-        rule_name = (
-            notebook.parent.name if notebook.parent != config_root else "workspace"
-        )
+        project_name = config_path.parent.name or "save-my-jupyter"
         lines = [
             "# Save My Jupyter starter config",
             (
                 "# Edit the LabArchives target names and watched paths to match "
                 "your project."
             ),
-            "# Available target path variables: {user_id}, {scope_path},",
-            "# {path_rule_name}, {repo_name}, {notebook_name}, {notebook_stem},",
-            "# {relative_notebook_path}, {run_label}, {experiment_context},",
-            "# {timestamp}, {date}, {time}, {source}, {commit_hash}",
+            "# Any target_root_path setting supports these substitutions:",
+            "# {name}, {user_id}, {user_email}, {repo_name}, {notebook_name},",
+            "# {notebook_stem}, {relative_notebook_path}, {scope_path},",
+            "# {scope_name}, {run_label}, {experiment_context}, {timestamp},",
+            "# {date}, {time}, {source}, {commit_hash}",
             "",
             "[project]",
             f'name = "{project_name}"',
@@ -122,30 +110,24 @@ class ConfigService:
             "[defaults]",
             "all_cells_trigger = false",
             'commit_mode = "prompt"',
-            "watch_paths = []",
+            'watch_paths = ["**/*.py"]',
             "include_notebook_file = true",
             "include_diff_when_dirty = true",
             "",
             "[labarchives]",
             'target_notebook = "Jupyter Snapshots"',
-            'target_root_path = "Notebook Log/{user_id}/{scope_path}"',
+            "# Substitutions: {name}, {user_id}, {user_email}, {repo_name},",
+            "# {notebook_name}, {notebook_stem}, {relative_notebook_path},",
+            "# {scope_path}, {scope_name}, {run_label},",
+            "# {experiment_context}, {timestamp}, {date}, {time},",
+            "# {source}, {commit_hash}",
+            'target_root_path = "Notebook Log/{name}/{relative_notebook_path}"',
             "",
             "[git]",
             "stage_notebook_on_commit = true",
             "stage_watched_paths_on_commit = false",
+            "# Substitutions: {notebook_name}, {timestamp}",
             'commit_message_template = "snapshot: {notebook_name} {timestamp}"',
-            "",
-            "[[path_rule]]",
-            f'name = "{rule_name}"',
-            f'match_paths = ["{match_path}"]',
-            "watch_paths = []",
-            "include_paths = []",
-            "exclude_paths = []",
-            'labarchives_target_notebook = "Jupyter Snapshots"',
-            'labarchives_target_root_path = "Notebook Log/{user_id}/{scope_path}"',
-            "",
-            "[path_rule.metadata_template]",
-            f'notebook = "{notebook.name}"',
         ]
         return "\n".join(lines) + "\n"
 
@@ -197,66 +179,18 @@ class ConfigService:
     ) -> NotebookMetadataConfig:
         return parse_notebook_metadata(metadata or {})
 
-    def resolve_path_rule(
-        self,
-        repo_config: RepoConfig,
-        notebook_relpath: RelativeRepoPath,
-    ) -> ResolvedPathRule | None:
-        matches: list[tuple[int, PathRuleConfig]] = []
-        relpath = str(notebook_relpath)
-        for rule in repo_config.path_rules:
-            specificity = _match_specificity(relpath, rule)
-            if specificity > -1:
-                matches.append((specificity, rule))
-
-        if not matches:
-            return None
-
-        matches.sort(key=lambda item: item[0], reverse=True)
-        if len(matches) > 1 and matches[0][0] == matches[1][0]:
-            raise ConfigValidationError(
-                "Multiple path rules match with the same specificity.",
-                code="ambiguous_path_rule",
-                context={"path": relpath},
-            )
-
-        _, rule = matches[0]
-        return ResolvedPathRule(
-            rule_name=rule.name,
-            match_paths=rule.match_paths,
-            watch_paths=rule.watch_paths,
-            include_paths=rule.include_paths,
-            exclude_paths=rule.exclude_paths,
-            target=rule.target,
-            metadata_template=rule.metadata_template,
-        )
-
     def merge_config_layers(
         self,
         *,
         repo_config: RepoConfig | None,
         notebook_metadata: NotebookMetadataConfig,
         user_settings: UserSettingsConfig,
-        path_rule: ResolvedPathRule | None,
         request_commit_mode: CommitMode,
     ) -> EffectiveConfig:
-        path_rule_config = None
-        if path_rule is not None:
-            path_rule_config = PathRuleConfig(
-                name=path_rule.rule_name,
-                match_paths=path_rule.match_paths,
-                watch_paths=path_rule.watch_paths,
-                include_paths=path_rule.include_paths,
-                exclude_paths=path_rule.exclude_paths,
-                target=path_rule.target,
-                metadata_template=path_rule.metadata_template,
-            )
-
         return merge_effective_config(
             repo_config=repo_config,
             notebook_metadata=notebook_metadata,
             user_settings=user_settings,
-            path_rule=path_rule_config,
             request_commit_mode=request_commit_mode,
         )
 
@@ -283,37 +217,15 @@ class ConfigService:
         repo_config = self.load_repo_config(request.notebook_context.notebook_path)
         resolved_notebook_metadata = self.load_notebook_metadata(notebook_metadata)
         resolved_user_settings = self.load_user_settings(user_settings)
-        path_rule = None
-        if repo_config is not None:
-            config_path = self.find_repo_config(request.notebook_context.notebook_path)
-            repo_root = config_path.parent if config_path is not None else None
-            relative_path = self.relative_notebook_path(
-                notebook_path=request.notebook_context.notebook_path,
-                repo_root=repo_root,
-            )
-            if relative_path is not None:
-                path_rule = self.resolve_path_rule(repo_config, relative_path)
-
         effective_config = self.merge_config_layers(
             repo_config=repo_config,
             notebook_metadata=resolved_notebook_metadata,
             user_settings=resolved_user_settings,
-            path_rule=path_rule,
             request_commit_mode=request.commit_mode,
         )
         return ResolvedConfig(
             repo_config=repo_config,
             notebook_metadata=resolved_notebook_metadata,
             user_settings=resolved_user_settings,
-            path_rule=path_rule,
             effective_config=effective_config,
         )
-
-
-def _match_specificity(relpath: str, rule: PathRuleConfig) -> int:
-    matches = [
-        len(str(match_path))
-        for match_path in rule.match_paths
-        if relpath == str(match_path) or relpath.startswith(f"{match_path}/")
-    ]
-    return max(matches, default=-1)

@@ -527,12 +527,13 @@ def run_smoke(driver: WebDriver, args: argparse.Namespace) -> SmokeResult:
         if (!cell) {
           return { hasLeftHighlight: false, pillVisible: false };
         }
-        const cellStyle = window.getComputedStyle(cell);
         const afterStyle = window.getComputedStyle(cell, '::after');
         const content = afterStyle.content || '';
         return {
           hasLeftHighlight: cell.classList.contains('smj-Cell--trigger') &&
-            cellStyle.boxShadow !== 'none',
+            afterStyle.position === 'absolute' &&
+            afterStyle.width === '3px' &&
+            afterStyle.backgroundColor !== 'rgba(0, 0, 0, 0)',
           pillVisible: content !== 'none' && content !== 'normal' && content !== '""'
         };
         """
