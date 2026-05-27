@@ -12,7 +12,7 @@ Stable IDs (`C-AUTH-03`, `C-WATCH-05`, …) let us reference contracts during de
 
 **C-SETUP-01.** Save My Jupyter installs as one Python package. `pip install save-my-jupyter` brings the Jupyter Server extension, the JupyterLab front-end labextension, and the `labapi` dependency in a single step. After the next server restart, the side panel and toolbar button are available; no `jupyter server extension enable` step is required.
 
-**C-SETUP-02.** The extension runs entirely on the Jupyter server side. The notebook's kernel never needs the package installed, never imports extension code, and may be Python, R, Julia, or any other language. Information that lives only inside a running kernel — current variable values, in-memory state — is therefore not captured.
+**C-SETUP-02.** The extension runs without requiring the notebook kernel to install this package or import extension code. Python kernels have one narrow live-state exception: immediately before a manual or trigger snapshot is submitted, the frontend makes a hidden best-effort read of `smj_tags` and `smj_run` from the current kernel. Non-Python kernels, missing kernels, malformed values, and read failures fall back to the static metadata path without blocking the snapshot.
 
 **C-SETUP-03.** The supported stack is Python 3.12+, JupyterLab 4.x or Notebook 7.x, and Jupyter Server 2.x. Installs against older versions fail at the package level rather than at runtime.
 
@@ -48,9 +48,9 @@ Stable IDs (`C-AUTH-03`, `C-WATCH-05`, …) let us reference contracts during de
 
 **C-PANEL-02.** The primary `Snapshot now` action and a secondary `Refresh` action are visible near the top of the panel. When a snapshot cannot proceed, the primary action is disabled and the panel shows the blocking reason before any configuration controls.
 
-**C-PANEL-03.** The panel body is organized around snapshot readiness in this order: **Readiness**, **What will be saved**, **Snapshot options**, **Setup**, and **Activity**. Readiness appears before configuration so the user can first answer whether the current notebook can be saved and where it will go.
+**C-PANEL-03.** The panel body is organized around the snapshot workflow in this order: **Snapshot**, **What will be saved**, **Watched files**, **Triggers**, **Snapshot options**, **Connection & config**, and **Activity**. The top **Snapshot** section still shows whether the current notebook can be saved before the user reaches configuration controls; **Connection & config** carries the readiness details and setup actions.
 
-**C-PANEL-04.** The **Readiness** section summarizes the active notebook path, LabArchives connection state, LabArchives destination, git or repository state, and every blocking issue that prevents snapshotting. With no notebook open, it tells the user to open a notebook before configuring or saving snapshots. For notebooks outside any git repo, the git state explicitly says no repository was detected.
+**C-PANEL-04.** The workflow-first panel summarizes the active notebook path, LabArchives connection state, LabArchives destination, git or repository state, and every blocking issue that prevents snapshotting. LabArchives connection controls and project-config controls live in **Connection & config**, including connect, sign out, starter-config creation, and starter-config existence checks. With no notebook open, it tells the user to open a notebook before configuring or saving snapshots. For notebooks outside any git repo, the git state explicitly says no repository was detected.
 
 **C-PANEL-05.** A persistent output-upload disclosure appears before the user can create a snapshot. It states that snapshots upload the full notebook with outputs, including stdout, stderr, rendered data, and embedded figures, and warns the user to clear sensitive outputs before saving. The disclosure has `role="note"` and is not dismissible.
 
@@ -58,7 +58,7 @@ Stable IDs (`C-AUTH-03`, `C-WATCH-05`, …) let us reference contracts during de
 
 **C-PANEL-07.** The **Snapshot options** section contains controls for user-editable and notebook-editable snapshot inputs: commit mode, trigger mode, trigger-cell state for the active cell, watched paths, tags, run label, notes, and any supported metadata fields. Changing an option refreshes the snapshot review so the user can see the effective result before saving.
 
-**C-PANEL-08.** The **Setup** section contains LabArchives connection controls and project-config controls. It supports connect, sign out, and starter-config creation or existence checks, and each setup action exposes its own success, warning, or error state without replacing the current snapshot activity.
+**C-PANEL-08.** Setup actions live inside **Connection & config**. Each setup action exposes its own success, warning, or error state without replacing the current snapshot activity.
 
 **C-PANEL-09.** The **Activity** section shows the current snapshot job when one is running or queued, including phase-level progress such as saving, capturing, committing, and uploading. After completion, the most recent successful receipt remains visible until replaced or dismissed, and recent failures remain inspectable with their specific error messages.
 
@@ -144,7 +144,7 @@ Stable IDs (`C-AUTH-03`, `C-WATCH-05`, …) let us reference contracts during de
 
 **C-CONFIG-08.** With nothing configured anywhere, the system falls back to documented defaults. Target LabArchives notebook is `Jupyter Snapshots`. Target root path is **inferred** as `Notebook Log/{user_email}/{project_name}/{relative_notebook_path}`. The `{user_email}` segment is intentional: the common deployment shares one LabArchives notebook across a team, so scoping each contributor's snapshots under their authenticated email keeps them from colliding. Commit mode is `ask`. Watched paths default to empty (watched files are opt-in, not a `**/*.py` default). The notebook file is included; the dirty diff is included; the notebook is staged on commit but watched paths are not; the commit message template is `snapshot: {notebook_name} {timestamp}`; the project name is `save-my-jupyter`.
 
-**C-CONFIG-09.** Clicking **Create starter config** in the panel writes a working `.save-my-jupyter.toml` at the resolved project root, including explanatory comments and all common settings filled in. The default `target_root_path` in the generated file is `Notebook Log/{user_email}/{project_name}/{relative_notebook_path}`, matching the inferred default (C-CONFIG-08) so zero-config and starter-config land snapshots in the same place. On success the status reads `Created starter config at <path>.` (success). When a file already exists, the button label switches to `Ensure config exists` and clicking it shows `Config already exists at <path>.` (info) without overwriting. Without a notebook open the button is disabled and the row shows `Open a notebook before creating a repo config.` (warning). A file-write failure shows `Unable to create the starter config.` (error). A secondary hint below the row reads either `This config is already available for the current notebook.` (when loaded) or `Create a starter .save-my-jupyter.toml to share defaults for this workspace.` (with the filename rendered as code).
+**C-CONFIG-09.** Clicking **Create starter config** in the panel writes a working `.save-my-jupyter.toml` at the resolved project root, including explanatory comments and all common settings filled in. The default `target_root_path` in the generated file is `Notebook Log/{user_email}/{project_name}/{relative_notebook_path}`, matching the inferred default (C-CONFIG-08) so zero-config and starter-config land snapshots in the same place. On success the status reads `Created starter config at <path>.` (success). When a file already exists, the Readiness section says `This config is already available for the current notebook.` and does not expose a create/regenerate button. Without a notebook open the row shows `Open a notebook before creating a repo config.` (warning). A file-write failure shows `Unable to create the starter config.` (error). A secondary hint below the row reads either `This config is already available for the current notebook.` (when loaded) or `Create a starter .save-my-jupyter.toml to share defaults for this workspace.` (with the filename rendered as code).
 
 **C-CONFIG-10.** The preview path (which feeds the panel) and the snapshot path (which creates a snapshot) both load the notebook's `metadata.save_my_jupyter` and feed it into the same five-layer merge. The user can rely on the panel's resolved view matching what the snapshot will do; the two paths share one resolver.
 
@@ -188,7 +188,7 @@ Stable IDs (`C-AUTH-03`, `C-WATCH-05`, …) let us reference contracts during de
 
 **C-CONTENT-02.** The user is told that outputs are uploaded. A persistent paragraph in the side panel and matching language in `docs/usage.md` explain that the notebook is uploaded with all output content. There is no automatic redaction; the user is responsible for clearing sensitive outputs before snapshotting.
 
-**C-CONTENT-03.** PNG, JPEG, and SVG images embedded in cell outputs are extracted as standalone figure artifacts and uploaded alongside the notebook. Figures are numbered in the order they appear, named `figure-001.png` (or `.jpg`, `.svg`).
+**C-CONTENT-03.** PNG, JPEG, and SVG images embedded in cell outputs are rendered inline in the readable notebook page when the notebook file is included. They are only extracted as standalone figure artifacts when `include_notebook_file` is false; standalone figures are numbered in the order they appear, named `figure-001.png` (or `.jpg`, `.svg`).
 
 **C-CONTENT-04.** Watched files matched at snapshot time are uploaded as separate attachments. MIME type is determined by extension: `.csv` → `text/csv`, `.json` → `application/json`, `.svg` → `image/svg+xml`, `.tsv` → `text/tab-separated-values`, `.txt` → `text/plain`; otherwise Python's `mimetypes.guess_type()` is consulted, falling back to `application/octet-stream`. The notebook file itself uses `application/x-ipynb+json`.
 
@@ -198,7 +198,7 @@ Stable IDs (`C-AUTH-03`, `C-WATCH-05`, …) let us reference contracts during de
 
 **C-CONTENT-07.** Each snapshot includes a short text summary of the last meaningful execution output, truncated at 5,000 characters. When no output text is available, the summary reads `(no execution summary available)`.
 
-**C-CONTENT-08.** User-entered metadata is round-tripped to the LabArchives metadata page exactly as entered: tags (deduplicated, whitespace-trimmed), notes (multiline), and run label. Tags from all sources — UI-entered tags, repo-config `default_tags`, and in-source code directives (see DIRECTIVE family) — are merged by union, order-insensitive and de-duplicated.
+**C-CONTENT-08.** User-entered metadata is round-tripped to the LabArchives metadata page exactly as entered: tags (deduplicated, whitespace-trimmed), notes (multiline), and run label. Tags from all sources — UI-entered tags, repo-config `default_tags`, in-source code directives (see DIRECTIVE family), and Python-kernel `smj_tags` values — are merged by union, order-insensitive and de-duplicated.
 
 ---
 
@@ -210,6 +210,8 @@ Stable IDs (`C-AUTH-03`, `C-WATCH-05`, …) let us reference contracts during de
 
 **C-DIRECTIVE-03.** Run-label timing differs by snapshot kind. Manual snapshots expose an editable run-label field (and tags) before submission, pre-filled from any directive, so the user can adjust them. Trigger snapshots infer the run label at submission time (directive first, then triggering-cell fallback) and do not pause for the user to edit it, since trigger snapshots fire as the run completes.
 
+**C-DIRECTIVE-04.** Python notebooks can define live dynamic metadata through `smj_tags` and `smj_run`. If missing, the snapshot path initializes `smj_tags = []` and `smj_run = None` in the kernel before reading them. `smj_tags` may be a string or an iterable of strings; blank and non-string values are ignored. `smj_run` may be a non-blank string. For manual snapshots, an explicitly edited panel run label wins; otherwise `smj_run` wins over directive/default run labels. For trigger snapshots, `smj_run` wins over directive and triggering-cell fallback labels. Dynamic values are read at snapshot submission time and are not persisted into notebook metadata.
+
 ---
 
 ## DEST — Where Snapshots Land in LabArchives
@@ -218,7 +220,7 @@ Stable IDs (`C-AUTH-03`, `C-WATCH-05`, …) let us reference contracts during de
 
 **C-DEST-02.** Every snapshot directory contains a canonical page named exactly `00 Metadata` (sorting first alphabetically). It carries a table of snapshot metadata — Notebook, Notebook path, Source, Run outcome (success/error), Snapshot ID, Run fingerprint, Trigger cells, Commit hash, Commit status, Commit URL, Diff included (Yes/No), Extension version, Run label, Tags (labeled `Tags (metadata text, not native LabArchives tags)`), Notes — plus an Artifacts index linking to the other pages in the directory.
 
-**C-DEST-03.** Beyond the metadata page, each notebook attachment lives on its own LabArchives page (with inline figures), and each watched file lives on its own page. Page names use the file's basename truncated at 120 characters.
+**C-DEST-03.** Beyond the metadata page, each notebook attachment lives on its own LabArchives page with a readable cell-by-cell HTML rendering of the notebook, including all captured outputs and inline image outputs, plus the raw `.ipynb` attachment. Each watched file lives on its own page. Page names use the file's basename truncated at 120 characters.
 
 **C-DEST-04.** Snapshot delivery is atomic from the user's perspective. If any part of the LabArchives write fails — directory creation, individual pages, attachment population — the system attempts to move every page and directory it created to LabArchives's `API Deleted Items` tree before reporting the failure to the user. The cleanup is best effort; if cleanup itself fails, the original error is still reported and the orphaned items remain in LabArchives until the user removes them manually.
 
@@ -232,7 +234,7 @@ Stable IDs (`C-AUTH-03`, `C-WATCH-05`, …) let us reference contracts during de
 
 **C-QUEUE-01.** Snapshots are queued per notebook, keyed by document id (or notebook path when document id is unavailable). Notebooks queue independently — work on one notebook never blocks or dedupes against another. Each notebook accepts at most five pending snapshots; the sixth submission is rejected with `reasonCode = "snapshot_queue_full"` and the message `Too many snapshots are already queued for this notebook. Wait for the current save to finish before starting another.`.
 
-**C-QUEUE-02.** Manual snapshots never dedupe — each click is its own submission. Trigger snapshots dedupe by run fingerprint: a submission whose fingerprint matches a currently running or pending job collapses into the existing job (returning success without enqueueing), and a submission whose fingerprint matches a completed job is rejected with `reasonCode = "duplicate_run"` and the message `A snapshot already exists for this run.`. Each successful submission receives a fresh job id, including coalesced ones, so clients can correlate per request.
+**C-QUEUE-02.** Manual snapshots never dedupe — each click is its own submission. Trigger snapshots dedupe by run fingerprint, which includes the normalized tag set: a submission whose fingerprint matches a currently running or pending job collapses into the existing job (returning success without enqueueing), and a submission whose fingerprint matches a completed job is rejected with `reasonCode = "duplicate_run"` and the message `A snapshot already exists for this run.`. Adding or removing a tag changes the fingerprint so a researcher can add tags after a run and submit a new trigger snapshot without changing executable notebook code. Each successful submission receives a fresh job id, including coalesced ones, so clients can correlate per request.
 
 **C-QUEUE-03.** Unauthenticated snapshot submissions are rejected immediately with `reasonCode = "authentication_required"` and the message `Connect LabArchives before creating a snapshot.`. No queue entry is created.
 
@@ -252,7 +254,7 @@ Stable IDs (`C-AUTH-03`, `C-WATCH-05`, …) let us reference contracts during de
 
 **C-API-03.** The OAuth callback accepts either `?email=<email>&auth_code=<code>` on success or `?error=<message>` on failure as URL query parameters; the `request_id` is the URL path segment. A callback for an unknown `request_id` produces a distinct error rather than silently doing nothing.
 
-**C-API-04.** Snapshot creation is asynchronous from the client's view. `POST /snapshot` returns immediately with `{job_id, status}` (`accepted` or `rejected` with a `reason_code`) once the request enters the queue; it does not block on the upload. The client follows progress via `GET /snapshot-jobs/<id>` (current state and references) and reads recent history via `GET /snapshot-jobs?limit=N`. The "What will be saved" review is served by `POST /snapshot-preview` (body carries in-memory notebook content) or `GET /snapshot-preview?notebook_path=...` (disk-only fallback, marked as such). `POST /watch/sync` remains for one release as a deprecated no-op-equivalent (watched paths now travel in the snapshot request body) emitting a deprecation warning, then returns HTTP 410 Gone.
+**C-API-04.** Snapshot creation is asynchronous from the client's view. `POST /snapshot` returns immediately with camelCase fields such as `{jobId, status}` (`accepted` or `rejected` with a `reasonCode`) once the request enters the queue; it does not block on the upload. The client follows progress via `GET /snapshot-jobs/<id>` (current state and references) and reads recent history via `GET /snapshot-jobs?limit=N`. The "What will be saved" review is served by `POST /snapshot-preview` (body carries in-memory notebook content) or `GET /snapshot-preview?notebook_path=...` (disk-only fallback, marked as such). Watched paths now travel in the snapshot request body; `POST /watch/sync` returns HTTP 410 Gone with a JSON error envelope.
 
 ---
 
@@ -283,7 +285,7 @@ The current implementation does **not** promise the following. A rewrite may add
 - **OS-03.** Native LabArchives tag fields. Tags appear in rich-text metadata, not in LabArchives's tag taxonomy (C-DEST-02 explicit qualifier).
 - **OS-04.** Automatic redaction of sensitive notebook outputs. Disclosure only (C-CONTENT-02).
 - **OS-05.** AI-assisted summarization, tagging, or post-processing.
-- **OS-06.** Kernel-specific enrichment such as live variable values or `pip list`. The extension is kernel-independent by design (C-SETUP-02).
+- **OS-06.** Kernel-specific enrichment beyond the Python `smj_tags` and `smj_run` dynamic-metadata exception, such as arbitrary live variable capture or `pip list`.
 - **OS-07.** Multi-user concurrent operation on one Jupyter server (C-STATE-02).
 - **OS-08.** Offline or queued-for-later mode. If LabArchives is unreachable, the snapshot fails immediately.
 - **OS-09.** Per-file opt-in within a snapshot. All watched files matched at snapshot time are attached.
