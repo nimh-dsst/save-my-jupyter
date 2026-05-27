@@ -4,6 +4,7 @@ import sys
 from pathlib import PurePosixPath, PureWindowsPath
 
 import pytest
+from save_my_jupyter.application.snapshot import guards as guards_module
 from save_my_jupyter.application.snapshot.guards import (
     NOTEBOOK_MAX_BYTES,
     WATCHED_FILE_MAX_BYTES,
@@ -117,6 +118,24 @@ def test_sensitive_match_case_sensitivity_matches_platform() -> None:
         assert is_sensitive_file(upper)
     else:
         assert not is_sensitive_file(upper)
+
+
+def test_sensitive_parent_dirs_are_case_insensitive_on_windows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(guards_module, "_FILENAMES_ARE_CASE_INSENSITIVE", True)
+
+    assert is_sensitive_file(PureWindowsPath("repo/.SSH/config"))
+    assert is_sensitive_file(PureWindowsPath("repo/.AWS/Credentials"))
+
+
+def test_sensitive_parent_dirs_are_case_sensitive_on_posix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(guards_module, "_FILENAMES_ARE_CASE_INSENSITIVE", False)
+
+    assert not is_sensitive_file(PurePosixPath("repo/.SSH/config"))
+    assert is_sensitive_file(PurePosixPath("repo/.AWS/credentials"))
 
 
 # --- watch pattern matching (C-WATCH-03) ---

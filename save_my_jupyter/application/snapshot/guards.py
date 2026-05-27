@@ -121,15 +121,17 @@ def is_ignored_path(path: PurePath) -> bool:
 def is_sensitive_file(path: PurePath) -> bool:
     """True if the file sits under a credential dir or matches a credential
     filename pattern (contract C-WATCH-06)."""
-    if any(part in SENSITIVE_PARENT_DIR_PARTS for part in path.parts):
-        return True
     name = path.name
     if _FILENAMES_ARE_CASE_INSENSITIVE:
+        if any(part.lower() in SENSITIVE_PARENT_DIR_PARTS for part in path.parts):
+            return True
         lowered = name.lower()
         return any(
             fnmatchcase(lowered, pattern.lower())
             for pattern in SENSITIVE_FILENAME_PATTERNS
         )
+    if any(part in SENSITIVE_PARENT_DIR_PARTS for part in path.parts):
+        return True
     return any(fnmatchcase(name, pattern) for pattern in SENSITIVE_FILENAME_PATTERNS)
 
 
