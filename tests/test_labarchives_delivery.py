@@ -221,6 +221,12 @@ def test_delivery_merges_rich_notebook_diff_into_notebook_page() -> None:
         entries=(
             NotebookDiffEntry(
                 title="Cell 1 changed",
+                cell_index=0,
+                status="changed",
+                source_diff_html=(
+                    '<pre><span style="background:#ffebe9;">-x = 1</span>'
+                    '<span style="background:#e6ffed;">+x = 2</span></pre>'
+                ),
                 html=(
                     "<section>"
                     "<h3>Cell 1 changed</h3>"

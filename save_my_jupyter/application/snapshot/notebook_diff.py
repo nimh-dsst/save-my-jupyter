@@ -120,14 +120,31 @@ def render_notebook_diff(
         before_cell = before_cells[index] if index < len(before_cells) else None
         after_cell = after_cells[index] if index < len(after_cells) else None
         title = _cell_title(index=index, status=status, cell=after_cell or before_cell)
+        source_diff_html = (
+            _render_line_diff(_source_lines(before_cell), _source_lines(after_cell))
+            if status != "unchanged"
+            else None
+        )
+        output_diff_html = None
+        if before_cell is not None and after_cell is not None and status == "changed":
+            before_lines = _output_lines(before_cell.outputs)
+            after_lines = _output_lines(after_cell.outputs)
+            if before_lines != after_lines:
+                output_diff_html = _render_line_diff(before_lines, after_lines)
         entries.append(
             NotebookDiffEntry(
                 title=title,
+                cell_index=index,
+                status=status,
+                source_diff_html=source_diff_html,
+                output_diff_html=output_diff_html,
                 html=_render_cell_entry(
                     title=title,
                     status=status,
                     before_cell=before_cell,
                     after_cell=after_cell,
+                    source_diff_html=source_diff_html,
+                    output_diff_html=output_diff_html,
                 ),
             )
         )
@@ -174,6 +191,8 @@ def _render_cell_entry(
     status: str,
     before_cell: _Cell | None,
     after_cell: _Cell | None,
+    source_diff_html: str | None,
+    output_diff_html: str | None,
 ) -> str:
     display_cell = after_cell or before_cell
     parts = [
@@ -191,10 +210,7 @@ def _render_cell_entry(
         parts.extend(
             [
                 f'<h4 style="{_SUBHEADING_STYLE}">Source diff</h4>',
-                _render_line_diff(
-                    _source_lines(before_cell),
-                    _source_lines(after_cell),
-                ),
+                source_diff_html or "<p>No changes.</p>",
             ]
         )
 
@@ -205,16 +221,13 @@ def _render_cell_entry(
             _render_outputs_section("Removed cell outputs", before_cell.outputs)
         )
 
-    if before_cell is not None and after_cell is not None and status == "changed":
-        before_lines = _output_lines(before_cell.outputs)
-        after_lines = _output_lines(after_cell.outputs)
-        if before_lines != after_lines:
-            parts.extend(
-                [
-                    f'<h4 style="{_SUBHEADING_STYLE}">Output diff</h4>',
-                    _render_line_diff(before_lines, after_lines),
-                ]
-            )
+    if output_diff_html is not None:
+        parts.extend(
+            [
+                f'<h4 style="{_SUBHEADING_STYLE}">Output diff</h4>',
+                output_diff_html,
+            ]
+        )
 
     parts.append("</section>")
     return "\n".join(parts)

@@ -22,6 +22,10 @@ class NotebookDiffEntry:
 
     title: str
     html: str
+    cell_index: int | None = None
+    status: str | None = None
+    source_diff_html: str | None = None
+    output_diff_html: str | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

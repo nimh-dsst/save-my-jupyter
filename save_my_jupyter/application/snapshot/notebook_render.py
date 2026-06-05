@@ -12,13 +12,14 @@ import builtins
 import io
 import json
 import keyword
+import re
 import tokenize
 from collections.abc import Mapping, Sequence
 from html import escape
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from save_my_jupyter.domain.delivery import NotebookDiff
+    from save_my_jupyter.domain.delivery import NotebookDiff, NotebookDiffEntry
 
 _PAGE_STYLE = (
     "font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;color:#24292f;"
@@ -60,6 +61,9 @@ _TOKEN_STYLES = {
     "operator": "color:#cf222e;",
     "string": "color:#0a3069;",
 }
+_DIFF_CELL_TITLE = re.compile(
+    r"^Cell (?P<number>\d+)(?: (?P<status>added|removed|changed))?\b"
+)
 
 
 def render_notebook_artifact_html(
@@ -89,7 +93,7 @@ def render_notebook_html(
         f"<h2>Notebook {escape(filename)}</h2>",
     ]
     if notebook_diff is not None:
-        parts.extend(_render_notebook_diff(notebook_diff))
+        parts.extend(_render_diff_integrated_cells(notebook, notebook_diff))
     else:
         cells = _cells(notebook)
         if not cells:
@@ -102,44 +106,153 @@ def render_notebook_html(
     return "\n".join(parts)
 
 
-def _render_notebook_diff(notebook_diff: NotebookDiff) -> list[str]:
-    parts = [
-        "<h3>Notebook diff</h3>",
-        f"<p>{escape(notebook_diff.summary)}</p>",
-    ]
-    parts.extend(entry.html for entry in notebook_diff.entries)
+def _render_diff_integrated_cells(
+    notebook: Mapping[str, object], notebook_diff: NotebookDiff
+) -> list[str]:
+    cells = _cells(notebook)
+    if not cells and not notebook_diff.entries:
+        return ["<p>No cells.</p>"]
+
+    language = _notebook_language(notebook)
+    parts = [f"<p>Notebook changes: {escape(notebook_diff.summary)}</p>"]
+    entries = _diff_entries_by_cell(notebook_diff)
+    max_index = max(
+        (len(cells) - 1, *entries.keys()),
+        default=-1,
+    )
+    for index in range(max_index + 1):
+        entry = entries.get(index)
+        status = _diff_entry_status(entry)
+        if status == "removed":
+            if entry is not None:
+                parts.append(entry.html)
+            continue
+
+        if index < len(cells):
+            parts.append(
+                _render_cell(
+                    index=index + 1,
+                    cell=cells[index],
+                    language=language,
+                    notebook_diff_entry=entry,
+                )
+            )
+            continue
+
+        if entry is not None:
+            parts.append(entry.html)
     return parts
 
 
-def _render_cell(*, index: int, cell: Mapping[str, object], language: str) -> str:
+def _diff_entries_by_cell(notebook_diff: NotebookDiff) -> dict[int, NotebookDiffEntry]:
+    entries: dict[int, NotebookDiffEntry] = {}
+    for entry in notebook_diff.entries:
+        index = entry.cell_index
+        if index is None:
+            parsed = _diff_cell_entry(entry.title)
+            if parsed is None:
+                continue
+            index, _status = parsed
+        if index >= 0:
+            entries[index] = entry
+    return entries
+
+
+def _diff_cell_entry(title: str) -> tuple[int, str] | None:
+    match = _DIFF_CELL_TITLE.match(title)
+    if match is None:
+        return None
+    number = int(match.group("number"))
+    if number < 1:
+        return None
+    return number - 1, match.group("status") or "unchanged"
+
+
+def _diff_entry_status(entry: NotebookDiffEntry | None) -> str | None:
+    if entry is None:
+        return None
+    if entry.status is not None:
+        return entry.status
+    parsed = _diff_cell_entry(entry.title)
+    return None if parsed is None else parsed[1]
+
+
+def _render_cell(
+    *,
+    index: int,
+    cell: Mapping[str, object],
+    language: str,
+    notebook_diff_entry: NotebookDiffEntry | None = None,
+) -> str:
     cell_type = _string(cell.get("cell_type")) or "cell"
     source = _join_text(cell.get("source")) or ""
-    title = f"Cell {index} ({cell_type})"
+    status = _diff_entry_status(notebook_diff_entry)
+    title = (
+        notebook_diff_entry.title
+        if status in {"added", "changed"} and notebook_diff_entry is not None
+        else f"Cell {index} ({cell_type})"
+    )
     parts = [
         f'<section style="{_CELL_STYLE}">',
         f'<h3 style="{_HEADING_STYLE}">{escape(title)}</h3>',
     ]
+    source_diff_html = _source_diff_html(notebook_diff_entry)
     if cell_type == "markdown":
-        parts.extend(
-            [
-                f'<h4 style="{_SUBHEADING_STYLE}">Markdown</h4>',
-                f'<div style="{_MARKDOWN_STYLE}">{escape(source)}</div>',
-            ]
-        )
+        if source_diff_html is not None:
+            parts.extend(
+                [
+                    f'<h4 style="{_SUBHEADING_STYLE}">Markdown</h4>',
+                    source_diff_html,
+                ]
+            )
+        else:
+            parts.extend(
+                [
+                    f'<h4 style="{_SUBHEADING_STYLE}">Markdown</h4>',
+                    f'<div style="{_MARKDOWN_STYLE}">{escape(source)}</div>',
+                ]
+            )
     else:
-        parts.extend(
-            [
-                f'<h4 style="{_SUBHEADING_STYLE}">Source</h4>',
-                (
-                    f'<pre style="{_SOURCE_STYLE}">'
-                    f"{_highlight_code(source, language)}</pre>"
-                ),
-            ]
-        )
+        if source_diff_html is not None:
+            parts.extend(
+                [
+                    f'<h4 style="{_SUBHEADING_STYLE}">Source</h4>',
+                    source_diff_html,
+                ]
+            )
+        else:
+            parts.extend(
+                [
+                    f'<h4 style="{_SUBHEADING_STYLE}">Source</h4>',
+                    (
+                        f'<pre style="{_SOURCE_STYLE}">'
+                        f"{_highlight_code(source, language)}</pre>"
+                    ),
+                ]
+            )
     if cell_type == "code":
         parts.extend(_render_outputs(cell.get("outputs")))
+        if output_diff_html := _output_diff_html(notebook_diff_entry):
+            parts.extend(
+                [
+                    f'<h4 style="{_SUBHEADING_STYLE}">Output changes</h4>',
+                    output_diff_html,
+                ]
+            )
     parts.append("</section>")
     return "\n".join(parts)
+
+
+def _source_diff_html(entry: NotebookDiffEntry | None) -> str | None:
+    if entry is None or _diff_entry_status(entry) not in {"added", "changed"}:
+        return None
+    return entry.source_diff_html
+
+
+def _output_diff_html(entry: NotebookDiffEntry | None) -> str | None:
+    if entry is None or _diff_entry_status(entry) != "changed":
+        return None
+    return entry.output_diff_html
 
 
 def _render_outputs(value: object) -> list[str]:

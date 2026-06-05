@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import base64
 
+from save_my_jupyter.application.snapshot.notebook_diff import render_notebook_diff
 from save_my_jupyter.application.snapshot.notebook_render import render_notebook_html
-from save_my_jupyter.domain.delivery import NotebookDiff, NotebookDiffEntry
 
 
 def _png_b64(payload: bytes = b"PNG") -> str:
@@ -74,35 +74,80 @@ def test_notebook_html_syntax_highlights_code_cells() -> None:
     assert "print" in html
 
 
-def test_notebook_html_uses_diff_view_when_diff_is_available() -> None:
-    notebook = {
+def test_notebook_html_integrates_diff_into_rich_cell_view() -> None:
+    before = {
+        "cells": [
+            {
+                "cell_type": "code",
+                "source": "x = 1\n",
+                "outputs": [],
+            },
+            {
+                "cell_type": "code",
+                "source": "print('unchanged')\n",
+                "outputs": [
+                    {"output_type": "stream", "name": "stdout", "text": "kept\n"}
+                ],
+            },
+        ],
+    }
+    after = {
         "cells": [
             {
                 "cell_type": "code",
                 "source": "x = 2\n",
                 "outputs": [],
-            }
+            },
+            {
+                "cell_type": "code",
+                "source": "print('unchanged')\n",
+                "outputs": [
+                    {"output_type": "stream", "name": "stdout", "text": "kept\n"}
+                ],
+            },
         ],
     }
-    notebook_diff = NotebookDiff(
-        page_name="01 Notebook Diff",
-        summary="1 of 1 cells changed.",
-        entries=(
-            NotebookDiffEntry(
-                title="Cell 1 changed",
-                html="<section><h3>Cell 1 changed</h3><pre>+x = 2</pre></section>",
-            ),
-        ),
-    )
+    notebook_diff = render_notebook_diff(before, after)
 
-    html = render_notebook_html("nb.ipynb", notebook, notebook_diff=notebook_diff)
+    assert notebook_diff is not None
+    html = render_notebook_html("nb.ipynb", after, notebook_diff=notebook_diff)
 
     assert "Notebook nb.ipynb" in html
-    assert "Notebook diff" in html
-    assert "1 of 1 cells changed." in html
+    assert "Notebook changes: 1 of 2 cells changed." in html
+    assert "Notebook diff" not in html
     assert "Cell 1 changed" in html
+    assert "-x = 1" in html
     assert "+x = 2" in html
-    assert "Cell 1 (code)" not in html
+    assert "background:#ffebe9" in html
+    assert "background:#e6ffed" in html
+    assert "Cell 2 (code)" in html
+    assert "print" in html
+    assert "stream (stdout)" in html
+    assert "kept" in html
+
+
+def test_notebook_html_still_renders_notebook_when_there_is_no_diff() -> None:
+    notebook = {
+        "cells": [
+            {
+                "cell_type": "code",
+                "source": "print('same')\n",
+                "outputs": [
+                    {"output_type": "stream", "name": "stdout", "text": "same\n"}
+                ],
+            },
+        ],
+    }
+
+    assert render_notebook_diff(notebook, notebook) is None
+    html = render_notebook_html("nb.ipynb", notebook)
+
+    assert "Notebook nb.ipynb" in html
+    assert "Cell 1 (code)" in html
+    assert "print" in html
+    assert "stream (stdout)" in html
+    assert "same" in html
+    assert "unchanged" not in html.lower()
 
 
 def test_notebook_html_escapes_user_content() -> None:
