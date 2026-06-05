@@ -5,11 +5,16 @@ import {
   SnapshotPanelController,
   getSnapshotBlockedMessage,
   isSnapshotActionEnabled,
+  snapshotErrorDetails,
   type PanelApi,
 } from "../src/panel/controller";
 import {
+  parseSnapshotJobsResponse,
+  parseSnapshotPreviewResponse,
   parseSnapshotSubmissionResult,
   type AuthState,
+  type SnapshotJobsResponse,
+  type SnapshotPreviewResponse,
   type SnapshotSubmissionResult,
 } from "../src/types";
 
@@ -31,8 +36,7 @@ class Deferred<T> {
 
 class FakeApi implements PanelApi {
   authResponses: (Promise<AuthState> | AuthState)[] = [];
-  // Raw, unparsed payloads -- the controller parses them through zod.
-  jobResponses: unknown[] = [];
+  jobResponses: SnapshotJobsResponse[] = [];
   startAuthDeferred: Deferred<{
     authUrl: string | null;
     message: string;
@@ -56,30 +60,21 @@ class FakeApi implements PanelApi {
     });
   }
 
-  previewSnapshot(): Promise<unknown> {
+  previewSnapshot(): Promise<SnapshotPreviewResponse> {
     if (this.previewError !== null) {
       return Promise.reject(this.previewError);
     }
-    return Promise.resolve({
-      artifacts: [],
-      generatedAt: "2026-05-26T12:00:00+00:00",
-      provenance: {},
-      runLabel: null,
-      source: "frontend",
-      tags: [],
-      target: {
-        notebookName: "Jupyter Snapshots",
-        rootPath: "Notebook Log",
-      },
-    });
+    return Promise.resolve(previewResponse());
   }
 
-  listJobs(): Promise<unknown> {
+  listJobs(): Promise<SnapshotJobsResponse> {
     this.listJobsCalls += 1;
     if (this.listJobsError !== null) {
       return Promise.reject(this.listJobsError);
     }
-    return Promise.resolve(this.jobResponses.shift() ?? { jobs: [] });
+    return Promise.resolve(
+      this.jobResponses.shift() ?? jobsResponse({ jobs: [] }),
+    );
   }
 
   async authStatus(): Promise<AuthState> {
@@ -121,6 +116,25 @@ class FakeApi implements PanelApi {
     }
     return Promise.resolve();
   }
+}
+
+function jobsResponse(raw: unknown): SnapshotJobsResponse {
+  return parseSnapshotJobsResponse(raw);
+}
+
+function previewResponse(): SnapshotPreviewResponse {
+  return parseSnapshotPreviewResponse({
+    artifacts: [],
+    generatedAt: "2026-05-26T12:00:00+00:00",
+    provenance: {},
+    runLabel: null,
+    source: "frontend",
+    tags: [],
+    target: {
+      notebookName: "Jupyter Snapshots",
+      rootPath: "Notebook Log",
+    },
+  });
 }
 
 void test("snapshot action is disabled when no notebook is active", async () => {
@@ -231,7 +245,7 @@ void test("accepted snapshots poll activity until the job reaches a terminal sta
     );
   };
   api.jobResponses.push(
-    {
+    jobsResponse({
       jobs: [
         {
           displayMessage: "Snapshot queued.",
@@ -243,8 +257,8 @@ void test("accepted snapshots poll activity until the job reaches a terminal sta
           submittedAt: "2026-05-26T12:00:00+00:00",
         },
       ],
-    },
-    {
+    }),
+    jobsResponse({
       jobs: [
         {
           displayMessage:
@@ -257,8 +271,8 @@ void test("accepted snapshots poll activity until the job reaches a terminal sta
           submittedAt: "2026-05-26T12:00:00+00:00",
         },
       ],
-    },
-    {
+    }),
+    jobsResponse({
       jobs: [
         {
           directoryUrl: "https://labarchives.test/dir-1",
@@ -271,7 +285,7 @@ void test("accepted snapshots poll activity until the job reaches a terminal sta
           submittedAt: "2026-05-26T12:00:00+00:00",
         },
       ],
-    },
+    }),
   );
   const controller = new SnapshotPanelController(api, { pollIntervalMs: 0 });
 
@@ -301,19 +315,21 @@ void test("coalesced accepted snapshots poll the existing job", async () => {
       }),
     );
   };
-  api.jobResponses.push({
-    jobs: [
-      {
-        displayMessage: "Snapshot saved. Job job-1.",
-        jobId: "job-1",
-        notebookPath: "nb.ipynb",
-        runOutcome: "success",
-        source: "trigger_cell",
-        state: "persisted",
-        submittedAt: "2026-05-26T12:00:00+00:00",
-      },
-    ],
-  });
+  api.jobResponses.push(
+    jobsResponse({
+      jobs: [
+        {
+          displayMessage: "Snapshot saved. Job job-1.",
+          jobId: "job-1",
+          notebookPath: "nb.ipynb",
+          runOutcome: "success",
+          source: "trigger_cell",
+          state: "persisted",
+          submittedAt: "2026-05-26T12:00:00+00:00",
+        },
+      ],
+    }),
+  );
   const controller = new SnapshotPanelController(api, { pollIntervalMs: 0 });
 
   await controller.snapshot({ id: 1 });
@@ -337,21 +353,24 @@ void test("session-expired snapshot failures refresh auth state", async () => {
       }),
     );
   };
-  api.jobResponses.push({
-    jobs: [
-      {
-        displayMessage: "LabArchives session expired; sign in again to continue.",
-        errorCode: "labarchives_session_expired",
-        errorMessage: "LabArchives session expired; sign in again to continue.",
-        jobId: "job-1",
-        notebookPath: "nb.ipynb",
-        runOutcome: "n/a",
-        source: "manual",
-        state: "failed",
-        submittedAt: "2026-05-26T12:00:00+00:00",
-      },
-    ],
-  });
+  api.jobResponses.push(
+    jobsResponse({
+      jobs: [
+        {
+          displayMessage:
+            "LabArchives session expired; sign in again to continue.",
+          errorCode: "labarchives_session_expired",
+          errorMessage: "LabArchives session expired; sign in again to continue.",
+          jobId: "job-1",
+          notebookPath: "nb.ipynb",
+          runOutcome: "n/a",
+          source: "manual",
+          state: "failed",
+          submittedAt: "2026-05-26T12:00:00+00:00",
+        },
+      ],
+    }),
+  );
   api.authResponses.push({
     pendingRequestId: null,
     status: "unauthenticated",
@@ -367,6 +386,45 @@ void test("session-expired snapshot failures refresh auth state", async () => {
     controller.state.get().readiness.authDescription,
     "Not authenticated. Previously connected as user@example.com.",
   );
+  controller.dispose();
+});
+
+void test("snapshot error details are visible from the top snapshot state", async () => {
+  const api = new FakeApi();
+  api.submitSnapshot = (body: unknown): Promise<SnapshotSubmissionResult> => {
+    api.submitted.push(body);
+    return Promise.resolve(
+      parseSnapshotSubmissionResult({
+        jobId: "job-1",
+        status: "accepted",
+      }),
+    );
+  };
+  api.jobResponses.push(
+    jobsResponse({
+      jobs: [
+        {
+          displayMessage: "Unable to save the snapshot.",
+          errorCode: "watched_file_artifact_read_failed",
+          errorMessage: "Could not read tracked file outputs/result.csv.",
+          jobId: "job-1",
+          notebookPath: "nb.ipynb",
+          runOutcome: "n/a",
+          source: "manual",
+          state: "failed",
+          submittedAt: "2026-05-26T12:00:00+00:00",
+        },
+      ],
+    }),
+  );
+  const controller = new SnapshotPanelController(api, { pollIntervalMs: 0 });
+
+  await controller.snapshot({ id: 1 });
+
+  assert.deepEqual(snapshotErrorDetails(controller.state.get()), [
+    "Full error: Could not read tracked file outputs/result.csv.",
+    "Error code: watched_file_artifact_read_failed",
+  ]);
   controller.dispose();
 });
 

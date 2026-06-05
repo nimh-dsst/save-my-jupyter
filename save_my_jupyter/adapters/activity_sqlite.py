@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from save_my_jupyter.application.activity.transitions import can_transition
@@ -92,7 +92,7 @@ class SqliteActivityStore:
         return tuple(_from_row(row) for row in rows)
 
     def abandon_inflight(self) -> int:
-        completed_at = datetime.now(UTC).isoformat()
+        completed_at = datetime.now(timezone.utc).isoformat()
         display_message = build_display_message(
             state=JobState.ABANDONED,
             source=SnapshotSource.MANUAL,

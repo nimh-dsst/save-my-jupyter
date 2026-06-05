@@ -22,19 +22,19 @@ void test("watched path input normalizes separators and dot segments", () => {
 void test("watched path input rejects unsafe values", () => {
   assert.deepEqual(validateWatchedPathInput(""), {
     ok: false,
-    message: "Watched paths must not be empty.",
+    message: "Tracked paths must not be empty.",
   });
   assert.deepEqual(validateWatchedPathInput("C:\\Users\\licc\\secret.txt"), {
     ok: false,
-    message: "Watched paths must be relative.",
+    message: "Tracked paths must be relative.",
   });
   assert.deepEqual(validateWatchedPathInput("outputs/../secret.txt"), {
     ok: false,
-    message: "Watched paths must stay within the notebook or repo root.",
+    message: "Tracked paths must stay within the notebook or repo root.",
   });
   assert.deepEqual(validateWatchedPathInput("./."), {
     ok: false,
-    message: "Watched paths must include at least one path segment.",
+    message: "Tracked paths must include at least one path segment.",
   });
 });
 
@@ -43,7 +43,7 @@ void test("watched path input rejects duplicates after normalization", () => {
     "outputs/result.csv",
   ]), {
     ok: false,
-    message: "That watched path is already listed.",
+    message: "That tracked path is already listed.",
   });
 });
 

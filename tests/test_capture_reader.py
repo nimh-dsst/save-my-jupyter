@@ -102,7 +102,7 @@ def test_sensitive_files_are_excluded(caplog: pytest.LogCaptureFixture) -> None:
         filesystem=filesystem,
     )
     assert _names(artifacts) == ["ok.csv"]
-    assert "skipped sensitive watched file" in caplog.text
+    assert "skipped sensitive tracked file" in caplog.text
 
 
 def test_ignored_directories_are_excluded() -> None:
@@ -154,7 +154,7 @@ def test_symlink_to_file_outside_root_is_dropped(
     )
 
     assert artifacts == ()
-    assert "skipped watched file outside capture root" in caplog.text
+    assert "skipped tracked file outside capture root" in caplog.text
 
 
 class _PathFileSystem:

@@ -9,7 +9,6 @@ import {
   COMMAND_TOGGLE_ALL_CELLS_TRIGGER,
   COMMAND_TOGGLE_CELL_TRIGGER,
   NO_CELL_SELECTED_WARNING,
-  SNAPSHOT_TOOLBAR_ITEM,
   TRIGGER_CONTEXT_SELECTOR,
   allCellsConfirmMessage,
   activeCellTriggerDescription,
@@ -175,7 +174,6 @@ void test("command and selector constants cover the trigger UI surfaces", () => 
     "save-my-jupyter:toggle-all-cells-trigger",
   );
   assert.equal(TRIGGER_CONTEXT_SELECTOR, ".jp-Notebook .jp-Cell");
-  assert.equal(SNAPSHOT_TOOLBAR_ITEM, "save-my-jupyter-snapshot");
   assert.equal(ACTIVE_CELL_TRIGGER_CLASS, "smj-Cell--trigger");
 });
 

@@ -79,6 +79,35 @@ void test("activity rows carry status, message, and the clickable url", () => {
   assert.deepEqual(row.phaseLabels, []);
 });
 
+void test("failed activity rows expose backend error details", () => {
+  const section = buildActivitySection(
+    parseSnapshotJobsResponse({
+      jobs: [
+        {
+          displayMessage: "Unable to save the snapshot.",
+          errorCode: "watched_file_artifact_read_failed",
+          errorMessage: "Could not read tracked file outputs/result.csv.",
+          jobId: "job-1",
+          notebookPath: "nb.ipynb",
+          runOutcome: "n/a",
+          source: "trigger_cell",
+          state: "failed",
+          submittedAt: "2026-05-26T12:00:00+00:00",
+        },
+      ],
+    }),
+  );
+
+  const [row] = section.rows;
+  assert.ok(row);
+  assert.equal(row.isError, true);
+  assert.deepEqual(row.errorDetails, [
+    "Full error: Could not read tracked file outputs/result.csv.",
+    "Error code: watched_file_artifact_read_failed",
+  ]);
+  assert.deepEqual(section.latestFailureDetails, row.errorDetails);
+});
+
 void test("running activity rows expose phase-level progress labels", () => {
   const section = buildActivitySection(
     parseSnapshotJobsResponse({

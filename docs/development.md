@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Python `3.12+`
+- Python `3.10+`
 - Node.js and npm
 - JupyterLab `4.x` available in the Python environment if you want editable
   frontend install behavior

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, TypeAlias
 
 from save_my_jupyter.domain.enums import CommitMode, TriggerMode
 from save_my_jupyter.domain.provenance import ConfigLayer
@@ -14,7 +14,7 @@ from save_my_jupyter.domain.types import (
     StringMap,
 )
 
-type RelativeWatchPaths = tuple[RelativeWatchPath, ...]
+RelativeWatchPaths: TypeAlias = tuple[RelativeWatchPath, ...]
 
 # The inferred default LabArchives destination scopes by the authenticated user's
 # email because shared notebooks are the norm here (contract C-DEST-06). The
@@ -45,6 +45,7 @@ class RepoConfig:
     default_commit_mode: CommitMode | None = None
     default_tags: tuple[str, ...] = ()
     default_watch_paths: RelativeWatchPaths | None = None
+    default_metadata: StringMap = field(default_factory=dict)
     include_notebook_file: bool | None = None
     include_diff_when_dirty: bool | None = None
     default_target_notebook: LabArchivesNotebookName | None = None

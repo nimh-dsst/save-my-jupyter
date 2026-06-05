@@ -9,7 +9,8 @@ export interface ReadinessSection {
   readonly blockedMessage: string | null;
 }
 
-const CONNECT_BLOCKED = "Connect LabArchives before creating a snapshot.";
+export const CONNECT_BLOCKED_MESSAGE =
+  "Connect LabArchives before creating a snapshot.";
 
 export function buildReadinessSection(auth: AuthState): ReadinessSection {
   const authenticated = auth.status === "authenticated";
@@ -17,7 +18,7 @@ export function buildReadinessSection(auth: AuthState): ReadinessSection {
     canSnapshot: authenticated,
     authDescription: describeAuth(auth),
     authButtonLabel: authenticated ? "Sign out" : "Connect",
-    blockedMessage: authenticated ? null : CONNECT_BLOCKED,
+    blockedMessage: authenticated ? null : CONNECT_BLOCKED_MESSAGE,
   };
 }
 

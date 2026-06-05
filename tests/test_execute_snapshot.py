@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from save_my_jupyter.adapters.activity_sqlite import SqliteActivityStore
@@ -27,7 +27,7 @@ from save_my_jupyter.domain.types import (
     SnapshotId,
 )
 
-_NOW = datetime(2026, 5, 26, 12, 0, 0, tzinfo=UTC)
+_NOW = datetime(2026, 5, 26, 12, 0, 0, tzinfo=timezone.utc)
 
 
 class _FrozenClock:

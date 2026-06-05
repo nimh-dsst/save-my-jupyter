@@ -40,9 +40,12 @@ from save_my_jupyter.application.snapshot.guards import (
     enforce_size_cap,
 )
 from save_my_jupyter.application.snapshot.notebook_content import (
+    cell_sources,
     extract_figures,
+    notebook_metadata,
     outline_notebook,
     summarize_execution,
+    triggering_cell_source,
 )
 from save_my_jupyter.application.snapshot.notebook_diff import render_notebook_diff
 from save_my_jupyter.application.snapshot.plan import plan_capture
@@ -110,12 +113,12 @@ def run_snapshot_pipeline(
     resolved = resolve_effective_config(
         request_commit_mode=request.commit_mode,
         request_watched_paths=request.watched_paths,
-        notebook=parse_notebook_metadata(_notebook_metadata(notebook_json)),
+        notebook=parse_notebook_metadata(notebook_metadata(notebook_json)),
         user=deps.user_settings,
         repo=repo_config.config,
     )
     effective = resolved.effective
-    directive = parse_directives(_cell_sources(notebook_json))
+    directive = parse_directives(cell_sources(notebook_json))
     figures = extract_figures(notebook_json)
     outline = outline_notebook(notebook_json)
 
@@ -131,7 +134,9 @@ def run_snapshot_pipeline(
         ui_run_label=request.metadata.run_label,
         default_tags=_default_tags(deps.user_settings, repo_config.config),
         default_run_label=deps.user_settings.default_run_label,
-        triggering_cell_source=_triggering_cell_source(notebook_json, request),
+        triggering_cell_source=triggering_cell_source(
+            notebook_json, request.notebook_context.triggering_cell_id
+        ),
     )
 
     notebook_diff = _notebook_diff(deps, repo, notebook_json)
@@ -428,13 +433,6 @@ def _run_fingerprint(request: SnapshotRequest) -> RunFingerprint:
     )
 
 
-def _notebook_metadata(notebook_json: Mapping[str, object]) -> Mapping[str, object]:
-    metadata = _as_dict(notebook_json.get("metadata"))
-    if metadata is None:
-        return {}
-    return _as_dict(metadata.get("save_my_jupyter")) or {}
-
-
 def _watched_relative_repo_paths(
     watched: tuple[WatchedFileArtifact, ...],
 ) -> tuple[RelativeRepoPath, ...]:
@@ -445,38 +443,7 @@ def _watched_relative_repo_paths(
     )
 
 
-def _cell_sources(notebook_json: Mapping[str, object]) -> list[str]:
-    return [_join_source(cell.get("source")) for cell in _cells(notebook_json)]
-
-
-def _triggering_cell_source(
-    notebook_json: Mapping[str, object], request: SnapshotRequest
-) -> str | None:
-    triggering = request.notebook_context.triggering_cell_id
-    if triggering is None:
-        return None
-    for cell in _cells(notebook_json):
-        if cell.get("id") == triggering:
-            return _join_source(cell.get("source"))
-    return None
-
-
-def _cells(notebook_json: Mapping[str, object]) -> list[dict[str, object]]:
-    cells = notebook_json.get("cells")
-    if not isinstance(cells, list):
-        return []
-    return [normalized for cell in cells if (normalized := _as_dict(cell)) is not None]
-
-
 def _as_dict(value: object) -> dict[str, object] | None:
     if not isinstance(value, dict):
         return None
     return {str(key): nested for key, nested in value.items()}
-
-
-def _join_source(source: object) -> str:
-    if isinstance(source, str):
-        return source
-    if isinstance(source, list):
-        return "".join(part for part in source if isinstance(part, str))
-    return ""

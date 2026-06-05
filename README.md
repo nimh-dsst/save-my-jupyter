@@ -6,9 +6,9 @@ notebook development snapshots and persisting them to LabArchives.
 It combines:
 
 - a Jupyter Server extension for snapshot orchestration, Git integration,
-  watched-path polling, LabArchives auth, and persistence
+  tracked-file capture, LabArchives auth, and persistence
 - a JupyterLab frontend extension for notebook UI, trigger-cell controls,
-  watched-path editing, commit prompts, and snapshot metadata entry
+  tracked-file editing, commit prompts, and snapshot metadata entry
 
 ## What It Does
 
@@ -16,7 +16,7 @@ Each snapshot can include:
 
 - the saved notebook file
 - Git context, including a commit hash or a diff against `HEAD`
-- watched files that changed during the run
+- tracked files captured at snapshot time
 - visible notebook output summaries and figures rendered inline from the
   notebook document
 - user-entered tags, notes, run labels, and opt-in metadata fields
@@ -27,14 +27,14 @@ Snapshots can be created by:
 - executing a marked trigger cell
 - enabling `Trigger on every executed cell`
 
-Watched paths are not a snapshot trigger today — they are file globs that get
+Tracked paths are not a snapshot trigger today — they are file globs that get
 resolved and attached when a snapshot fires through one of the above sources.
 
 Each snapshot becomes one LabArchives page.
 
 ## Compatibility
 
-- Server environment: Python `>=3.12`
+- Server environment: Python `>=3.10`
 - Jupyter targets: JupyterLab `4.x`, Notebook `7.x`, Jupyter Server `2.x`
 - Kernel policy: core snapshot behavior is kernel-independent
 
@@ -87,7 +87,7 @@ editable frontend wiring.
 3. Run `Open Snapshot Settings` from the command palette to open the `Save My
 Jupyter` side panel.
 4. Click `Connect` and finish the LabArchives sign-in flow.
-5. Choose a commit mode and optional watched paths.
+5. Choose a commit mode and optional tracked files.
 6. Mark trigger cells or enable `Trigger on every executed cell`.
 7. Add tags, notes, or a run label.
 8. Click `Snapshot Now` or run a trigger cell.
@@ -97,7 +97,7 @@ Jupyter` side panel.
 If the repository contains `.save-my-jupyter.toml`, the extension can:
 
 - route different notebook subtrees to different LabArchives destinations
-- apply shared watched-path defaults
+- apply shared tracked-file defaults
 - define repo-wide commit defaults
 - attach metadata templates for path-specific work
 
@@ -130,7 +130,7 @@ Implemented:
 - shared `.save-my-jupyter.toml` repo config
 - manual snapshots
 - trigger-cell snapshots
-- watched files attached at snapshot time
+- tracked files attached at snapshot time
 - Git commit/diff capture
 - LabArchives auth flow and adapter
 - strict Python and TypeScript lint/type/test gates
@@ -139,10 +139,10 @@ Current limitations:
 
 - runtime state is in-memory only
 - no retry queue for failed LabArchives writes
-- watched paths are matched at snapshot time only; they are not polled and do
+- tracked paths are matched at snapshot time only; they are not polled and do
   not fire snapshots on file changes
 - artifact capture is intentionally kernel-independent, so it only uses notebook
-  document state and watched files
+  document state and tracked files
 - richer kernel-specific enrichment is not implemented yet
 
 ## Quality Gates

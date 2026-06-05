@@ -64,12 +64,12 @@ _UNSAFE_SEGMENT_CODE = "unsafe_labarchives_target_path"
 
 
 def validate_watched_path(raw: str) -> WatchedPathValidation:
-    """Validate a user-entered watched path (contract C-WATCH-02). Returns the
+    """Validate a user-entered tracked path (contract C-WATCH-02). Returns the
     normalized POSIX path or a rejection carrying the exact user-facing message."""
     trimmed = raw.strip()
     if trimmed == "":
         return WatchedPathRejected(
-            message="Watched paths must not be empty.",
+            message="Tracked paths must not be empty.",
             code="invalid_sequence_item",
         )
     if (
@@ -77,7 +77,7 @@ def validate_watched_path(raw: str) -> WatchedPathValidation:
         or _WINDOWS_ABSOLUTE.match(trimmed) is not None
     ):
         return WatchedPathRejected(
-            message="Watched paths must be relative.",
+            message="Tracked paths must be relative.",
             code="absolute_path_not_allowed",
         )
 
@@ -87,14 +87,14 @@ def validate_watched_path(raw: str) -> WatchedPathValidation:
             continue
         if segment == "..":
             return WatchedPathRejected(
-                message="Watched paths must stay within the notebook or repo root.",
+                message="Tracked paths must stay within the notebook or repo root.",
                 code="path_escapes_root",
             )
         segments.append(segment)
 
     if not segments:
         return WatchedPathRejected(
-            message="Watched paths must include at least one path segment.",
+            message="Tracked paths must include at least one path segment.",
             code="invalid_sequence_item",
         )
     return WatchedPathAccepted(normalized="/".join(segments))
@@ -136,7 +136,7 @@ def is_sensitive_file(path: PurePath) -> bool:
 
 
 def matches_watch_pattern(*, candidate: str, pattern: str) -> bool:
-    """Match a POSIX candidate path against a watched-path pattern. Non-glob
+    """Match a POSIX candidate path against a tracked-path pattern. Non-glob
     patterns match the path or any path beneath it (contract C-WATCH-03)."""
     if is_glob(pattern):
         candidate_path = PurePosixPath(candidate)

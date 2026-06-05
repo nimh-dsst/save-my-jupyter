@@ -4,10 +4,14 @@ import base64
 
 from save_my_jupyter.application.snapshot.notebook_content import (
     NOTEBOOK_MIME_TYPE,
+    cell_sources,
     extract_figures,
+    notebook_metadata,
     outline_notebook,
     resolve_artifact_mime_type,
+    source_text,
     summarize_execution,
+    triggering_cell_source,
 )
 
 
@@ -147,6 +151,46 @@ def test_outline_no_execution_output() -> None:
     outline = outline_notebook(_notebook([{"outputs": []}, {"source": "x = 1"}]))
     assert outline.figure_count == 0
     assert outline.has_execution_output is False
+
+
+def test_notebook_metadata_reads_extension_metadata() -> None:
+    notebook = {
+        "metadata": {
+            "save_my_jupyter": {
+                "all_cells_trigger": True,
+                "watched_paths": ["outputs"],
+            }
+        }
+    }
+    assert notebook_metadata(notebook) == {
+        "all_cells_trigger": True,
+        "watched_paths": ["outputs"],
+    }
+    assert notebook_metadata({"metadata": {"other": {}}}) == {}
+
+
+def test_cell_sources_match_notebook_source_shapes() -> None:
+    notebook = _notebook(
+        [
+            {"source": "alpha"},
+            {"source": ["be", "ta", 7, "\n"]},
+            {"source": None},
+        ]
+    )
+    assert cell_sources(notebook) == ["alpha", "beta\n", ""]
+    assert source_text(["x", object(), "y"]) == "xy"
+
+
+def test_triggering_cell_source_matches_cell_id() -> None:
+    notebook = _notebook(
+        [
+            {"id": "first", "source": "ignored"},
+            {"id": "target", "source": ["x = ", "1"]},
+        ]
+    )
+    assert triggering_cell_source(notebook, "target") == "x = 1"
+    assert triggering_cell_source(notebook, "missing") is None
+    assert triggering_cell_source(notebook, None) is None
 
 
 # --- MIME resolution (C-CONTENT-04) ---

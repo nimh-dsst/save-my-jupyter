@@ -28,6 +28,23 @@ class _SnapshotDirectoryWithMethod:
         return self._url
 
 
+class _NestedDirectory:
+    def __init__(
+        self, *, directory_id: str, created: list[tuple[str, str, str]]
+    ) -> None:
+        self.id = directory_id
+        self.created = created
+
+    def create(self, kind: object, name: str, *, if_exists: object) -> _NestedDirectory:
+        del kind, if_exists
+        child = _NestedDirectory(
+            directory_id=f"{self.id}/{name}",
+            created=self.created,
+        )
+        self.created.append((self.id, name, child.id))
+        return child
+
+
 class _RootDirectory:
     def __init__(self, snapshot: Any) -> None:
         self.snapshot = snapshot
@@ -129,3 +146,33 @@ def test_directory_url_ignores_unknown_or_non_clickable_url(
 
     assert client.directory_url(directory_id="dir-3") is None
     assert client.directory_url(directory_id="missing") is None
+
+
+def test_ensure_directory_path_creates_nested_directories_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_labapi_constants(monkeypatch)
+    created: list[tuple[str, str, str]] = []
+    root = _RootDirectory(_NestedDirectory(directory_id="snapshot-1", created=created))
+    client = LabApiClient(_Session(root))
+    snapshot_id = client.create_directory(
+        notebook_name="Jupyter Snapshots",
+        root_path="Notebook Log",
+        directory_name="snapshot-1",
+    )
+
+    directory_id = client.ensure_directory_path(
+        parent_directory_id=snapshot_id,
+        relative_path="outputs/session-1",
+    )
+    again = client.ensure_directory_path(
+        parent_directory_id=snapshot_id,
+        relative_path="outputs/session-1",
+    )
+
+    assert directory_id == "snapshot-1/outputs/session-1"
+    assert again == directory_id
+    assert created == [
+        ("snapshot-1", "outputs", "snapshot-1/outputs"),
+        ("snapshot-1/outputs", "session-1", "snapshot-1/outputs/session-1"),
+    ]

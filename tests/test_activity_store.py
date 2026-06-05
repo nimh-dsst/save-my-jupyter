@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -13,7 +13,7 @@ from save_my_jupyter.domain.types import CommitHash, RemoteUrl, SnapshotId
 if TYPE_CHECKING:
     from save_my_jupyter.ports import ActivityStore
 
-_BASE = datetime(2026, 5, 26, 12, 0, 0, tzinfo=UTC)
+_BASE = datetime(2026, 5, 26, 12, 0, 0, tzinfo=timezone.utc)
 
 
 def _record(job_id: str, *, state: JobState, submitted: datetime) -> ActivityRecord:

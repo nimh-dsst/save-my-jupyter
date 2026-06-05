@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from save_my_jupyter.adapters.fake_delivery import FakeDelivery
@@ -60,7 +60,7 @@ def _metadata() -> SnapshotMetadata:
 
 def test_directory_name_uses_iso_millisecond_timestamp_and_snapshot_id() -> None:
     name = format_directory_name(
-        timestamp=datetime(2026, 5, 26, 12, 0, 0, 123000, tzinfo=UTC),
+        timestamp=datetime(2026, 5, 26, 12, 0, 0, 123000, tzinfo=timezone.utc),
         snapshot_id=SnapshotId("snapshot-1"),
     )
     assert name == "2026-05-26T12-00-00.123_snapshot-1"
@@ -85,6 +85,7 @@ def test_bundle_orders_notebook_then_files_then_diff_and_embeds_figures() -> Non
                 filename="result.csv",
                 mime_type=MimeType("text/csv"),
                 content=b"a,b",
+                relative_path="outputs/result.csv",
             ),
         ),
         diff_text="diff --git a/x b/x",
@@ -95,6 +96,7 @@ def test_bundle_orders_notebook_then_files_then_diff_and_embeds_figures() -> Non
         "working-tree.patch",
     ]
     assert bundle.artifacts[0].mime_type == "application/x-ipynb+json"
+    assert bundle.artifacts[1].relative_path == "outputs/result.csv"
     assert bundle.artifacts[-1].mime_type == "text/x-diff"
     assert bundle.artifacts[-1].content == b"diff --git a/x b/x"
     assert bundle.artifacts[-1].description == DIFF_FILTER_QUALIFIER

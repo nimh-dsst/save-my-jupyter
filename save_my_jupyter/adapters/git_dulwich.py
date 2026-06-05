@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from fnmatch import fnmatch
 from io import BytesIO
 from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING, cast
 
 from dulwich import porcelain
 from dulwich.errors import NotGitRepository
@@ -24,6 +25,9 @@ from save_my_jupyter.domain.types import (
     RemoteUrl,
     RepoRootPath,
 )
+
+if TYPE_CHECKING:
+    from dulwich.objects import Commit
 
 _COMMIT_HASH_PATTERN = re.compile(r"^[0-9a-f]{7,40}$")
 _IGNORED_PATH_PARTS = frozenset({".ipynb_checkpoints"})
@@ -97,7 +101,7 @@ class DulwichGitInspector:
     ) -> bytes | None:
         try:
             with Repo(str(Path(repo_root))) as repo:
-                head = repo[repo.head()]
+                head = cast("Commit", repo[repo.head()])
                 for entry in iter_tree_contents(repo.object_store, head.tree):
                     if _decode(entry.path) == str(path):
                         blob = repo.object_store[entry.sha]

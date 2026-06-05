@@ -4,7 +4,7 @@
 
 Make sure the Jupyter server environment has:
 
-- Python `3.12+`
+- Python `3.10+`
 - JupyterLab `4.x` or Notebook `7.x`
 - the `save-my-jupyter` package installed, which also installs `labapi`
 
@@ -33,7 +33,6 @@ After installation:
 The extension adds:
 
 - a right-side `Save My Jupyter` panel
-- a `Snapshot` toolbar button on notebook panels
 - command palette commands for snapshot and trigger-cell actions
 
 ## Authenticate With LabArchives
@@ -66,13 +65,13 @@ If a cell printed credentials, debug payloads, or anything else you would not
 share with LabArchives, clear those outputs **before** triggering the snapshot.
 There is no per-output redaction step today.
 
-Watched files are also uploaded as separate attachments. The extension drops
+Tracked files are also uploaded as separate attachments. The extension drops
 common sensitive filenames (`.env`, `*.pem`, `*.key`, `id_rsa*`, `.netrc`,
 files under `.ssh`/`.aws`, virtualenvs, and cache directories), but you should
-still review your watched-paths list.
+still review your tracked-file list.
 
 Upload guardrails stop oversized inline saves before they are sent to
-LabArchives: notebooks are limited to 50 MiB, watched-file attachments are
+LabArchives: notebooks are limited to 50 MiB, tracked-file attachments are
 limited to 25 MiB each, and raw diff attachments are truncated at 1 MiB. Rich
 notebook diffs are still rendered separately when available. Figure outputs are
 rendered inside the readable notebook or notebook-diff page rather than as
@@ -84,12 +83,12 @@ separate figure pages when the notebook is saved.
 
 Choose one of:
 
-- `Prompt`
+- `Ask`
 - `Always commit`
 - `Never commit`
 
-If commit mode is `Prompt`, the extension asks whether to create a Git commit
-before the snapshot. If you enable `Remember prompt decisions`, the next choice
+If commit mode is `Ask`, the extension asks whether to create a Git commit
+before the snapshot. If you enable `Remember this decision`, the next choice
 becomes the default commit mode.
 
 ### Trigger mode
@@ -108,9 +107,9 @@ Use command palette commands:
 Trigger state is stored in notebook metadata, so it travels with the notebook
 file.
 
-### Watched paths
+### Tracked files
 
-Add watched paths in the side panel using relative paths such as:
+Add tracked files in the side panel using relative paths such as:
 
 - `outputs`
 - `reports/result.csv`
@@ -122,7 +121,7 @@ Rules:
 - paths cannot escape the repo or notebook root
 - file and directory-subtree watches are both supported
 
-Watched paths are **not polled**. They are resolved and attached at snapshot
+Tracked paths are **not polled**. They are resolved and attached at snapshot
 time — when you trigger a manual or trigger-cell snapshot, the backend matches
 the configured globs against the current working tree and bundles the matching
 files into the snapshot.
@@ -143,13 +142,20 @@ metadata entry for search and review. For opt-in metadata extraction, add a
 comma-, semicolon-, or newline-separated tag list; those values are merged into
 the snapshot tags.
 
+Python notebooks can also define live snapshot metadata in the kernel:
+`smj_tags` may be a single tag value or a list of tag values, and `smj_run` may
+be a run-label string. Numeric and boolean `smj_tags` values are converted to
+strings, so `smj_tags = random.randint(1, 3)` records a tag such as `2`.
+Automatic trigger snapshots read these values once when the trigger candidate
+settles; if several cells update `smj_tags` during one Run All, the snapshot
+uses the final value.
+
 ## Create Snapshots
 
 ### Manual snapshots
 
 Use either:
 
-- the notebook toolbar `Snapshot` button
 - the command palette `Snapshot Now`
 - the `Snapshot now` button in the side panel
 
@@ -170,15 +176,15 @@ Trigger-cell snapshots happen when:
 The backend deduplicates automatic snapshots so multiple trigger hits in one
 logical run produce at most one snapshot.
 
-Trigger-cell snapshots also emit JupyterLab notifications, so activity is
-visible even when the Save My Jupyter side panel is closed.
+Trigger-cell snapshots update the Save My Jupyter status and Activity history.
+Routine start and success messages stay in the panel; only trigger snapshot
+failures may show a compact JupyterLab error notification.
 
-### Watched-path attachments
+### Tracked-file attachments
 
-There is no automatic "watched-path snapshot" trigger. Configured watched paths
+There is no automatic "tracked-file snapshot" trigger. Configured tracked paths
 are resolved at snapshot time (manual or trigger-cell) and the matching files
-are uploaded as attachments alongside the notebook. The watch registration the
-UI syncs to the server is what drives this matching.
+are uploaded as attachments alongside the notebook.
 
 If you need a snapshot to fire when a file changes, run the cell that produced
 the file as a trigger cell, or invoke `Snapshot Now` manually.
@@ -193,7 +199,7 @@ Each snapshot becomes one LabArchives page and may include:
 - rich notebook diff text and a filtered raw patch for non-notebook files
 - the notebook file, with visible output figures rendered inline in the
   readable notebook page
-- watched file attachments
+- tracked file attachments
 - execution summaries for text, image-only, multi-output, and error outputs
 
 ## Git Behavior
@@ -201,7 +207,7 @@ Each snapshot becomes one LabArchives page and may include:
 If the notebook is in a Git repository:
 
 - the extension resolves repo root, remote, commit hash, and dirty state
-- snapshot commits only stage the notebook and optionally watched paths
+- snapshot commits stage the notebook and tracked paths by default
 - unrelated modified files are not staged automatically
 - LabArchives metadata distinguishes a new snapshot commit from an existing
   `HEAD` hash reused because no snapshot paths changed
@@ -217,7 +223,7 @@ If the user declines commit:
 - the snapshot still succeeds
 - the working-tree diff against `HEAD` is stored
 
-Dirty diffs are scoped to the notebook and configured watched paths. The rich
+Dirty diffs are scoped to the notebook and configured tracked paths. The rich
 notebook diff omits raw notebook JSON noise; raw patch attachments omit notebook
 JSON and image patches when a rich notebook diff can represent those changes.
 
@@ -225,7 +231,7 @@ JSON and image patches when a rich notebook diff can represent those changes.
 
 If the repository has a `.save-my-jupyter.toml` file, the extension can:
 
-- apply default watched paths
+- apply intentionally configured tracked paths
 - define a default LabArchives notebook and root path
 - define commit defaults
 - define Git staging behavior
@@ -262,7 +268,7 @@ incomplete.
 Automatic snapshots are deduplicated by run fingerprint. If you need another
 snapshot immediately, use a manual snapshot.
 
-### Watched path rejected
+### Tracked path rejected
 
 The path is probably:
 

@@ -8,6 +8,7 @@ export interface ActivityRow {
   readonly phaseItems: readonly ActivityPhase[];
   readonly phaseLabels: readonly string[];
   readonly runOutcomeLabel: string | null;
+  readonly errorDetails: readonly string[];
   /** A clickable LabArchives directory URL when the snapshot persisted (C-DEST-05). */
   readonly url: string | null;
   readonly isError: boolean;
@@ -21,6 +22,7 @@ export interface ActivityPhase {
 export interface ActivitySection {
   readonly rows: readonly ActivityRow[];
   readonly totalRows: number;
+  readonly latestFailureDetails: readonly string[];
   readonly overflowMessage: string | null;
   readonly emptyMessage: string | null;
 }
@@ -45,6 +47,8 @@ export function buildActivitySection(
   return {
     rows,
     totalRows,
+    latestFailureDetails:
+      rows.find((row) => row.isError)?.errorDetails ?? [],
     overflowMessage:
       totalRows > rows.length
         ? `Showing ${String(rows.length)} most recent of ${String(totalRows)} runs.`
@@ -63,6 +67,7 @@ function toRow(record: ActivityRecord): ActivityRow {
     phaseItems: phases,
     phaseLabels: phases.map((phase) => phase.label),
     runOutcomeLabel: runOutcomeLabel(record),
+    errorDetails: errorDetails(record),
     url: record.directoryUrl,
     isError: record.state === "failed",
   };
@@ -86,4 +91,29 @@ function runOutcomeLabel(record: ActivityRecord): string | null {
     return "Run ended with errors";
   }
   return null;
+}
+
+function errorDetails(record: ActivityRecord): readonly string[] {
+  if (record.state !== "failed") {
+    return [];
+  }
+
+  const details: string[] = [];
+  const errorMessage =
+    normalizedOptionalText(record.errorMessage) ??
+    normalizedOptionalText(record.displayMessage);
+  if (errorMessage !== null) {
+    details.push(`Full error: ${errorMessage}`);
+  }
+
+  const errorCode = normalizedOptionalText(record.errorCode);
+  if (errorCode !== null) {
+    details.push(`Error code: ${errorCode}`);
+  }
+  return details;
+}
+
+function normalizedOptionalText(value: string | null): string | null {
+  const trimmed = value?.trim();
+  return trimmed === undefined || trimmed.length === 0 ? null : trimmed;
 }

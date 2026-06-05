@@ -24,6 +24,10 @@ watch_paths = ["outputs", "figs/**"]
 include_notebook_file = false
 include_diff_when_dirty = false
 
+[defaults.metadata]
+audience = "team"
+operator = "Ada"
+
 [labarchives]
 target_notebook = "Lab NB"
 target_root_path = "Runs/{user_email}"
@@ -45,6 +49,7 @@ def test_full_repo_config_parses_every_section() -> None:
     assert config.default_watch_paths == ("outputs", "figs/**")
     assert config.include_notebook_file is False
     assert config.include_diff_when_dirty is False
+    assert config.default_metadata == {"audience": "team", "operator": "Ada"}
     assert config.default_target_notebook == "Lab NB"
     assert config.default_target_root_path == "Runs/{user_email}"
     assert config.stage_notebook_on_commit is False

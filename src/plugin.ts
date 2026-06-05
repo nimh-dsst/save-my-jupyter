@@ -3,14 +3,9 @@ import type {
   JupyterFrontEndPlugin,
 } from "@jupyterlab/application";
 import {
-  Dialog,
   ICommandPalette,
   Notification,
-  ToolbarButton,
-  showDialog,
 } from "@jupyterlab/apputils";
-import type { Cell } from "@jupyterlab/cells";
-import { PathExt } from "@jupyterlab/coreutils";
 import {
   INotebookTracker,
   type Notebook,
@@ -20,73 +15,90 @@ import { ISettingRegistry } from "@jupyterlab/settingregistry";
 
 import { ApiClient } from "./apiClient";
 import { mergeTags, parseDirectives } from "./application/directives";
+import { triggerSnapshotNotification } from "./application/feedback/notifications";
+import { CONNECT_BLOCKED_MESSAGE } from "./application/panel/readiness";
 import {
   info as infoStatus,
   warning as warningStatus,
 } from "./application/panel/status";
+import { NO_NOTEBOOK_CONFIG_MESSAGE } from "./config/starterConfig";
 import {
   ExecutionObserver,
   type TriggerRun,
 } from "./notebook/executionObserver";
+import type { DynamicKernelMetadata } from "./notebook/kernelMetadata";
 import {
-  collectDynamicKernelMetadata,
-  type DynamicKernelMetadata,
-} from "./notebook/kernelMetadata";
-import { buildSnapshotRequestBody } from "./notebook/requestBuilders";
+  addWatchedPath,
+  isFinalNotebookCell,
+  readNotebookWatchedPaths,
+  readTargetOptions,
+  readTriggerOptions,
+  removeWatchedPath,
+  setActiveCellTrigger,
+  setupNotebookPanel,
+  shouldSnapshotCell,
+  syncNotebookTriggerCellIds,
+  syncTriggerCellDecorations,
+  toggleActiveCellTrigger,
+  toggleAllCellsTrigger,
+  updateTargetOptions,
+} from "./notebook/notebookState";
 import {
-  ACTIVE_CELL_TRIGGER_CLASS,
+  buildManualBody,
+  buildTriggerBody,
+  collectPanelDynamicMetadata,
+} from "./notebook/snapshotRequestBodies";
+import {
+  notebookCellSources,
+  triggerRunContentKey,
+} from "./notebook/sourceText";
+import {
+  TriggerDebouncer,
+  TRIGGER_SNAPSHOT_DEBOUNCE_MS,
+} from "./notebook/triggerDebouncer";
+import {
   COMMAND_MARK_CELL_TRIGGER,
   COMMAND_OPEN_PANEL,
   COMMAND_SNAPSHOT,
   COMMAND_TOGGLE_ALL_CELLS_TRIGGER,
   COMMAND_TOGGLE_CELL_TRIGGER,
   COMMAND_UNMARK_CELL_TRIGGER,
-  NO_CELL_SELECTED_WARNING,
-  SNAPSHOT_TOOLBAR_ITEM,
   TRIGGER_CONTEXT_SELECTOR,
-  allCellsConfirmMessage,
-  isAllCellsTriggerMetadata,
-  isTriggerMetadata,
-  shouldDecorateTriggerCell,
-  shouldTriggerOnExecution,
-  triggerCellIndexForTarget,
-  triggerCellState,
   triggerCommandLabels,
   triggerToggleLabel,
-  withAllCellsTrigger,
-  withSyncedTriggerCellIds,
-  withTrigger,
-  type TriggerCellState,
 } from "./notebook/triggers";
 import {
-  readWatchedPaths,
-  type WatchedPathAddResult,
-  withAddedWatchedPath,
-  withoutWatchedPath,
-} from "./notebook/watchedPaths";
-import { SnapshotPanelController } from "./panel/controller";
-import type { SnapshotRequestOptions } from "./panel/controller";
+  SnapshotPanelController,
+  type SnapshotRequestOptions,
+} from "./panel/controller";
 import { SnapshotPanel } from "./panel/SnapshotPanel";
-import { UserPreferencesStore } from "./settings";
-import type { RunOutcome } from "./types";
+import { PLUGIN_ID, UserPreferencesStore } from "./settings";
 
-const PLUGIN_ID = "@save-my-jupyter/extension:plugin";
 const PALETTE_CATEGORY = "Save My Jupyter";
+const PALETTE_COMMANDS = [
+  COMMAND_OPEN_PANEL,
+  COMMAND_SNAPSHOT,
+  COMMAND_TOGGLE_CELL_TRIGGER,
+  COMMAND_MARK_CELL_TRIGGER,
+  COMMAND_UNMARK_CELL_TRIGGER,
+  COMMAND_TOGGLE_ALL_CELLS_TRIGGER,
+] as const;
 const COMMANDS_WITH_TRIGGER_STATE = [
   COMMAND_MARK_CELL_TRIGGER,
   COMMAND_TOGGLE_ALL_CELLS_TRIGGER,
   COMMAND_TOGGLE_CELL_TRIGGER,
   COMMAND_UNMARK_CELL_TRIGGER,
 ] as const;
-const AUTH_REQUIRED_DIALOG_TITLE = "LabArchives connection required";
-const AUTH_REQUIRED_DIALOG_BODY =
-  "Connect LabArchives in the Save My Jupyter sidebar before creating a snapshot.";
-const OPEN_PANEL_BUTTON = "Open Save My Jupyter";
-const TRIGGER_STARTED_MESSAGE = "Save My Jupyter trigger snapshot started.";
-const EMPTY_DYNAMIC_METADATA: DynamicKernelMetadata = {
-  runLabel: null,
-  tags: [],
-};
+const PANEL_SIDEBAR_RANK = 1000;
+const TRIGGER_CONTEXT_MENU_RANK = 1000;
+const OPEN_NOTEBOOK_SNAPSHOT_MESSAGE =
+  "Open a notebook before creating a snapshot.";
+
+interface PreparedTriggerSnapshot {
+  readonly dynamicMetadata: DynamicKernelMetadata;
+  readonly options: SnapshotRequestOptions;
+  readonly tags: readonly string[];
+}
 
 const plugin: JupyterFrontEndPlugin<void> = {
   id: PLUGIN_ID,
@@ -103,14 +115,16 @@ const plugin: JupyterFrontEndPlugin<void> = {
     const controller = new SnapshotPanelController(api);
     const preferences = new UserPreferencesStore(settingRegistry);
     const configuredNotebookPanels = new WeakSet<NotebookPanel>();
+    const preparedTriggerRuns = new WeakMap<
+      TriggerRun,
+      PreparedTriggerSnapshot | null
+    >();
 
     const notifyInfo = (message: string): void => {
       controller.setStatus(infoStatus(message));
-      Notification.info(message, { autoClose: 3000 });
     };
     const notifyWarning = (message: string): void => {
       controller.setStatus(warningStatus(message));
-      Notification.warning(message, { autoClose: 5000 });
     };
 
     const snapshotPanel = async (
@@ -118,12 +132,16 @@ const plugin: JupyterFrontEndPlugin<void> = {
     ): Promise<void> => {
       if (target === null) {
         app.shell.activateById(panel.id);
-        notifyWarning("Open a notebook before creating a snapshot.");
+        notifyWarning(OPEN_NOTEBOOK_SNAPSHOT_MESSAGE);
         return;
       }
       controller.setNotebookName(target.context.path);
-      if (!controller.state.get().readiness.canSnapshot) {
-        await showAuthRequiredDialog(app, panel.id);
+      const readiness = controller.state.get().readiness;
+      if (!readiness.canSnapshot) {
+        app.shell.activateById(panel.id);
+        controller.setStatus(
+          warningStatus(readiness.blockedMessage ?? CONNECT_BLOCKED_MESSAGE),
+        );
         return;
       }
       const saved = await saveNotebookForSnapshot(target);
@@ -186,7 +204,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
         refreshTriggerUi();
       },
     });
-    app.shell.add(panel, "right", { rank: 1000 });
+    app.shell.add(panel, "right", { rank: PANEL_SIDEBAR_RANK });
 
     const refreshTriggerUi = (): void => {
       const current = notebooks.currentWidget;
@@ -223,22 +241,6 @@ const plugin: JupyterFrontEndPlugin<void> = {
     notebooks.currentChanged.connect(refreshTriggerUi);
     notebooks.activeCellChanged.connect(refreshTriggerUi);
     notebooks.selectionChanged.connect(refreshTriggerUi);
-    notebooks.widgetAdded.connect((_tracker, notebookPanel) => {
-      setupNotebookPanel(
-        notebookPanel,
-        configuredNotebookPanels,
-        snapshotPanel,
-        refreshTriggerUi,
-      );
-    });
-    notebooks.forEach((notebookPanel) => {
-      setupNotebookPanel(
-        notebookPanel,
-        configuredNotebookPanels,
-        snapshotPanel,
-        refreshTriggerUi,
-      );
-    });
 
     app.commands.addCommand(COMMAND_OPEN_PANEL, {
       label: triggerCommandLabels.openPanel,
@@ -290,92 +292,120 @@ const plugin: JupyterFrontEndPlugin<void> = {
       },
     });
     if (palette !== null) {
-      [
-        COMMAND_OPEN_PANEL,
-        COMMAND_SNAPSHOT,
-        COMMAND_TOGGLE_CELL_TRIGGER,
-        COMMAND_MARK_CELL_TRIGGER,
-        COMMAND_UNMARK_CELL_TRIGGER,
-        COMMAND_TOGGLE_ALL_CELLS_TRIGGER,
-      ].forEach((command) => {
+      PALETTE_COMMANDS.forEach((command) => {
         palette.addItem({ command, category: PALETTE_CATEGORY });
       });
     }
     app.contextMenu.addItem({
       command: COMMAND_TOGGLE_CELL_TRIGGER,
-      rank: 1000,
+      rank: TRIGGER_CONTEXT_MENU_RANK,
       selector: TRIGGER_CONTEXT_SELECTOR,
     });
 
+    const prepareTriggerRun = async (
+      run: TriggerRun,
+    ): Promise<PreparedTriggerSnapshot | null> => {
+      if (preparedTriggerRuns.has(run)) {
+        return preparedTriggerRuns.get(run) ?? null;
+      }
+      const current = findPanel(notebooks, run.notebook);
+      if (current === null) {
+        preparedTriggerRuns.set(run, null);
+        return null;
+      }
+      const dynamicMetadata = await collectPanelDynamicMetadata(current);
+      const options = controller.snapshotRequestOptions();
+      const tags = triggerRunTags(current, options, dynamicMetadata);
+      const prepared = {
+        dynamicMetadata,
+        options: { ...options, tags },
+        tags,
+      };
+      preparedTriggerRuns.set(run, prepared);
+      return prepared;
+    };
+
     const submitTrigger = async (run: TriggerRun): Promise<void> => {
       const current = findPanel(notebooks, run.notebook);
-      if (current !== null) {
-        const saved = await saveNotebookForSnapshot(current);
-        if (!saved) {
-          return;
-        }
-        Notification.info(TRIGGER_STARTED_MESSAGE, { autoClose: 3000 });
-        const options = controller.snapshotRequestOptions();
-        const dynamicMetadata = await collectPanelDynamicMetadata(current);
-        const status = await controller.snapshot(
-          buildTriggerBody(
-            current,
-            run.lastCell,
-            run.triggeredCellIds,
-            run.runOutcome,
-            options,
-            dynamicMetadata,
-          ),
-        );
-        if (status?.kind === "success") {
-          Notification.success(status.message, { autoClose: 5000 });
-        } else if (status?.kind === "error") {
-          Notification.error(status.message, { autoClose: 7000 });
-        }
+      if (current === null) {
+        preparedTriggerRuns.delete(run);
+        return;
+      }
+      const prepared = await prepareTriggerRun(run);
+      preparedTriggerRuns.delete(run);
+      if (prepared === null) {
+        return;
+      }
+      if (!(await saveNotebookForSnapshot(current))) {
+        return;
+      }
+
+      const status = await controller.snapshot(
+        buildTriggerBody(
+          current,
+          run.lastCell,
+          run.triggeredCellIds,
+          run.runOutcome,
+          prepared.options,
+          prepared.dynamicMetadata,
+        ),
+      );
+      const notification = triggerSnapshotNotification(status);
+      if (notification !== null) {
+        const showNotification =
+          notification.kind === "success"
+            ? Notification.success
+            : Notification.error;
+        showNotification(notification.message, {
+          autoClose: notification.autoClose,
+        });
+      }
+    };
+    const triggerDebouncer = new TriggerDebouncer<Notebook, TriggerRun>({
+      debounceMs: TRIGGER_SNAPSHOT_DEBOUNCE_MS,
+      contentKey: async (run) => {
+        const prepared = await prepareTriggerRun(run);
+        return prepared === null
+          ? null
+          : triggerRunContentKey(run, { tags: prepared.tags });
+      },
+      merge: mergeTriggerRuns,
+      onRun: (run) => {
+        void submitTrigger(run);
+      },
+    });
+    const scheduleTrigger = (run: TriggerRun): void => {
+      triggerDebouncer.schedule(run);
+      if (isFinalNotebookCell(run.notebook, run.lastCell)) {
+        triggerDebouncer.flush(run.notebook);
       }
     };
     const observer = new ExecutionObserver(shouldSnapshotCell, (run) => {
-      void submitTrigger(run);
+      scheduleTrigger(run);
     });
     observer.start();
     const idleFallbackPanels = new WeakSet<NotebookPanel>();
-    const connectIdleFallback = (notebookPanel: NotebookPanel): void => {
+    const configureNotebookPanel = (notebookPanel: NotebookPanel): void => {
+      setupNotebookPanel(
+        notebookPanel,
+        configuredNotebookPanels,
+        refreshTriggerUi,
+      );
       connectKernelIdleFallback(notebookPanel, observer, idleFallbackPanels);
     };
     notebooks.widgetAdded.connect((_tracker, notebookPanel) => {
-      connectIdleFallback(notebookPanel);
+      configureNotebookPanel(notebookPanel);
     });
     notebooks.forEach((notebookPanel) => {
-      connectIdleFallback(notebookPanel);
+      configureNotebookPanel(notebookPanel);
     });
     app.shell.disposed.connect(() => {
       observer.dispose();
+      triggerDebouncer.dispose();
     });
     refreshTriggerUi();
   },
 };
-
-function buildManualBody(
-  panel: NotebookPanel,
-  options: SnapshotRequestOptions,
-  dynamicMetadata: DynamicKernelMetadata = EMPTY_DYNAMIC_METADATA,
-): Record<string, unknown> {
-  const notebookContent = panel.context.model.toJSON() as unknown;
-  const directives = parseDirectives(notebookCellSources(notebookContent));
-  return buildSnapshotRequestBody({
-    source: "manual",
-    notebookPath: panel.context.path,
-    notebookName: PathExt.basename(panel.context.path),
-    documentId: panel.id,
-    notebookContent,
-    commitMode: options.commitMode,
-    runLabel: manualRunLabel(options, dynamicMetadata, directives.runLabel),
-    tags: mergeTags(directives.tags, dynamicMetadata.tags, options.tags),
-    notes: options.notes,
-    extraFields: options.extraFields,
-    watchedPaths: readNotebookWatchedPaths(panel),
-  });
-}
 
 async function saveNotebookForSnapshot(panel: NotebookPanel): Promise<boolean> {
   try {
@@ -389,116 +419,9 @@ async function saveNotebookForSnapshot(panel: NotebookPanel): Promise<boolean> {
 function currentNotebookPath(notebooks: INotebookTracker): string {
   const current = notebooks.currentWidget;
   if (current === null) {
-    throw new Error("Open a notebook before creating a repo config.");
+    throw new Error(NO_NOTEBOOK_CONFIG_MESSAGE);
   }
   return current.context.path;
-}
-
-async function showAuthRequiredDialog(
-  app: JupyterFrontEnd,
-  panelId: string,
-): Promise<void> {
-  await showDialog({
-    body: AUTH_REQUIRED_DIALOG_BODY,
-    buttons: [Dialog.okButton({ label: OPEN_PANEL_BUTTON })],
-    title: AUTH_REQUIRED_DIALOG_TITLE,
-  });
-  app.shell.activateById(panelId);
-}
-
-function buildTriggerBody(
-  panel: NotebookPanel,
-  lastCell: Cell,
-  triggeredCellIds: readonly string[],
-  runOutcome: RunOutcome,
-  options: SnapshotRequestOptions,
-  dynamicMetadata: DynamicKernelMetadata = EMPTY_DYNAMIC_METADATA,
-): Record<string, unknown> {
-  const notebookContent = panel.context.model.toJSON() as unknown;
-  const directives = parseDirectives(notebookCellSources(notebookContent));
-  return buildSnapshotRequestBody({
-    source: "trigger_cell",
-    notebookPath: panel.context.path,
-    notebookName: PathExt.basename(panel.context.path),
-    documentId: panel.id,
-    triggeringCellId: lastCell.model.id,
-    triggeredCellIds,
-    notebookContent,
-    commitMode: options.commitMode,
-    runLabel:
-      dynamicMetadata.runLabel ??
-      directives.runLabel ??
-      firstNonBlankSourceLine(lastCell),
-    runOutcome,
-    tags: mergeTags(directives.tags, dynamicMetadata.tags, options.tags),
-    notes: options.notes,
-    extraFields: options.extraFields,
-    watchedPaths: readNotebookWatchedPaths(panel),
-  });
-}
-
-async function collectPanelDynamicMetadata(
-  panel: NotebookPanel,
-): Promise<DynamicKernelMetadata> {
-  return collectDynamicKernelMetadata(
-    panel.context.sessionContext.session?.kernel ?? null,
-  );
-}
-
-function manualRunLabel(
-  options: SnapshotRequestOptions,
-  dynamicMetadata: DynamicKernelMetadata,
-  directiveRunLabel: string | null,
-): string | null {
-  if (options.runLabelEdited && options.runLabel !== null) {
-    return options.runLabel;
-  }
-  return dynamicMetadata.runLabel ?? options.runLabel ?? directiveRunLabel;
-}
-
-function notebookCellSources(notebookContent: unknown): string[] {
-  if (
-    typeof notebookContent !== "object" ||
-    notebookContent === null ||
-    !Array.isArray((notebookContent as { cells?: unknown }).cells)
-  ) {
-    return [];
-  }
-  return (notebookContent as { cells: unknown[] }).cells.map((cell) => {
-    if (typeof cell !== "object" || cell === null) {
-      return "";
-    }
-    return joinSource((cell as { source?: unknown }).source);
-  });
-}
-
-function firstNonBlankSourceLine(cell: Cell): string | null {
-  const source = joinSource(
-    (cell.model.toJSON() as { source?: unknown }).source,
-  );
-  return (
-    source
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .find((line) => line.length > 0) ?? null
-  );
-}
-
-function joinSource(source: unknown): string {
-  if (typeof source === "string") {
-    return source;
-  }
-  if (Array.isArray(source)) {
-    return source.filter((part) => typeof part === "string").join("");
-  }
-  return "";
-}
-
-function shouldSnapshotCell(notebook: Notebook, cell: Cell): boolean {
-  return shouldTriggerOnExecution(
-    notebook.model?.getMetadata("save_my_jupyter"),
-    cell.model.getMetadata("save_my_jupyter"),
-  );
 }
 
 function findPanel(
@@ -506,275 +429,6 @@ function findPanel(
   notebook: Notebook,
 ): NotebookPanel | null {
   return notebooks.find((panel) => panel.content === notebook) ?? null;
-}
-
-function readTriggerOptions(panel: NotebookPanel | null): {
-  readonly activeCell: TriggerCellState;
-  readonly allCellsTrigger: boolean;
-} {
-  if (panel === null) {
-    return { activeCell: "unknown", allCellsTrigger: false };
-  }
-  return {
-    activeCell: readActiveCellTriggerState(panel),
-    allCellsTrigger: isAllCellsTriggerMetadata(
-      panel.context.model.getMetadata("save_my_jupyter"),
-    ),
-  };
-}
-
-function readNotebookWatchedPaths(panel: NotebookPanel | null): string[] {
-  if (panel === null) {
-    return [];
-  }
-  return readWatchedPaths(panel.context.model.getMetadata("save_my_jupyter"));
-}
-
-function readTargetOptions(panel: NotebookPanel | null): {
-  readonly notebookName: string;
-  readonly rootPath: string;
-} {
-  if (panel === null) {
-    return { notebookName: "", rootPath: "" };
-  }
-  const metadata = asRecord(panel.context.model.getMetadata("save_my_jupyter"));
-  return {
-    notebookName: asString(metadata["labarchives_target_notebook"]),
-    rootPath: asString(metadata["labarchives_target_root_path"]),
-  };
-}
-
-function addWatchedPath(
-  panel: NotebookPanel | null,
-  path: string,
-  refreshUi: () => void,
-): WatchedPathAddResult {
-  if (panel === null) {
-    return {
-      ok: false,
-      message: "Open a notebook before adding watched files.",
-    };
-  }
-  const currentMetadata: unknown =
-    panel.context.model.getMetadata("save_my_jupyter");
-  const result = withAddedWatchedPath(currentMetadata, path);
-  if (!result.ok) {
-    return result;
-  }
-  panel.context.model.setMetadata("save_my_jupyter", result.metadata);
-  refreshUi();
-  return result;
-}
-
-function removeWatchedPath(panel: NotebookPanel | null, path: string): void {
-  if (panel === null) {
-    return;
-  }
-  const currentMetadata: unknown =
-    panel.context.model.getMetadata("save_my_jupyter");
-  const next = withoutWatchedPath(currentMetadata, path);
-  if (metadataEqual(currentMetadata, next.metadata)) {
-    return;
-  }
-  panel.context.model.setMetadata("save_my_jupyter", next.metadata);
-}
-
-function updateTargetOptions(
-  panel: NotebookPanel | null,
-  patch: Partial<ReturnType<typeof readTargetOptions>>,
-): void {
-  if (panel === null) {
-    return;
-  }
-  const currentMetadata: unknown =
-    panel.context.model.getMetadata("save_my_jupyter");
-  const next = { ...asRecord(currentMetadata) };
-  setOptionalString(next, "labarchives_target_notebook", patch.notebookName);
-  setOptionalString(next, "labarchives_target_root_path", patch.rootPath);
-  if (metadataEqual(currentMetadata, next)) {
-    return;
-  }
-  panel.context.model.setMetadata("save_my_jupyter", next);
-}
-
-function readActiveCellTriggerState(panel: NotebookPanel): TriggerCellState {
-  const cell = panel.content.activeCell;
-  if (cell === null) {
-    return "unknown";
-  }
-  return triggerCellState(cell.model.getMetadata("save_my_jupyter"));
-}
-
-function toggleActiveCellTrigger(
-  panel: NotebookPanel | null,
-  notifyWarning: (message: string) => void,
-): void {
-  const activeState =
-    panel !== null ? readActiveCellTriggerState(panel) : "unknown";
-  setActiveCellTrigger(panel, activeState !== "marked", notifyWarning);
-}
-
-function setActiveCellTrigger(
-  panel: NotebookPanel | null,
-  trigger: boolean,
-  notifyWarning: (message: string) => void,
-): void {
-  const cell = panel?.content.activeCell ?? null;
-  if (panel === null || cell === null) {
-    notifyWarning(NO_CELL_SELECTED_WARNING);
-    return;
-  }
-  cell.model.setMetadata(
-    "save_my_jupyter",
-    withTrigger(cell.model.getMetadata("save_my_jupyter"), trigger),
-  );
-  syncTriggerCellDecoration(
-    cell,
-    panel.context.model.getMetadata("save_my_jupyter"),
-  );
-  syncNotebookTriggerCellIds(panel);
-}
-
-function toggleAllCellsTrigger(
-  panel: NotebookPanel | null,
-  notifyInfo: (message: string) => void,
-  notifyWarning: (message: string) => void,
-): void {
-  if (panel === null) {
-    notifyWarning(NO_CELL_SELECTED_WARNING);
-    return;
-  }
-  const metadata: unknown = panel.context.model.getMetadata("save_my_jupyter");
-  const enabled = !isAllCellsTriggerMetadata(metadata);
-  panel.context.model.setMetadata(
-    "save_my_jupyter",
-    withAllCellsTrigger(metadata, enabled),
-  );
-  syncTriggerCellDecorations(panel);
-  notifyInfo(allCellsConfirmMessage(enabled));
-}
-
-function syncNotebookTriggerCellIds(panel: NotebookPanel): void {
-  const cells = panel.content.widgets.map((cell) => ({
-    id: cell.model.id,
-    trigger: isTriggerMetadata(cell.model.getMetadata("save_my_jupyter")),
-  }));
-  const currentMetadata: unknown =
-    panel.context.model.getMetadata("save_my_jupyter");
-  const nextMetadata = withSyncedTriggerCellIds(currentMetadata, cells);
-  if (metadataEqual(currentMetadata, nextMetadata)) {
-    return;
-  }
-  panel.context.model.setMetadata("save_my_jupyter", nextMetadata);
-}
-
-function metadataEqual(left: unknown, right: Record<string, unknown>): boolean {
-  if (typeof left !== "object" || left === null) {
-    return Object.keys(right).length === 0;
-  }
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? { ...(value as Record<string, unknown>) }
-    : {};
-}
-
-function asString(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
-function setOptionalString(
-  target: Record<string, unknown>,
-  key: string,
-  value: string | undefined,
-): void {
-  if (value === undefined) {
-    return;
-  }
-  const trimmed = value.trim();
-  if (trimmed.length === 0) {
-    Reflect.deleteProperty(target, key);
-    return;
-  }
-  target[key] = trimmed;
-}
-
-function syncTriggerCellDecoration(
-  cell: Cell,
-  notebookMetadata: unknown,
-): void {
-  if (
-    shouldDecorateTriggerCell(
-      notebookMetadata,
-      cell.model.getMetadata("save_my_jupyter"),
-    )
-  ) {
-    cell.addClass(ACTIVE_CELL_TRIGGER_CLASS);
-  } else {
-    cell.removeClass(ACTIVE_CELL_TRIGGER_CLASS);
-  }
-}
-
-function syncTriggerCellDecorations(panel: NotebookPanel): void {
-  const notebookMetadata: unknown =
-    panel.context.model.getMetadata("save_my_jupyter");
-  panel.content.widgets.forEach((cell) => {
-    syncTriggerCellDecoration(cell, notebookMetadata);
-  });
-}
-
-function setupNotebookPanel(
-  panel: NotebookPanel,
-  configuredNotebookPanels: WeakSet<NotebookPanel>,
-  snapshotPanel: (target: NotebookPanel | null) => Promise<void>,
-  refreshTriggerUi: () => void,
-): void {
-  if (configuredNotebookPanels.has(panel)) {
-    return;
-  }
-  configuredNotebookPanels.add(panel);
-  syncTriggerCellDecorations(panel);
-  const handleContextMenu = (event: MouseEvent): void => {
-    const index = triggerCellIndexForTarget(panel.content.widgets, event.target);
-    if (index === null) {
-      return;
-    }
-    panel.content.activeCellIndex = index;
-    refreshTriggerUi();
-  };
-  panel.content.node.addEventListener("contextmenu", handleContextMenu, true);
-  panel.disposed.connect(() => {
-    panel.content.node.removeEventListener("contextmenu", handleContextMenu, true);
-  });
-  const inserted = panel.toolbar.insertAfter(
-    "run",
-    SNAPSHOT_TOOLBAR_ITEM,
-    new ToolbarButton({
-      label: "Snapshot",
-      onClick: () => {
-        void snapshotPanel(panel);
-      },
-      tooltip: "Snapshot with Save My Jupyter",
-    }),
-  );
-  if (!inserted) {
-    panel.toolbar.addItem(
-      SNAPSHOT_TOOLBAR_ITEM,
-      new ToolbarButton({
-        label: "Snapshot",
-        onClick: () => {
-          void snapshotPanel(panel);
-        },
-        tooltip: "Snapshot with Save My Jupyter",
-      }),
-    );
-  }
-  panel.content.modelContentChanged.connect(() => {
-    syncTriggerCellDecorations(panel);
-    refreshTriggerUi();
-  });
 }
 
 function connectKernelIdleFallback(
@@ -791,6 +445,34 @@ function connectKernelIdleFallback(
       observer.flushPendingOnIdle(panel.content);
     }
   });
+}
+
+function triggerRunTags(
+  panel: NotebookPanel,
+  options: SnapshotRequestOptions,
+  dynamicMetadata: DynamicKernelMetadata,
+): string[] {
+  const directives = parseDirectives(
+    notebookCellSources(panel.context.model.toJSON() as unknown),
+  );
+  return mergeTags(directives.tags, dynamicMetadata.tags, options.tags);
+}
+
+function mergeTriggerRuns(
+  previous: TriggerRun,
+  next: TriggerRun,
+): TriggerRun {
+  return {
+    notebook: next.notebook,
+    lastCell: next.lastCell,
+    runOutcome:
+      previous.runOutcome === "error" || next.runOutcome === "error"
+        ? "error"
+        : "success",
+    triggeredCellIds: [
+      ...new Set([...previous.triggeredCellIds, ...next.triggeredCellIds]),
+    ],
+  };
 }
 
 function notifyTriggerCommandChanges(app: JupyterFrontEnd): void {

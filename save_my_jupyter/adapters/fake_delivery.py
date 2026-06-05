@@ -1,9 +1,10 @@
 """In-memory `Delivery` double (target DELIVER). Records every bundle and
 returns a plausible receipt without touching LabArchives — used by tests and by
-the no-credentials development path. The real adapter lands in Phase 10."""
+the no-credentials development path."""
 
 from __future__ import annotations
 
+from save_my_jupyter.application.snapshot.notebook_content import NOTEBOOK_MIME_TYPE
 from save_my_jupyter.domain.delivery import (
     DeliveryReceipt,
     SnapshotBundle,
@@ -21,8 +22,13 @@ class FakeDelivery:
     def deliver(self, bundle: SnapshotBundle) -> DeliveryReceipt:
         self.delivered.append(bundle)
         meta_page_id = f"meta-{len(self.delivered)}"
-        rich_diff_pages = 1 if bundle.metadata.notebook_diff is not None else 0
-        # one canonical metadata page plus readable diff and artifact pages
+        rich_diff_pages = (
+            1
+            if bundle.metadata.notebook_diff is not None
+            and not _has_notebook_artifact(bundle)
+            else 0
+        )
+        # one canonical metadata page plus standalone diff and artifact pages
         page_count = 1 + rich_diff_pages + len(bundle.artifacts)
         return DeliveryReceipt(
             directory_name=bundle.directory_name,
@@ -31,3 +37,9 @@ class FakeDelivery:
             page_count=page_count,
             url=RemoteUrl(f"{_FAKE_BASE_URL}/{bundle.directory_name}"),
         )
+
+
+def _has_notebook_artifact(bundle: SnapshotBundle) -> bool:
+    return any(
+        artifact.mime_type == NOTEBOOK_MIME_TYPE for artifact in bundle.artifacts
+    )

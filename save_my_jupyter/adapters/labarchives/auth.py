@@ -13,16 +13,17 @@ from __future__ import annotations
 
 import importlib
 import json
-import os
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, NoReturn, Protocol, cast
 from uuid import uuid4
 
 import labapi
+from labapi.util import getenv
 
+from save_my_jupyter.domain.auth import AuthStartResult, AuthStatusResult
 from save_my_jupyter.domain.errors import SnapshotError
 
 _API_URL_ENV_VAR = "API_URL"
@@ -31,6 +32,7 @@ _ACCESS_PASSWORD_ENV_VAR = "ACCESS_PWD"
 _CURL_CA_BUNDLE_ENV_VAR = "CURL_CA_BUNDLE"
 _DEFAULT_API_URL = "https://api.labarchives.com"
 _KEYRING_SERVICE_PREFIX = "save-my-jupyter.labarchives.profile"
+_LABAPI_STRICT_CERT_ENV_VAR = "SMJ_STRICT_CERT"
 _REQUESTS_CA_BUNDLE_ENV_VAR = "REQUESTS_CA_BUNDLE"
 _SSL_CERT_FILE_ENV_VAR = "SSL_CERT_FILE"
 _PROMPT_MESSAGE = "Open the LabArchives authentication page to continue."
@@ -64,23 +66,8 @@ _TLS_CA_BUNDLE_ERROR_MARKERS = (
     "ca cert bundle",
     "cacert.pem",
 )
-
-
-@dataclass(frozen=True, slots=True)
-class AuthStartResult:
-    status: str
-    message: str
-    auth_url: str | None = None
-    request_id: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class AuthStatusResult:
-    status: str
-    pending_request_id: str | None = None
-    user_email: str | None = None
-    stored_user_email: str | None = None
-    stored_notebook_names: tuple[str, ...] = ()
+_FALSE_ENV_VALUES = {"0", "false", "no", "off"}
+_TRUE_ENV_VALUES = {"1", "true", "yes", "on"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,7 +122,7 @@ class StoredProfile:
             api_url=client_api_url,
             labarchives_user_id=str(getattr(user, "id", "")),
             notebooks=stored_notebooks,
-            saved_at=datetime.now(UTC).isoformat(),
+            saved_at=datetime.now(timezone.utc).isoformat(),
             user_email=str(getattr(user, "email", "")),
             user_id=user_id,
         )
@@ -322,10 +309,11 @@ class AuthServiceImpl:
         keyring_backend: KeyringBackend | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
-        self._api_url = os.getenv(_API_URL_ENV_VAR, _DEFAULT_API_URL).strip()
+        self._api_url = getenv(_API_URL_ENV_VAR, _DEFAULT_API_URL).strip()
         if self._api_url == "":
             self._api_url = _DEFAULT_API_URL
-        self._clock = clock or (lambda: datetime.now(UTC))
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._labapi_strict_cert = _labapi_strict_cert_enabled()
         self._pending_requests: dict[str, PendingAuth] = {}
         self._sessions: dict[str, LabArchivesSession] = {}
         self._expired_session_user_ids: set[str] = set()
@@ -349,7 +337,9 @@ class AuthServiceImpl:
         )
         client: Any | None = None
         try:
-            client = labapi.Client(base_url=self._api_url)
+            client = labapi.Client(
+                base_url=self._api_url, strict_cert=self._labapi_strict_cert
+            )
             auth_url = client.generate_auth_url(callback_url)
         except Exception as exc:
             if client is not None:
@@ -562,7 +552,10 @@ class AuthServiceImpl:
             from labapi.user import User
             from labapi.util import NotebookInit
 
-            client = labapi.Client(base_url=stored_profile.api_url)
+            client = labapi.Client(
+                base_url=stored_profile.api_url,
+                strict_cert=self._labapi_strict_cert,
+            )
             user = User(
                 stored_profile.labarchives_user_id,
                 stored_profile.user_email,
@@ -726,9 +719,9 @@ def _raise_auth_error(
     context = {
         "api_url": api_url,
         "callback_url": callback_url,
-        "curl_ca_bundle": os.getenv(_CURL_CA_BUNDLE_ENV_VAR, ""),
-        "requests_ca_bundle": os.getenv(_REQUESTS_CA_BUNDLE_ENV_VAR, ""),
-        "ssl_cert_file": os.getenv(_SSL_CERT_FILE_ENV_VAR, ""),
+        "curl_ca_bundle": getenv(_CURL_CA_BUNDLE_ENV_VAR, ""),
+        "requests_ca_bundle": getenv(_REQUESTS_CA_BUNDLE_ENV_VAR, ""),
+        "ssl_cert_file": getenv(_SSL_CERT_FILE_ENV_VAR, ""),
     }
     if request_id is not None:
         context["request_id"] = request_id
@@ -778,9 +771,21 @@ def _ensure_server_credentials(*, api_url: str) -> None:
 
 
 def _server_credentials_configured() -> bool:
-    access_key_id = os.getenv(_ACCESS_KEY_ID_ENV_VAR, "").strip()
-    access_password = os.getenv(_ACCESS_PASSWORD_ENV_VAR, "").strip()
+    access_key_id = getenv(_ACCESS_KEY_ID_ENV_VAR, "").strip()
+    access_password = getenv(_ACCESS_PASSWORD_ENV_VAR, "").strip()
     return bool(access_key_id and access_password)
+
+
+def _labapi_strict_cert_enabled() -> bool:
+    value = getenv(_LABAPI_STRICT_CERT_ENV_VAR)
+    if value is None or value.strip() == "":
+        return True
+    normalized = value.strip().lower()
+    if normalized in _FALSE_ENV_VALUES:
+        return False
+    if normalized in _TRUE_ENV_VALUES:
+        return True
+    return True
 
 
 def _describe_exception(exc: Exception) -> str:

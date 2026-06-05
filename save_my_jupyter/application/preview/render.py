@@ -22,7 +22,11 @@ from save_my_jupyter.application.snapshot.guards import (
     NOTEBOOK_MAX_BYTES,
     enforce_size_cap,
 )
-from save_my_jupyter.application.snapshot.notebook_content import outline_notebook
+from save_my_jupyter.application.snapshot.notebook_content import (
+    cell_sources,
+    notebook_metadata,
+    outline_notebook,
+)
 from save_my_jupyter.application.snapshot.plan import plan_capture
 from save_my_jupyter.domain.capture import CapturePlan
 from save_my_jupyter.domain.enums import CommitMode
@@ -75,7 +79,7 @@ def build_preview(
     resolved = resolve_effective_config(
         request_commit_mode=request.commit_mode,
         request_watched_paths=request.watched_paths,
-        notebook=parse_notebook_metadata(_notebook_metadata(notebook_json)),
+        notebook=parse_notebook_metadata(notebook_metadata(notebook_json)),
         user=user_settings,
         repo=repo_config.config,
     )
@@ -85,7 +89,7 @@ def build_preview(
         config=effective,
         outline=outline_notebook(notebook_json),
         source=request.source,
-        directive=parse_directives(_cell_sources(notebook_json)),
+        directive=parse_directives(cell_sources(notebook_json)),
         repo_dirty=repo.is_dirty,
         will_create_commit=will_commit,
         ui_tags=request.metadata.tags,
@@ -142,33 +146,6 @@ def _load_notebook_json(
             context={"path": str(path)},
         ) from exc
     return _as_dict(loaded) or {}
-
-
-def _notebook_metadata(notebook_json: Mapping[str, object]) -> Mapping[str, object]:
-    metadata = _as_dict(notebook_json.get("metadata"))
-    if metadata is None:
-        return {}
-    return _as_dict(metadata.get("save_my_jupyter")) or {}
-
-
-def _cell_sources(notebook_json: Mapping[str, object]) -> list[str]:
-    cells = notebook_json.get("cells")
-    if not isinstance(cells, list):
-        return []
-    sources: list[str] = []
-    for cell in cells:
-        normalized = _as_dict(cell)
-        if normalized is not None:
-            sources.append(_join_source(normalized.get("source")))
-    return sources
-
-
-def _join_source(source: object) -> str:
-    if isinstance(source, str):
-        return source
-    if isinstance(source, list):
-        return "".join(part for part in source if isinstance(part, str))
-    return ""
 
 
 def _as_dict(value: object) -> dict[str, object] | None:

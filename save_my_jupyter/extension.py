@@ -5,16 +5,17 @@ only -- exercised through a running Jupyter server."""
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any, cast
 
 from jupyter_core.paths import jupyter_data_dir
 from jupyter_server.extension.application import ExtensionApp
 from jupyter_server.utils import url_path_join
+from labapi.util import getenv
 
 from save_my_jupyter import __version__
 from save_my_jupyter.container import build_services
+from save_my_jupyter.env import load_server_dotenv
 from save_my_jupyter.transport.handlers import (
     AuthCallbackHandler,
     AuthLogoutHandler,
@@ -28,7 +29,7 @@ from save_my_jupyter.transport.handlers import (
 )
 
 _DATA_SUBDIR = "save_my_jupyter"
-_SNAPSHOTS_SUBDIR = "save-my-jupyter-snapshots"
+_SNAPSHOTS_SUBDIR = ".save-my-jupyter-snapshots"
 
 
 class SaveMyJupyterApp(ExtensionApp):
@@ -36,12 +37,15 @@ class SaveMyJupyterApp(ExtensionApp):
 
     def initialize_settings(self) -> None:
         super().initialize_settings()  # type: ignore[no-untyped-call]
+        server_root = self._server_root()
+        load_server_dotenv(server_root)
         data_dir = Path(jupyter_data_dir()) / _DATA_SUBDIR
         data_dir.mkdir(parents=True, exist_ok=True)
         user_id = _current_user_id(self)
         services = build_services(
             data_dir=data_dir,
-            snapshots_dir=self._snapshots_dir(),
+            snapshots_dir=server_root / _SNAPSHOTS_SUBDIR,
+            project_root=server_root,
             user_id=user_id,
             user_id_aliases=_legacy_user_id_aliases(user_id),
             extension_version=__version__,
@@ -87,7 +91,7 @@ class SaveMyJupyterApp(ExtensionApp):
 
 
 def _demo_mode_enabled() -> bool:
-    value = os.environ.get("SAVE_MY_JUPYTER_DEMO_MODE", "")
+    value = getenv("SAVE_MY_JUPYTER_DEMO_MODE", "")
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 

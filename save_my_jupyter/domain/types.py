@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import NewType
+from typing import NewType, TypeAlias
 
 UserId = NewType("UserId", str)
 NotebookPath = NewType("NotebookPath", str)
@@ -19,6 +19,6 @@ LabArchivesNotebookName = NewType("LabArchivesNotebookName", str)
 LabArchivesRootPath = NewType("LabArchivesRootPath", str)
 MimeType = NewType("MimeType", str)
 
-type JsonScalar = str | int | float | bool | None
-type JsonValue = JsonScalar | Mapping[str, "JsonValue"] | tuple["JsonValue", ...]
-type StringMap = Mapping[str, str]
+JsonScalar: TypeAlias = str | int | float | bool | None
+JsonValue: TypeAlias = JsonScalar | Mapping[str, "JsonValue"] | tuple["JsonValue", ...]
+StringMap: TypeAlias = Mapping[str, str]

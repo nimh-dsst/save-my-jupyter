@@ -39,9 +39,48 @@ def outline_notebook(notebook: Mapping[str, object]) -> NotebookOutline:
     figure_count = len(extract_figures(notebook))
     has_output = any(_output_text(output) for output in _iter_outputs(notebook))
     return NotebookOutline(
-        cell_count=len(_cells(notebook)),
+        cell_count=len(notebook_cells(notebook)),
         figure_count=figure_count,
         has_execution_output=has_output,
+    )
+
+
+def notebook_metadata(notebook: Mapping[str, object]) -> Mapping[str, object]:
+    metadata = _as_dict(notebook.get("metadata"))
+    if metadata is None:
+        return {}
+    return _as_dict(metadata.get("save_my_jupyter")) or {}
+
+
+def cell_sources(notebook: Mapping[str, object]) -> list[str]:
+    return [source_text(cell.get("source")) for cell in notebook_cells(notebook)]
+
+
+def triggering_cell_source(
+    notebook: Mapping[str, object], triggering_cell_id: str | None
+) -> str | None:
+    if triggering_cell_id is None:
+        return None
+    for cell in notebook_cells(notebook):
+        if cell.get("id") == triggering_cell_id:
+            return source_text(cell.get("source"))
+    return None
+
+
+def source_text(source: object) -> str:
+    if isinstance(source, str):
+        return source
+    if isinstance(source, list):
+        return "".join(part for part in source if isinstance(part, str))
+    return ""
+
+
+def notebook_cells(notebook: Mapping[str, object]) -> tuple[Mapping[str, object], ...]:
+    cells = notebook.get("cells")
+    if not isinstance(cells, list):
+        return ()
+    return tuple(
+        normalized for cell in cells if (normalized := _as_dict(cell)) is not None
     )
 
 
@@ -123,7 +162,7 @@ def _error_text(output: Mapping[str, object]) -> str | None:
 
 
 def _iter_outputs(notebook: Mapping[str, object]) -> Iterator[Mapping[str, object]]:
-    for cell in _cells(notebook):
+    for cell in notebook_cells(notebook):
         outputs = cell.get("outputs")
         if not isinstance(outputs, list):
             continue
@@ -131,15 +170,6 @@ def _iter_outputs(notebook: Mapping[str, object]) -> Iterator[Mapping[str, objec
             normalized = _as_dict(output)
             if normalized is not None:
                 yield normalized
-
-
-def _cells(notebook: Mapping[str, object]) -> tuple[Mapping[str, object], ...]:
-    cells = notebook.get("cells")
-    if not isinstance(cells, list):
-        return ()
-    return tuple(
-        normalized for cell in cells if (normalized := _as_dict(cell)) is not None
-    )
 
 
 def _as_dict(value: object) -> dict[str, object] | None:

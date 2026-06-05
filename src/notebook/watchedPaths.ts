@@ -45,14 +45,14 @@ export function validateWatchedPathInput(
 ): WatchedPathValidationResult {
   const trimmed = raw.trim();
   if (trimmed === "") {
-    return { ok: false, message: "Watched paths must not be empty." };
+    return { ok: false, message: "Tracked paths must not be empty." };
   }
   if (
     trimmed.startsWith("/") ||
     trimmed.startsWith("\\\\") ||
     WINDOWS_ABSOLUTE.test(trimmed)
   ) {
-    return { ok: false, message: "Watched paths must be relative." };
+    return { ok: false, message: "Tracked paths must be relative." };
   }
 
   const segments: string[] = [];
@@ -63,7 +63,7 @@ export function validateWatchedPathInput(
     if (segment === "..") {
       return {
         ok: false,
-        message: "Watched paths must stay within the notebook or repo root.",
+        message: "Tracked paths must stay within the notebook or repo root.",
       };
     }
     segments.push(segment);
@@ -71,13 +71,13 @@ export function validateWatchedPathInput(
   if (segments.length === 0) {
     return {
       ok: false,
-      message: "Watched paths must include at least one path segment.",
+      message: "Tracked paths must include at least one path segment.",
     };
   }
 
   const path = segments.join("/");
   if (existingPaths.includes(path)) {
-    return { ok: false, message: "That watched path is already listed." };
+    return { ok: false, message: "That tracked path is already listed." };
   }
   return { ok: true, path };
 }
@@ -98,7 +98,7 @@ export function withAddedWatchedPath(
   if (!validation.ok || validation.path === undefined) {
     return {
       ok: false,
-      message: validation.message ?? "Unable to add watched path.",
+      message: validation.message ?? "Unable to add tracked path.",
     };
   }
   const watchedPaths = [...current, validation.path];

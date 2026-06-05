@@ -45,6 +45,10 @@ void test("rendered panel uses scan-friendly hierarchy rows and action stacks", 
   assert.match(titleRowRule, /display:\s*flex;/);
   assert.match(titleRowRule, /justify-content:\s*space-between;/);
 
+  const headerActionRule = ruleFor(".smj-PanelHeaderAction");
+  assert.match(headerActionRule, /display:\s*grid;/);
+  assert.match(headerActionRule, /justify-items:\s*start;/);
+
   const actionStackRule = ruleFor(".smj-ActionStack");
   assert.match(actionStackRule, /display:\s*grid;/);
   assert.match(actionStackRule, /gap:\s*8px;/);
@@ -60,7 +64,10 @@ void test("rendered panel controls use JupyterLab theme variables", () => {
     ".smj-Panel input,\n.smj-Panel select,\n.smj-Panel textarea",
   );
   assert.match(inputRule, /background:\s*var\(--jp-input-background\);/);
-  assert.match(inputRule, /border:\s*1px solid var\(--jp-input-border-color\);/);
+  assert.match(
+    inputRule,
+    /border:\s*1px solid var\(--jp-input-border-color\);/,
+  );
   assert.match(inputRule, /font-family:\s*var\(--jp-ui-font-family\);/);
 });
 
@@ -75,7 +82,10 @@ void test("rendered panel badges stay quiet and theme-derived", () => {
 
 void test("rendered panel separates preview subgroups and item lists", () => {
   const subsectionRule = ruleFor(".smj-Subsection + .smj-Subsection");
-  assert.match(subsectionRule, /border-top:\s*1px solid var\(--jp-border-color3\);/);
+  assert.match(
+    subsectionRule,
+    /border-top:\s*1px solid var\(--jp-border-color3\);/,
+  );
   assert.match(subsectionRule, /padding-top:\s*8px;/);
 
   assert.match(

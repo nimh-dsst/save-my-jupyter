@@ -33,7 +33,7 @@ export interface WillBeSavedSection {
 }
 
 const EMPTY_PLAN_MESSAGE =
-  "Nothing will be saved with the current settings. Mark a trigger cell, add watched paths, or enable the notebook file.";
+  "Nothing will be saved with the current settings. Mark a trigger cell, add tracked files, or enable the notebook file.";
 
 /** Inferred config values are labeled inline so the user always sees where data
  * lands — never hover-only (contract C-CONFIG-11). */
@@ -99,7 +99,7 @@ function buildPolicyRows(
       label: "Notebook file",
       value: config.includeNotebookFile ? "Included with outputs" : "Not included",
     },
-    { label: "Watched rules", value: watched },
+    { label: "Tracked files", value: watched },
     { label: "Git commit", value: commitMode },
     { label: "Dirty diff", value: diffPolicy },
     { label: "Trigger policy", value: triggerPolicy },
@@ -108,7 +108,7 @@ function buildPolicyRows(
       value: yesNo(config.stageNotebookOnCommit),
     },
     {
-      label: "Stage watched files",
+      label: "Stage tracked files",
       value: yesNo(config.stageWatchedPathsOnCommit),
     },
     {

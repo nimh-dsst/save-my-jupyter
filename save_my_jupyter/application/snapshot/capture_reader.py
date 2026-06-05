@@ -1,6 +1,6 @@
-"""Watched-file capture (target CAPTURE). A read-only orchestrator over the
+"""Tracked-file capture (target CAPTURE). A read-only orchestrator over the
 FileSystem port: it enumerates files under the capture root, keeps only those
-matching a watched pattern, drops ignored/sensitive paths, enforces the size
+matching a tracked pattern, drops ignored/sensitive paths, enforces the size
 cap, and reads bytes. Contracts C-WATCH-03/05/06/07, C-CONTENT-04, C-WATCH-08."""
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ def gather_watched_files(
             resolved_candidate = candidate.resolve()
         except OSError as exc:
             _LOG.warning(
-                "Save My Jupyter skipped watched file because its path could not "
+                "Save My Jupyter skipped tracked file because its path could not "
                 "be resolved: path=%s error=%s",
                 candidate,
                 exc,
@@ -57,7 +57,7 @@ def gather_watched_files(
             continue
         if not is_within_root(resolved_candidate, resolved_root):
             _LOG.warning(
-                "Save My Jupyter skipped watched file outside capture root: "
+                "Save My Jupyter skipped tracked file outside capture root: "
                 "path=%s resolved_path=%s root=%s",
                 candidate,
                 resolved_candidate,
@@ -68,7 +68,7 @@ def gather_watched_files(
             relative = candidate.relative_to(capture_root).as_posix()
         except ValueError:
             _LOG.warning(
-                "Save My Jupyter skipped watched file outside capture root: "
+                "Save My Jupyter skipped tracked file outside capture root: "
                 "path=%s root=%s",
                 candidate,
                 capture_root,
@@ -79,7 +79,7 @@ def gather_watched_files(
             continue
         if is_sensitive_file(relative_pure):
             _LOG.warning(
-                "Save My Jupyter skipped sensitive watched file: path=%s",
+                "Save My Jupyter skipped sensitive tracked file: path=%s",
                 candidate,
             )
             continue
@@ -92,7 +92,7 @@ def gather_watched_files(
             content = filesystem.read_bytes(candidate)
         except OSError as exc:
             raise SnapshotError(
-                "Unable to read watched file artifact.",
+                "Unable to read tracked file artifact.",
                 code="watched_file_artifact_read_failed",
                 context={"path": str(candidate)},
             ) from exc

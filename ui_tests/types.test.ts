@@ -8,6 +8,7 @@ import {
   parseEffectiveState,
   parseAuthStartResponse,
   parseNotebookExtensionMetadata,
+  parseSnapshotJobsResponse,
   parseSnapshotPreviewResponse,
   parseSnapshotRequestPayload,
   parseSnapshotSubmissionResult,
@@ -93,6 +94,29 @@ void test("parseSnapshotSubmissionResult accepts snake-case accepted payloads", 
   assert.equal(result.jobId, "job-2");
   assert.equal(result.coalescedInto, "job-1");
   assert.equal(result.queuePosition, 2);
+});
+
+void test("parseSnapshotJobsResponse applies activity defaults", () => {
+  const result = parseSnapshotJobsResponse({
+    jobs: [
+      {
+        displayMessage: "Snapshot saved. Job job-1.",
+        jobId: "job-1",
+        notebookPath: "analysis.ipynb",
+        runOutcome: "success",
+        source: "manual",
+        state: "persisted",
+        submittedAt: "2026-05-26T12:00:00+00:00",
+      },
+    ],
+  });
+
+  const [job] = result.jobs;
+  assert.ok(job);
+  assert.equal(job.jobId, "job-1");
+  assert.equal(job.commitHash, null);
+  assert.equal(job.directoryUrl, null);
+  assert.equal(job.pageCount, null);
 });
 
 void test("parseSnapshotSubmissionResult parses multi-page LabArchives payloads", () => {

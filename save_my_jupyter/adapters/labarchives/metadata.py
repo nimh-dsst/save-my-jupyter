@@ -4,13 +4,13 @@ HTML-escaped."""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from html import escape
 
 from save_my_jupyter.domain.delivery import SnapshotMetadata
 
 _DASH = "&mdash;"
-_TAGS_LABEL = "Tags (metadata text, not native LabArchives tags)"
+_TAGS_LABEL = "Tags"
 
 
 def render_metadata_page(
@@ -28,7 +28,7 @@ def render_metadata_page(
         ("Commit status", metadata.commit_status),
         ("Commit URL", metadata.commit_url),
         ("Diff included", "Yes" if metadata.diff_included else "No"),
-        ("Notebook diff", _notebook_diff_summary(metadata)),
+        ("Notebook diff", _notebook_diff_summary(metadata, artifact_page_names)),
         ("Extension version", metadata.extension_version),
         ("Run label", metadata.run_label),
         (_TAGS_LABEL, ", ".join(metadata.tags) or None),
@@ -60,14 +60,33 @@ def _render_working_tree_diff(diff_text: str | None) -> str:
     return f"<h3>Working tree diff</h3>\n<pre>{escape(diff_text)}</pre>"
 
 
-def _extra_field_rows(fields: dict[str, str]) -> list[tuple[str, str]]:
+def _extra_field_rows(fields: Mapping[str, str]) -> list[tuple[str, str]]:
     return [(f"Metadata: {key}", value) for key, value in fields.items()]
 
 
-def _notebook_diff_summary(metadata: SnapshotMetadata) -> str | None:
+def _notebook_diff_summary(
+    metadata: SnapshotMetadata, artifact_page_names: Sequence[str]
+) -> str | None:
     if metadata.notebook_diff is None:
         return None
-    return f"{metadata.notebook_diff.summary} See {metadata.notebook_diff.page_name}."
+    page_name = _notebook_diff_page_name(metadata, artifact_page_names)
+    return f"{metadata.notebook_diff.summary} See {page_name}."
+
+
+def _notebook_diff_page_name(
+    metadata: SnapshotMetadata, artifact_page_names: Sequence[str]
+) -> str:
+    if metadata.notebook_name in artifact_page_names:
+        return metadata.notebook_name
+    notebook_page = next(
+        (name for name in artifact_page_names if name.lower().endswith(".ipynb")),
+        None,
+    )
+    if notebook_page is not None:
+        return notebook_page
+    if metadata.notebook_diff is None:
+        return metadata.notebook_name
+    return metadata.notebook_diff.page_name
 
 
 def _render_artifacts(page_names: Sequence[str]) -> str:

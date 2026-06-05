@@ -2,26 +2,45 @@
 
 ## Overview
 
-Configuration is merged from four layers, highest precedence first:
+Configuration is merged from five layers, highest precedence first:
 
 1. manual snapshot request overrides
 2. notebook metadata
 3. user settings
 4. repo config in `.save-my-jupyter.toml`
+5. inferred defaults
 
 This lets a shared repository define stable defaults while still allowing
 notebook-local and user-local overrides.
+
+## Server LabArchives Settings
+
+Set these in the Jupyter server process environment, or in a `.env` file at the
+Jupyter server root. Process environment variables take precedence over `.env`
+values.
+
+- `ACCESS_KEYID`: LabArchives API access key id.
+- `ACCESS_PWD`: LabArchives API access password.
+- `API_URL`: optional LabArchives API URL; defaults to
+  `https://api.labarchives.com`.
+- `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, or `SSL_CERT_FILE`: optional CA bundle
+  overrides for the Python TLS stack.
+- `SMJ_STRICT_CERT`: optional labapi strict certificate
+  toggle. Leave unset for labapi's default `strict_cert=True`; set to `0`,
+  `false`, `no`, or `off` to call `labapi.Client(..., strict_cert=False)`.
 
 ## Defaults When Nothing Is Configured
 
 If no repo config or notebook overrides are present, the backend falls back to:
 
 - target notebook: `Jupyter Snapshots`
-- target root path: `Notebook Log`
-- commit mode: request value, then user settings, then repo defaults if present
-- watched paths: `**/*.py`
+- target root path:
+  `Notebook Log/{user_email}/{project_name}/{relative_notebook_path}`
+- commit mode: `ask`
+- tracked files: none
 - notebook file included in snapshots
 - diff included when the repo is dirty and no commit is created
+- notebook and tracked files staged when a snapshot commit is created
 
 ## Repo Config
 
@@ -31,6 +50,7 @@ Supported top-level sections:
 
 - `[project]`
 - `[defaults]`
+- `[defaults.metadata]`
 - `[labarchives]`
 - `[git]`
 
@@ -43,18 +63,21 @@ repo_root_strategy = "git"
 
 [defaults]
 all_cells_trigger = false
-commit_mode = "prompt"
-watch_paths = ["outputs", "reports/latest.csv"]
+commit_mode = "ask"
+watch_paths = []
 include_notebook_file = true
 include_diff_when_dirty = true
 
+[defaults.metadata]
+audience = "team"
+
 [labarchives]
 target_notebook = "Jupyter Snapshots"
-target_root_path = "Notebook Log/{name}/{relative_notebook_path}"
+target_root_path = "Notebook Log/{user_email}/{project_name}/{relative_notebook_path}"
 
 [git]
 stage_notebook_on_commit = true
-stage_watched_paths_on_commit = false
+stage_watched_paths_on_commit = true
 commit_message_template = "snapshot: {notebook_name} {timestamp}"
 ```
 
@@ -72,13 +95,29 @@ commit_message_template = "snapshot: {notebook_name} {timestamp}"
 - `all_cells_trigger`
   If true, automatic snapshots can fire for every executed cell.
 - `commit_mode`
-  Must be `prompt`, `always`, or `never`.
+  Must be `ask`, `always`, or `never`. Legacy `prompt` values are accepted as
+  `ask` for compatibility.
 - `watch_paths`
-  Default relative paths to watch.
+  Default tracked-file paths to attach at snapshot time. Leave as `[]` when no
+  extra files should be included by default.
 - `include_notebook_file`
   Include the notebook file in every snapshot.
 - `include_diff_when_dirty`
   Include a Git diff when no commit is created.
+
+### `[defaults.metadata]`
+
+Shared string metadata fields to add to every snapshot from this repo. Notebook
+metadata can override individual keys for a specific notebook, and per-snapshot
+panel fields override both.
+
+Example:
+
+```toml
+[defaults.metadata]
+audience = "team"
+study = "memory"
+```
 
 ### `[labarchives]`
 
@@ -100,15 +139,16 @@ commit_message_template = "snapshot: {notebook_name} {timestamp}"
 - `stage_notebook_on_commit`
   Stage the notebook file when a snapshot commit is created.
 - `stage_watched_paths_on_commit`
-  Also stage watched paths when a snapshot commit is created.
+  Also stage tracked paths when a snapshot commit is created. Defaults to
+  `true`.
 - `commit_message_template`
   Python format string. Current implementation provides:
   - `{notebook_name}`
   - `{timestamp}`
 
-## Watched Path Syntax
+## Tracked File Path Syntax
 
-Watched paths must be relative.
+Tracked file paths must be relative.
 
 Invalid values:
 
@@ -180,7 +220,7 @@ The backend resolves:
 
 - trigger mode
 - commit mode
-- watched paths
+- tracked paths
 - LabArchives target
 - Git staging policy
 
@@ -189,14 +229,14 @@ Rules worth noting:
 - notebook metadata overrides repo defaults
 - notebook metadata target fields override repo targets
 - a manual request can override commit mode
-- if commit mode remains `prompt`, user settings are applied before repo defaults
+- if commit mode remains `ask`, the panel asks for the per-snapshot commit choice
 
 ## Recommended Team Layout
 
 For a shared repo:
 
 1. put `.save-my-jupyter.toml` at the repo root
-2. keep watched paths narrow and intentional
+2. leave tracked paths empty unless the team intentionally opts into them
 3. define one shared default LabArchives destination in repo config
 4. use notebook metadata only for notebook-specific overrides
 

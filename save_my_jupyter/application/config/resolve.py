@@ -8,6 +8,8 @@ winning layer recorded in provenance is exact rather than guessed."""
 
 from __future__ import annotations
 
+from typing import TypeVar
+
 from save_my_jupyter.domain.config import (
     DEFAULT_COMMIT_MESSAGE_TEMPLATE,
     DEFAULT_PROJECT_NAME,
@@ -27,9 +29,10 @@ from save_my_jupyter.domain.types import StringMap
 
 _EMPTY_WATCH_PATHS: RelativeWatchPaths = ()
 _EMPTY_METADATA: StringMap = {}
+_T = TypeVar("_T")
 
 
-def _first[T](*candidates: tuple[T | None, ConfigLayer]) -> tuple[T, ConfigLayer]:
+def _first(*candidates: tuple[_T | None, ConfigLayer]) -> tuple[_T, ConfigLayer]:
     """Return the first candidate whose value is set, with its layer. The final
     candidate must be a guaranteed (non-None) default, so this never falls off."""
     for value, layer in candidates:
@@ -97,10 +100,15 @@ def resolve_effective_config(
         (DEFAULT_PROJECT_NAME, ConfigLayer.FALLBACK),
     )
 
-    metadata_template, provenance["metadata_template"] = _first(
-        (notebook.default_metadata or None, ConfigLayer.NOTEBOOK),
-        (_EMPTY_METADATA, ConfigLayer.FALLBACK),
-    )
+    repo_metadata = repo.default_metadata if repo else {}
+    metadata_template: StringMap = {**repo_metadata, **notebook.default_metadata}
+    if notebook.default_metadata:
+        provenance["metadata_template"] = ConfigLayer.NOTEBOOK
+    elif repo_metadata:
+        provenance["metadata_template"] = ConfigLayer.REPO
+    else:
+        metadata_template = _EMPTY_METADATA
+        provenance["metadata_template"] = ConfigLayer.FALLBACK
 
     stage_notebook_on_commit, provenance["stage_notebook_on_commit"] = _first(
         (repo.stage_notebook_on_commit if repo else None, ConfigLayer.REPO),
@@ -108,7 +116,7 @@ def resolve_effective_config(
     )
     stage_watched, provenance["stage_watched_paths_on_commit"] = _first(
         (repo.stage_watched_paths_on_commit if repo else None, ConfigLayer.REPO),
-        (False, ConfigLayer.FALLBACK),
+        (True, ConfigLayer.FALLBACK),
     )
     commit_message_template, provenance["commit_message_template"] = _first(
         (repo.commit_message_template if repo else None, ConfigLayer.REPO),

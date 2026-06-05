@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from save_my_jupyter.adapters.activity_sqlite import SqliteActivityStore
@@ -21,7 +21,7 @@ from save_my_jupyter.domain.requests import (
 from save_my_jupyter.domain.types import CellId, DocumentId, NotebookPath, SnapshotId
 from save_my_jupyter.worker.pool import WorkerPool
 
-_NOW = datetime(2026, 5, 26, 12, 0, 0, tzinfo=UTC)
+_NOW = datetime(2026, 5, 26, 12, 0, 0, tzinfo=timezone.utc)
 
 
 class _FrozenClock:

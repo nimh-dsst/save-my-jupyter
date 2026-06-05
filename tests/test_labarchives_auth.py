@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from types import ModuleType
 from typing import Any
 
@@ -10,8 +10,9 @@ import pytest
 from save_my_jupyter.adapters.labarchives import auth as auth_module
 from save_my_jupyter.adapters.labarchives.auth import AuthServiceImpl, StoredProfile
 from save_my_jupyter.domain.errors import SnapshotError
+from save_my_jupyter.env import load_server_dotenv
 
-_NOW = datetime(2026, 5, 26, 12, 0, 0, tzinfo=UTC)
+_NOW = datetime(2026, 5, 26, 12, 0, 0, tzinfo=timezone.utc)
 
 
 class _MovableClock:
@@ -26,8 +27,9 @@ class _MovableClock:
 
 
 class _FakeAuthClient:
-    def __init__(self, *, base_url: str) -> None:
+    def __init__(self, *, base_url: str, strict_cert: bool = True) -> None:
         self.base_url = base_url
+        self.strict_cert = strict_cert
         self.closed = False
 
     def generate_auth_url(self, callback_url: str) -> str:
@@ -62,7 +64,11 @@ class _MemoryKeyring:
         del self.values[(service_name, username)]
 
 
-def _install_labapi_restore_fakes(monkeypatch: pytest.MonkeyPatch) -> None:
+def _install_labapi_restore_fakes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[_FakeAuthClient]:
+    clients: list[_FakeAuthClient] = []
+
     class _RestoredUser:
         def __init__(
             self,
@@ -93,8 +99,19 @@ def _install_labapi_restore_fakes(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         auth_module.labapi,
         "Client",
-        lambda *, base_url: _FakeAuthClient(base_url=base_url),
+        lambda *, base_url, strict_cert=True: _record_client(
+            clients, base_url=base_url, strict_cert=strict_cert
+        ),
     )
+    return clients
+
+
+def _record_client(
+    clients: list[_FakeAuthClient], *, base_url: str, strict_cert: bool = True
+) -> _FakeAuthClient:
+    client = _FakeAuthClient(base_url=base_url, strict_cert=strict_cert)
+    clients.append(client)
+    return client
 
 
 def _profile(user_id: str) -> str:
@@ -124,6 +141,73 @@ def test_start_auth_without_server_credentials_fails_with_admin_message(
     assert "Set ACCESS_KEYID and ACCESS_PWD" in str(exc.value)
 
 
+def test_start_auth_reads_credentials_from_dotenv(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("ACCESS_KEYID", raising=False)
+    monkeypatch.delenv("ACCESS_PWD", raising=False)
+    (tmp_path / ".env").write_text(
+        "ACCESS_KEYID=dotenv-key\nACCESS_PWD=dotenv-secret\n",
+        encoding="utf-8",
+    )
+    clients: list[_FakeAuthClient] = []
+    monkeypatch.setattr(
+        auth_module.labapi,
+        "Client",
+        lambda *, base_url, strict_cert=True: _record_client(
+            clients, base_url=base_url, strict_cert=strict_cert
+        ),
+    )
+    load_server_dotenv(tmp_path)
+    service = AuthServiceImpl(keyring_backend=_MemoryKeyring())
+
+    service.start_auth("user-1", "https://jupyter.test/callback")
+
+    assert clients
+
+
+def test_start_auth_passes_labapi_strict_cert_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ACCESS_KEYID", "key")
+    monkeypatch.setenv("ACCESS_PWD", "secret")
+    monkeypatch.delenv("SMJ_STRICT_CERT", raising=False)
+    clients: list[_FakeAuthClient] = []
+    monkeypatch.setattr(
+        auth_module.labapi,
+        "Client",
+        lambda *, base_url, strict_cert=True: _record_client(
+            clients, base_url=base_url, strict_cert=strict_cert
+        ),
+    )
+    service = AuthServiceImpl(keyring_backend=_MemoryKeyring())
+
+    service.start_auth("user-1", "https://jupyter.test/callback")
+
+    assert clients[0].strict_cert is True
+
+
+def test_start_auth_can_disable_labapi_strict_cert(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ACCESS_KEYID", "key")
+    monkeypatch.setenv("ACCESS_PWD", "secret")
+    monkeypatch.setenv("SMJ_STRICT_CERT", "false")
+    clients: list[_FakeAuthClient] = []
+    monkeypatch.setattr(
+        auth_module.labapi,
+        "Client",
+        lambda *, base_url, strict_cert=True: _record_client(
+            clients, base_url=base_url, strict_cert=strict_cert
+        ),
+    )
+    service = AuthServiceImpl(keyring_backend=_MemoryKeyring())
+
+    service.start_auth("user-1", "https://jupyter.test/callback")
+
+    assert clients[0].strict_cert is False
+
+
 def test_pending_auth_expires_and_closes_client(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -131,8 +215,8 @@ def test_pending_auth_expires_and_closes_client(
     monkeypatch.setenv("ACCESS_PWD", "secret")
     clients: list[_FakeAuthClient] = []
 
-    def client_factory(*, base_url: str) -> _FakeAuthClient:
-        client = _FakeAuthClient(base_url=base_url)
+    def client_factory(*, base_url: str, strict_cert: bool = True) -> _FakeAuthClient:
+        client = _FakeAuthClient(base_url=base_url, strict_cert=strict_cert)
         clients.append(client)
         return client
 
@@ -163,7 +247,9 @@ def test_logout_invalidates_pending_auth_for_user_and_aliases(
     monkeypatch.setattr(
         auth_module.labapi,
         "Client",
-        lambda *, base_url: _FakeAuthClient(base_url=base_url),
+        lambda *, base_url, strict_cert=True: _FakeAuthClient(
+            base_url=base_url, strict_cert=strict_cert
+        ),
     )
     service = AuthServiceImpl(keyring_backend=_MemoryKeyring())
 
@@ -232,3 +318,21 @@ def test_expired_session_does_not_immediately_restore_stored_profile(
 
     assert status.status == "unauthenticated"
     assert status.stored_user_email == "user@example.com"
+
+
+def test_stored_profile_restore_can_disable_labapi_strict_cert(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ACCESS_KEYID", "key")
+    monkeypatch.setenv("ACCESS_PWD", "secret")
+    monkeypatch.setenv("SMJ_STRICT_CERT", "off")
+    clients = _install_labapi_restore_fakes(monkeypatch)
+    keyring = _MemoryKeyring()
+    service_name = "save-my-jupyter.labarchives.profile:https://api.labarchives.com"
+    keyring.values[(service_name, "user-1")] = _profile("user-1")
+    service = AuthServiceImpl(keyring_backend=keyring)
+
+    status = service.get_auth_status("user-1")
+
+    assert status.status == "authenticated"
+    assert clients[0].strict_cert is False

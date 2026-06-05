@@ -82,9 +82,10 @@ def test_metadata_page_includes_all_contract_fields() -> None:
     assert "Ada" in html
 
 
-def test_tags_row_is_explicitly_labeled_as_metadata_text() -> None:
+def test_tags_row_is_labeled_tags() -> None:
     html = render_metadata_page(_metadata(), artifact_page_names=[])
-    assert "Tags (metadata text, not native LabArchives tags)" in html
+    assert "<th>Tags</th>" in html
+    assert "Tags (metadata text, not native LabArchives tags)" not in html
     assert "baseline, gpu" in html
 
 
@@ -105,7 +106,7 @@ def test_artifacts_index_lists_pages() -> None:
     assert "figure-001.png" in html
 
 
-def test_metadata_page_points_to_rich_notebook_diff_page() -> None:
+def test_metadata_page_points_to_notebook_page_when_diff_is_merged() -> None:
     notebook_diff = NotebookDiff(
         page_name="01 Notebook Diff",
         summary="1 of 2 cells changed.",
@@ -116,12 +117,29 @@ def test_metadata_page_points_to_rich_notebook_diff_page() -> None:
 
     html = render_metadata_page(
         _metadata(notebook_diff=notebook_diff),
-        artifact_page_names=["01 Notebook Diff", "analysis.ipynb"],
+        artifact_page_names=["analysis.ipynb"],
+    )
+
+    assert "1 of 2 cells changed. See analysis.ipynb." in html
+    assert "&lt;section" not in html
+    assert "01 Notebook Diff" not in html
+
+
+def test_metadata_page_points_to_standalone_diff_when_no_notebook_page() -> None:
+    notebook_diff = NotebookDiff(
+        page_name="01 Notebook Diff",
+        summary="1 of 2 cells changed.",
+        entries=(
+            NotebookDiffEntry(title="Cell 1 changed", html="<section></section>"),
+        ),
+    )
+
+    html = render_metadata_page(
+        _metadata(notebook_diff=notebook_diff),
+        artifact_page_names=["01 Notebook Diff", "figure-001.png"],
     )
 
     assert "1 of 2 cells changed. See 01 Notebook Diff." in html
-    assert "&lt;section" not in html
-    assert "01 Notebook Diff" in html
 
 
 def test_metadata_page_renders_working_tree_diff() -> None:

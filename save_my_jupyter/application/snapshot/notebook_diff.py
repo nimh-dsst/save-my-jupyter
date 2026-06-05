@@ -9,6 +9,7 @@ snapshot can include a readable cell-by-cell notebook page instead of only a raw
 
 from __future__ import annotations
 
+import base64
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from difflib import unified_diff
@@ -17,7 +18,14 @@ from html import escape
 from save_my_jupyter.domain.delivery import NotebookDiff, NotebookDiffEntry
 
 _PAGE_NAME = "01 Notebook Diff"
-_IMAGE_MIME_TYPES = ("image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp")
+_IMAGE_MIME_TYPES = (
+    "image/png",
+    "image/jpeg",
+    "image/jpg",
+    "image/gif",
+    "image/webp",
+    "image/svg+xml",
+)
 _CELL_STYLE = (
     "border:1px solid #d0d7de;border-radius:6px;margin:12px 0;"
     "padding:12px;background:#fff;"
@@ -33,11 +41,13 @@ _OUTPUT_STYLE = (
     "background:#fbfbfb;"
 )
 _OUTPUT_LABEL_STYLE = "font-weight:600;margin-bottom:6px;"
-_DIFF_TABLE_STYLE = (
-    "border-collapse:collapse;width:100%;font-family:ui-monospace,SFMono-Regular,"
-    "Consolas,Liberation Mono,Menlo,monospace;font-size:12px;"
+_DIFF_PRE_STYLE = (
+    "white-space:pre-wrap;margin:0;padding:0;background:#fff;"
+    "border:1px solid #d8dee4;border-radius:4px;"
+    "font-family:ui-monospace,SFMono-Regular,Consolas,Liberation Mono,Menlo,"
+    "monospace;font-size:12px;"
 )
-_DIFF_CELL_STYLE = "padding:2px 6px;white-space:pre-wrap;"
+_DIFF_LINE_STYLE = "display:block;padding:2px 6px;"
 _IMAGE_STYLE = "display:block;max-width:100%;height:auto;margin:8px 0;"
 
 
@@ -52,20 +62,16 @@ class _Output:
     output_type: str
     label: str
     text: str
-    html_text: str
     images: tuple[_ImageOutput, ...]
 
     def comparison_key(self) -> tuple[object, ...]:
         image_mimes = tuple(image.mime_type for image in self.images)
-        return (self.output_type, self.label, self.text, self.html_text, image_mimes)
+        return (self.output_type, self.label, self.text, image_mimes)
 
     def comparison_lines(self) -> list[str]:
         lines = [self.label]
         if self.text:
             lines.extend(self.text.splitlines() or [""])
-        if self.html_text:
-            lines.append("HTML output:")
-            lines.extend(self.html_text.splitlines() or [""])
         for image in self.images:
             lines.append(f"{image.mime_type} output")
         return lines
@@ -235,10 +241,6 @@ def _render_output(output: _Output) -> str:
     ]
     if output.text:
         parts.append(f'<pre style="{_PRE_STYLE}">{escape(output.text)}</pre>')
-    if output.html_text:
-        parts.append(
-            f'<pre style="{_PRE_STYLE}">HTML output:\n{escape(output.html_text)}</pre>'
-        )
     for image in output.images:
         src = f"data:{escape(image.mime_type)};base64,{escape(image.data)}"
         alt = f"{image.mime_type} output"
@@ -265,11 +267,11 @@ def _render_line_diff(before_lines: Sequence[str], after_lines: Sequence[str]) -
         and diff_lines[1].startswith("+++ ")
     ):
         diff_lines = diff_lines[2:]
-    rows = "\n".join(_render_diff_row(line) for line in diff_lines)
-    return f'<table style="{_DIFF_TABLE_STYLE}">\n{rows}\n</table>'
+    rows = "".join(_render_diff_line(line) for line in diff_lines)
+    return f'<pre style="{_DIFF_PRE_STYLE}">{rows}</pre>'
 
 
-def _render_diff_row(line: str) -> str:
+def _render_diff_line(line: str) -> str:
     if line.startswith("+") and not line.startswith("+++"):
         style = "background:#e6ffed;color:#116329;"
     elif line.startswith("-") and not line.startswith("---"):
@@ -280,9 +282,7 @@ def _render_diff_row(line: str) -> str:
         style = "background:#f6f8fa;color:#57606a;"
     else:
         style = "background:#fff;color:#24292f;"
-    return (
-        f'<tr style="{style}"><td style="{_DIFF_CELL_STYLE}">{escape(line)}</td></tr>'
-    )
+    return f'<span style="{_DIFF_LINE_STYLE}{style}">{escape(line)}</span>'
 
 
 def _source_lines(cell: _Cell | None) -> list[str]:
@@ -322,7 +322,6 @@ def _normalized_outputs(value: object) -> tuple[_Output, ...]:
                     output_type=output_type,
                     label=f"stream ({name})",
                     text=_join_text(normalized.get("text")) or "",
-                    html_text="",
                     images=(),
                 )
             )
@@ -333,7 +332,6 @@ def _normalized_outputs(value: object) -> tuple[_Output, ...]:
                     output_type=output_type,
                     label=output_type.replace("_", " "),
                     text=_join_text(data.get("text/plain")) or "",
-                    html_text=_join_text(data.get("text/html")) or "",
                     images=_image_outputs(data),
                 )
             )
@@ -343,7 +341,6 @@ def _normalized_outputs(value: object) -> tuple[_Output, ...]:
                     output_type=output_type,
                     label="error",
                     text=_error_text(normalized),
-                    html_text="",
                     images=(),
                 )
             )
@@ -363,8 +360,16 @@ def _image_outputs(data: Mapping[str, object]) -> tuple[_ImageOutput, ...]:
     for mime_type in _IMAGE_MIME_TYPES:
         raw = _join_text(data.get(mime_type))
         if raw:
-            images.append(_ImageOutput(mime_type=mime_type, data=raw))
+            images.append(
+                _ImageOutput(mime_type=mime_type, data=_image_data(mime_type, raw))
+            )
     return tuple(images)
+
+
+def _image_data(mime_type: str, raw: str) -> str:
+    if mime_type == "image/svg+xml":
+        return base64.b64encode(raw.encode("utf-8")).decode("ascii")
+    return "".join(raw.split())
 
 
 def _cells(notebook: Mapping[str, object]) -> tuple[Mapping[str, object], ...]:

@@ -6,6 +6,8 @@ import pytest
 from save_my_jupyter.domain.enums import CommitMode, SnapshotSource
 from save_my_jupyter.domain.errors import SnapshotError
 from save_my_jupyter.transport.parsers import (
+    ACTIVITY_LIMIT_MAX,
+    ACTIVITY_LIMIT_MIN,
     parse_activity_limit,
     parse_snapshot_request,
 )
@@ -194,11 +196,19 @@ def test_notebook_content_passed_through() -> None:
 
 
 def test_activity_limit_parsed() -> None:
-    assert parse_activity_limit("1") == 1
-    assert parse_activity_limit("100") == 100
+    assert parse_activity_limit(str(ACTIVITY_LIMIT_MIN)) == ACTIVITY_LIMIT_MIN
+    assert parse_activity_limit(str(ACTIVITY_LIMIT_MAX)) == ACTIVITY_LIMIT_MAX
 
 
-@pytest.mark.parametrize("raw", ["0", "-1", "101", "abc"])
+@pytest.mark.parametrize(
+    "raw",
+    [
+        str(ACTIVITY_LIMIT_MIN - 1),
+        "-1",
+        str(ACTIVITY_LIMIT_MAX + 1),
+        "abc",
+    ],
+)
 def test_activity_limit_rejected(raw: str) -> None:
     with pytest.raises(SnapshotError) as exc:
         parse_activity_limit(raw)

@@ -22,13 +22,12 @@ import type { TriggerCellState } from "../notebook/triggers";
 import { DEFAULT_USER_PREFERENCES } from "../settings";
 import { createSignal, patchSignal, type WritableSignal } from "../signals";
 import {
-  parseSnapshotJobsResponse,
-  parseSnapshotPreviewResponse,
   type AuthState,
   type AuthStartResponse,
   type CommitMode,
   type JobState,
   type SnapshotJobsResponse,
+  type SnapshotPreviewResponse,
   type SnapshotSubmissionResult,
   type UserPreferences,
 } from "../types";
@@ -37,8 +36,8 @@ import {
  * tested against a fake without a live server. ApiClient satisfies it. */
 export interface PanelApi {
   submitSnapshot(body: unknown): Promise<SnapshotSubmissionResult>;
-  previewSnapshot(body: unknown): Promise<unknown>;
-  listJobs(limit: number): Promise<unknown>;
+  previewSnapshot(body: unknown): Promise<SnapshotPreviewResponse>;
+  listJobs(limit: number): Promise<SnapshotJobsResponse>;
   authStatus(): Promise<AuthState>;
   startAuth(): Promise<AuthStartResponse>;
   signOut(): Promise<void>;
@@ -164,6 +163,16 @@ export function getSnapshotBlockedMessage(state: PanelState): string | null {
 
 export function isSnapshotActionEnabled(state: PanelState): boolean {
   return getSnapshotBlockedMessage(state) === null;
+}
+
+export function snapshotErrorDetails(state: PanelState): readonly string[] {
+  if (state.status?.kind !== "error") {
+    return [];
+  }
+  if (state.activity.latestFailureDetails.length > 0) {
+    return state.activity.latestFailureDetails;
+  }
+  return [`Full error: ${state.status.message}`];
 }
 
 /** Owns the panel signal and drives it from the backend. Browser-only except for
@@ -396,9 +405,7 @@ export class SnapshotPanelController {
 
   async refreshActivity(): Promise<void> {
     try {
-      const jobs = parseSnapshotJobsResponse(
-        await this.api.listJobs(ACTIVITY_LIMIT),
-      );
+      const jobs = await this.api.listJobs(ACTIVITY_LIMIT);
       patchSignal(this.state, { activity: buildActivitySection(jobs) });
     } catch (error) {
       patchSignal(this.state, { status: errorStatus(describeError(error)) });
@@ -407,9 +414,7 @@ export class SnapshotPanelController {
 
   async refreshPreview(body: unknown): Promise<void> {
     try {
-      const preview = parseSnapshotPreviewResponse(
-        await this.api.previewSnapshot(body),
-      );
+      const preview = await this.api.previewSnapshot(body);
       patchSignal(this.state, {
         willBeSaved: buildWillBeSavedSection(preview),
       });
@@ -454,9 +459,7 @@ export class SnapshotPanelController {
       }
       let jobs: SnapshotJobsResponse;
       try {
-        jobs = parseSnapshotJobsResponse(
-          await this.api.listJobs(ACTIVITY_LIMIT),
-        );
+        jobs = await this.api.listJobs(ACTIVITY_LIMIT);
       } catch {
         const status = warning(STATUS_REFRESH_FAILED_MESSAGE);
         patchSignal(this.state, { status });

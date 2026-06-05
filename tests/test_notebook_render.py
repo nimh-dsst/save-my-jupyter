@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 
 from save_my_jupyter.application.snapshot.notebook_render import render_notebook_html
+from save_my_jupyter.domain.delivery import NotebookDiff, NotebookDiffEntry
 
 
 def _png_b64(payload: bytes = b"PNG") -> str:
@@ -73,6 +74,37 @@ def test_notebook_html_syntax_highlights_code_cells() -> None:
     assert "print" in html
 
 
+def test_notebook_html_uses_diff_view_when_diff_is_available() -> None:
+    notebook = {
+        "cells": [
+            {
+                "cell_type": "code",
+                "source": "x = 2\n",
+                "outputs": [],
+            }
+        ],
+    }
+    notebook_diff = NotebookDiff(
+        page_name="01 Notebook Diff",
+        summary="1 of 1 cells changed.",
+        entries=(
+            NotebookDiffEntry(
+                title="Cell 1 changed",
+                html="<section><h3>Cell 1 changed</h3><pre>+x = 2</pre></section>",
+            ),
+        ),
+    )
+
+    html = render_notebook_html("nb.ipynb", notebook, notebook_diff=notebook_diff)
+
+    assert "Notebook nb.ipynb" in html
+    assert "Notebook diff" in html
+    assert "1 of 1 cells changed." in html
+    assert "Cell 1 changed" in html
+    assert "+x = 2" in html
+    assert "Cell 1 (code)" not in html
+
+
 def test_notebook_html_escapes_user_content() -> None:
     notebook = {
         "cells": [
@@ -95,4 +127,34 @@ def test_notebook_html_escapes_user_content() -> None:
     assert "&lt;" in html
     assert "&gt;" in html
     assert "<b>unsafe</b>" not in html
-    assert "&lt;b&gt;unsafe&lt;/b&gt;" in html
+    assert "&lt;b&gt;unsafe&lt;/b&gt;" not in html
+
+
+def test_notebook_html_omits_raw_html_table_outputs() -> None:
+    notebook = {
+        "cells": [
+            {
+                "cell_type": "code",
+                "source": "df\n",
+                "outputs": [
+                    {
+                        "output_type": "execute_result",
+                        "data": {
+                            "text/plain": "   value\n0      1",
+                            "text/html": (
+                                "<table><tr><th>value</th></tr>"
+                                "<tr><td>1</td></tr></table>"
+                            ),
+                        },
+                    }
+                ],
+            }
+        ]
+    }
+
+    html = render_notebook_html("nb.ipynb", notebook)
+
+    assert "   value" in html
+    assert "HTML output:" not in html
+    assert "<table>" not in html
+    assert "&lt;table&gt;" not in html

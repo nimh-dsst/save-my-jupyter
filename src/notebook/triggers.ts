@@ -1,4 +1,4 @@
-// Pure trigger-metadata helpers shared by the toolbar / commands / context-menu
+// Pure trigger-metadata helpers shared by toolbar / commands / context-menu
 // wiring. Cell marks live under cell.metadata.save_my_jupyter.trigger and
 // notebook-level state under notebook.metadata.save_my_jupyter.all_cells_trigger
 // (contracts C-CONFIG-06, C-SNAP-09); the labels and messages match C-CMD-02/03.
@@ -16,7 +16,6 @@ export const COMMAND_UNMARK_CELL_TRIGGER =
 export const COMMAND_TOGGLE_ALL_CELLS_TRIGGER =
   "save-my-jupyter:toggle-all-cells-trigger";
 
-export const SNAPSHOT_TOOLBAR_ITEM = "save-my-jupyter-snapshot";
 export const ACTIVE_CELL_TRIGGER_CLASS = "smj-Cell--trigger";
 export const TRIGGER_CONTEXT_SELECTOR = ".jp-Notebook .jp-Cell";
 

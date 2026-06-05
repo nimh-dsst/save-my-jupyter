@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from collections.abc import Mapping
+from datetime import datetime, timezone
+from typing import cast
 
 from save_my_jupyter.domain.activity import ActivityRecord
 from save_my_jupyter.domain.capture import CapturePlan, PlannedArtifact
@@ -27,7 +29,7 @@ from save_my_jupyter.transport.responses import (
     serialize_submission,
 )
 
-_NOW = datetime(2026, 5, 26, 12, 0, 0, tzinfo=UTC)
+_NOW = datetime(2026, 5, 26, 12, 0, 0, tzinfo=timezone.utc)
 
 
 # --- error envelope (C-API-02) ---
@@ -174,8 +176,9 @@ def test_preview_serializes_to_frontend_shape() -> None:
         "notebookName": "Jupyter Snapshots",
         "rootPath": "Notebook Log/a@b.org",
     }
-    assert payload["effectiveConfig"]["commitMode"] == "always"
-    assert payload["effectiveConfig"]["watchedPaths"] == ["outputs"]
+    effective_config = cast("Mapping[str, object]", payload["effectiveConfig"])
+    assert effective_config["commitMode"] == "always"
+    assert effective_config["watchedPaths"] == ["outputs"]
     assert payload["repo"] == {
         "headCommit": None,
         "isDirty": True,

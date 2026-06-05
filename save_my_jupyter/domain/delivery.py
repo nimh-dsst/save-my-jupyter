@@ -67,6 +67,7 @@ class BundleArtifact:
     mime_type: MimeType
     content: bytes
     description: str | None = None
+    relative_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

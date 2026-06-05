@@ -1,18 +1,27 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from save_my_jupyter.application.snapshot.fingerprint import compute_run_fingerprint
 
 
-def _fingerprint(**overrides: object) -> str:
-    base: dict[str, object] = {
-        "notebook_key": "doc-1",
-        "document_id": "doc-1",
-        "kernel_id": "kernel-1",
-        "triggered_cell_ids": ("cell-a", "cell-b"),
-        "execution_count": 5,
-    }
-    base.update(overrides)
-    return compute_run_fingerprint(**base)  # type: ignore[arg-type]
+def _fingerprint(
+    *,
+    notebook_key: str = "doc-1",
+    document_id: str | None = "doc-1",
+    kernel_id: str | None = "kernel-1",
+    triggered_cell_ids: Sequence[str] = ("cell-a", "cell-b"),
+    execution_count: int | None = 5,
+    tags: Sequence[str] = (),
+) -> str:
+    return compute_run_fingerprint(
+        notebook_key=notebook_key,
+        document_id=document_id,
+        kernel_id=kernel_id,
+        triggered_cell_ids=triggered_cell_ids,
+        execution_count=execution_count,
+        tags=tags,
+    )
 
 
 def test_identical_runs_share_a_fingerprint() -> None:

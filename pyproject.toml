@@ -7,14 +7,15 @@ name = "save-my-jupyter"
 version = "0.1.0"
 description = "Jupyter snapshots for LabArchives."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 authors = [{ name = "Save My Jupyter Contributors" }]
 dependencies = [
   "dulwich>=1.1.0,<2",
   "jupyter-server>=2.15,<3",
   "jupyterlab>=4.5,<5",
-  "labapi>=1.0.3",
+  "labapi[dotenv]>=1.1.0",
   "keyring>=25,<26",
+  "tomli>=2; python_version < '3.11'",
   "traitlets>=5.14,<6",
 ]
 
@@ -28,7 +29,6 @@ artifacts = ["jupyter-config", "save_my_jupyter/labextension"]
 packages = ["save_my_jupyter"]
 
 [tool.hatch.build.targets.wheel.shared-data]
-"install.json" = "share/jupyter/labextensions/@save-my-jupyter/extension/install.json"
 "jupyter-config/jupyter_server_config.d/save_my_jupyter.json" = "etc/jupyter/jupyter_server_config.d/save_my_jupyter.json"
 "save_my_jupyter/labextension" = "share/jupyter/labextensions/@save-my-jupyter/extension"
 
@@ -42,7 +42,7 @@ ensured-targets = ["save_my_jupyter/labextension/package.json"]
 skip-if-exists = ["save_my_jupyter/labextension/package.json"]
 
 [tool.hatch.build.hooks.jupyter-builder.build-kwargs]
-build_cmd = "build:prod"
+build_cmd = "build"
 npm = ["npm"]
 
 [tool.hatch.build.hooks.jupyter-builder.editable-build-kwargs]
@@ -58,7 +58,7 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 88
 src = ["save_my_jupyter", "tests"]
-target-version = "py312"
+target-version = "py310"
 extend-exclude = [
   ".appdata-test",
   ".pytest_tmp_verify",
@@ -112,7 +112,7 @@ dev = [
 ]
 
 [tool.ty.environment]
-python-version = "3.12"
+python-version = "3.10"
 
 [tool.ty.src]
 include = ["save_my_jupyter", "tests"]

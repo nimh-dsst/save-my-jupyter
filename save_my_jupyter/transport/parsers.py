@@ -27,6 +27,10 @@ from save_my_jupyter.domain.types import (
     RelativeWatchPath,
 )
 
+ACTIVITY_LIMIT_DEFAULT = 20
+ACTIVITY_LIMIT_MIN = 1
+ACTIVITY_LIMIT_MAX = 100
+
 
 def parse_snapshot_request(raw: object) -> SnapshotRequest:
     body = _mapping(raw, code="missing_json_body", what="Request body")
@@ -274,9 +278,9 @@ def parse_activity_limit(raw: str) -> int:
         limit = int(raw)
     except ValueError as exc:
         raise SnapshotError("limit must be an integer.", code="invalid_limit") from exc
-    if not 1 <= limit <= 100:
+    if not ACTIVITY_LIMIT_MIN <= limit <= ACTIVITY_LIMIT_MAX:
         raise SnapshotError(
-            "limit must be between 1 and 100.",
+            f"limit must be between {ACTIVITY_LIMIT_MIN} and {ACTIVITY_LIMIT_MAX}.",
             code="invalid_limit",
             context={"limit": raw},
         )

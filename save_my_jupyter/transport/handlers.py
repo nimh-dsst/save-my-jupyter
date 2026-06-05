@@ -19,18 +19,19 @@ from jupyter_server.base.handlers import JupyterHandler
 from jupyter_server.utils import url_path_join
 from tornado import web
 
-from save_my_jupyter.adapters.labarchives.auth import AuthStartResult, AuthStatusResult
 from save_my_jupyter.application.config.starter import (
     StarterConfigInspection,
     StarterConfigResult,
     ensure_starter_config,
     inspect_starter_config,
 )
-from save_my_jupyter.application.preview import build_preview
+from save_my_jupyter.application.preview import PreviewResult, build_preview
 from save_my_jupyter.container import ServiceContainer
+from save_my_jupyter.domain.auth import AuthStartResult, AuthStatusResult
 from save_my_jupyter.domain.errors import SnapshotError
 from save_my_jupyter.domain.queue import Rejected
 from save_my_jupyter.transport.parsers import (
+    ACTIVITY_LIMIT_DEFAULT,
     parse_activity_limit,
     parse_snapshot_request,
 )
@@ -46,6 +47,11 @@ authenticated = cast("Any", web.authenticated)
 
 _SETTINGS_KEY = "save_my_jupyter_services"
 _ROOT_SETTINGS_KEY = "save_my_jupyter_root_dir"
+_AUTH_CALLBACK_CLOSE_DELAY_MS = 150
+_NOTEBOOK_PATH_REQUIRED_MESSAGE = "notebook_path is required."
+_INVALID_NOTEBOOK_PATH_CODE = "invalid_notebook_path"
+_WATCH_SYNC_REMOVED_MESSAGE = "Watched paths now travel in the snapshot request."
+_WATCH_SYNC_REMOVED_CODE = "watch_sync_removed"
 
 
 class _BaseHandler(JupyterHandler):
@@ -83,6 +89,15 @@ class _BaseHandler(JupyterHandler):
             str(exc),
             json.dumps(exc.context, sort_keys=True),
         )
+
+    def _required_notebook_path_query(self) -> str:
+        notebook_path = self.get_query_argument("notebook_path", default=None)
+        if notebook_path is None:
+            raise SnapshotError(
+                _NOTEBOOK_PATH_REQUIRED_MESSAGE,
+                code=_INVALID_NOTEBOOK_PATH_CODE,
+            )
+        return notebook_path
 
 
 class SnapshotHandler(_BaseHandler):
@@ -131,7 +146,9 @@ class SnapshotJobsHandler(_BaseHandler):
             self._write_json(serialize_activity(record))
             return
         try:
-            limit = parse_activity_limit(self.get_query_argument("limit", "20"))
+            limit = parse_activity_limit(
+                self.get_query_argument("limit", str(ACTIVITY_LIMIT_DEFAULT))
+            )
         except SnapshotError as exc:
             self._write_error(exc)
             return
@@ -156,31 +173,14 @@ class SnapshotPreviewHandler(_BaseHandler):
         except SnapshotError as exc:
             self._write_error(exc)
             return
-        self._write_json(
-            serialize_preview(
-                plan=result.plan,
-                provenance=result.provenance,
-                effective=result.effective,
-                repo=result.repo,
-                repo_config_path=result.repo_config_path,
-                repo_config_loaded=result.repo_config_loaded,
-                notes=result.notes,
-                extra_fields=result.extra_fields,
-                generated_at=self.services.clock.now(),
-                source=result.source,
-            )
-        )
+        self._write_preview_result(result)
 
     @authenticated
     async def get(self) -> None:
-        notebook_path = self.get_query_argument("notebook_path", default=None)
-        if notebook_path is None:
-            self._write_error(
-                SnapshotError(
-                    "notebook_path is required.",
-                    code="invalid_notebook_path",
-                )
-            )
+        try:
+            notebook_path = self._required_notebook_path_query()
+        except SnapshotError as exc:
+            self._write_error(exc)
             return
         try:
             request = parse_snapshot_request(
@@ -207,6 +207,9 @@ class SnapshotPreviewHandler(_BaseHandler):
         except SnapshotError as exc:
             self._write_error(exc)
             return
+        self._write_preview_result(result)
+
+    def _write_preview_result(self, result: PreviewResult) -> None:
         self._write_json(
             serialize_preview(
                 plan=result.plan,
@@ -228,13 +231,12 @@ class WatchSyncHandler(_BaseHandler):
     async def post(self) -> None:
         # Deprecated: watched paths now travel in the snapshot body (C-API-04).
         self._write_json(
-            {
-                "error": {
-                    "code": "watch_sync_removed",
-                    "message": "Watched paths now travel in the snapshot request.",
-                    "context": {},
-                }
-            },
+            serialize_error(
+                SnapshotError(
+                    _WATCH_SYNC_REMOVED_MESSAGE,
+                    code=_WATCH_SYNC_REMOVED_CODE,
+                )
+            ),
             status=HTTPStatus.GONE,
         )
 
@@ -242,14 +244,10 @@ class WatchSyncHandler(_BaseHandler):
 class ConfigInitHandler(_BaseHandler):
     @authenticated
     async def get(self) -> None:
-        notebook_path = self.get_query_argument("notebook_path", default=None)
-        if notebook_path is None:
-            self._write_error(
-                SnapshotError(
-                    "notebook_path is required.",
-                    code="invalid_notebook_path",
-                )
-            )
+        try:
+            notebook_path = self._required_notebook_path_query()
+        except SnapshotError as exc:
+            self._write_error(exc)
             return
         try:
             inspection = inspect_starter_config(
@@ -420,6 +418,6 @@ def _render_callback_page(*, success: bool, message: str) -> str:
         "c.postMessage('changed');c.close();}catch(e){}"
         "try{localStorage.setItem('save-my-jupyter-auth',String(Date.now()));}"
         "catch(e){}"
-        "setTimeout(function(){window.close();},150);"
+        f"setTimeout(function(){{window.close();}},{_AUTH_CALLBACK_CLOSE_DELAY_MS});"
         "</script></body></html>"
     )

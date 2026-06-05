@@ -5,6 +5,7 @@ unique snapshot directory name. No IO: bytes are supplied by the reader."""
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import PurePosixPath
 
 from save_my_jupyter.application.snapshot.diff import DIFF_FILTER_QUALIFIER
 from save_my_jupyter.application.snapshot.notebook_content import NOTEBOOK_MIME_TYPE
@@ -69,6 +70,7 @@ def build_snapshot_bundle(
                 page_name=_page_name(watched_file.filename),
                 mime_type=watched_file.mime_type,
                 content=watched_file.content,
+                relative_path=_artifact_relative_path(watched_file),
             )
         )
     if diff_text:
@@ -90,5 +92,14 @@ def build_snapshot_bundle(
 
 
 def _page_name(filename: str) -> str:
-    basename = filename.rsplit("/", 1)[-1]
+    basename = filename.replace("\\", "/").rsplit("/", 1)[-1]
     return basename[:_PAGE_NAME_MAX]
+
+
+def _artifact_relative_path(watched_file: WatchedFileArtifact) -> str | None:
+    if watched_file.relative_path is None:
+        return None
+    path = PurePosixPath(watched_file.relative_path.replace("\\", "/"))
+    if path.is_absolute() or not path.parts or any(part == ".." for part in path.parts):
+        return None
+    return path.as_posix()

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from contextlib import suppress
 from io import BytesIO
+from pathlib import PurePosixPath
 from typing import Any
 
 import labapi
@@ -26,6 +27,7 @@ class LabApiClient:
     def __init__(self, session: Any) -> None:
         self._session = session
         self._directories: dict[str, Any] = {}
+        self._child_directories: dict[tuple[str, str], str] = {}
         self._pages: dict[str, Any] = {}
 
     def create_directory(
@@ -48,6 +50,23 @@ class LabApiClient:
         )
         self._pages[str(page.id)] = page
         return str(page.id)
+
+    def ensure_directory_path(
+        self, *, parent_directory_id: str, relative_path: str
+    ) -> str:
+        directory_id = parent_directory_id
+        for segment in _relative_path_parts(relative_path):
+            key = (directory_id, segment)
+            if key not in self._child_directories:
+                directory = self._directories[directory_id].create(
+                    labapi.NotebookDirectory,
+                    segment,
+                    if_exists=labapi.InsertBehavior.Raise,
+                )
+                self._directories[str(directory.id)] = directory
+                self._child_directories[key] = str(directory.id)
+            directory_id = self._child_directories[key]
+        return directory_id
 
     def write_page_html(self, *, page_id: str, html: str) -> None:
         self._pages[page_id].entries.create(labapi.TextEntry, html)
@@ -94,3 +113,12 @@ def _object_url(value: Any) -> str | None:
 
 def _is_http_url(value: str) -> bool:
     return value.startswith(("https://", "http://"))
+
+
+def _relative_path_parts(value: str) -> tuple[str, ...]:
+    path = PurePosixPath(value.replace("\\", "/"))
+    if path.is_absolute() or not path.parts:
+        return ()
+    if any(part in ("", ".", "..") for part in path.parts):
+        raise ValueError(f"Unsafe LabArchives relative path: {value!r}")
+    return tuple(path.parts)

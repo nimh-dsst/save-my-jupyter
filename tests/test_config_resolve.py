@@ -32,6 +32,7 @@ def test_fresh_install_uses_inferred_destination_and_ask_commit_mode() -> None:
     assert effective.include_notebook_file is True
     assert effective.include_diff_when_dirty is True
     assert effective.all_cells_trigger is False
+    assert effective.stage_watched_paths_on_commit is True
 
 
 def test_fresh_install_inferred_root_is_email_scoped_template() -> None:
@@ -210,6 +211,15 @@ def test_no_watched_paths_anywhere_defaults_empty() -> None:
     assert resolved.provenance["watched_paths"] is ConfigLayer.FALLBACK
 
 
+def test_tracked_files_stage_by_default() -> None:
+    resolved = resolve_effective_config(
+        notebook=NotebookMetadataConfig(), user=UserSettingsConfig(), repo=None
+    )
+
+    assert resolved.effective.stage_watched_paths_on_commit is True
+    assert resolved.provenance["stage_watched_paths_on_commit"] is ConfigLayer.FALLBACK
+
+
 # --- all-cells trigger (C-CONFIG-05) ---
 
 
@@ -257,3 +267,51 @@ def test_repo_overrides_content_and_commit_flags() -> None:
     assert effective.commit_message_template == "run {notebook_name}"
     assert resolved.provenance["include_notebook_file"] is ConfigLayer.REPO
     assert resolved.provenance["commit_message_template"] is ConfigLayer.REPO
+
+
+def test_repo_can_disable_staging_tracked_files() -> None:
+    resolved = resolve_effective_config(
+        notebook=NotebookMetadataConfig(),
+        user=UserSettingsConfig(),
+        repo=RepoConfig(
+            project_name="p",
+            stage_watched_paths_on_commit=False,
+        ),
+    )
+
+    assert resolved.effective.stage_watched_paths_on_commit is False
+    assert resolved.provenance["stage_watched_paths_on_commit"] is ConfigLayer.REPO
+
+
+def test_repo_default_metadata_populates_metadata_template() -> None:
+    resolved = resolve_effective_config(
+        notebook=NotebookMetadataConfig(),
+        user=UserSettingsConfig(),
+        repo=RepoConfig(
+            project_name="p",
+            default_metadata={"audience": "team", "operator": "Ada"},
+        ),
+    )
+
+    assert resolved.effective.metadata_template == {
+        "audience": "team",
+        "operator": "Ada",
+    }
+    assert resolved.provenance["metadata_template"] is ConfigLayer.REPO
+
+
+def test_notebook_default_metadata_overrides_repo_metadata_keys() -> None:
+    resolved = resolve_effective_config(
+        notebook=NotebookMetadataConfig(default_metadata={"operator": "Grace"}),
+        user=UserSettingsConfig(),
+        repo=RepoConfig(
+            project_name="p",
+            default_metadata={"audience": "team", "operator": "Ada"},
+        ),
+    )
+
+    assert resolved.effective.metadata_template == {
+        "audience": "team",
+        "operator": "Grace",
+    }
+    assert resolved.provenance["metadata_template"] is ConfigLayer.NOTEBOOK

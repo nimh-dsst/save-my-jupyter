@@ -4,6 +4,7 @@ core (it depends on everything) and is exercised only via the running server."""
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -50,6 +51,7 @@ def build_services(
     *,
     data_dir: Path,
     snapshots_dir: Path,
+    project_root: Path | None = None,
     user_id: str,
     extension_version: str,
     demo_mode: bool = True,
@@ -59,7 +61,9 @@ def build_services(
     filesystem: FileSystem = LocalFileSystem()
     git_inspector = DulwichGitInspector()
     git_mutator = DulwichGitMutator()
-    activity = SqliteActivityStore(data_dir / "activity.sqlite")
+    activity = SqliteActivityStore(
+        _activity_db_path(data_dir=data_dir, project_root=project_root)
+    )
     activity.abandon_inflight()
     snapshots_dir.mkdir(parents=True, exist_ok=True)
     auth = LabArchivesAuth(user_id=user_id, user_id_aliases=user_id_aliases)
@@ -116,3 +120,21 @@ def build_services(
         extension_version=extension_version,
         demo_mode=demo_mode,
     )
+
+
+def _activity_db_path(*, data_dir: Path, project_root: Path | None) -> Path:
+    if project_root is None:
+        return data_dir / "activity.sqlite"
+    resolved = project_root.resolve()
+    digest = hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()[:12]
+    name = _safe_project_data_name(resolved.name)
+    return data_dir / "projects" / f"{name}-{digest}" / "activity.sqlite"
+
+
+def _safe_project_data_name(name: str) -> str:
+    cleaned = "".join(
+        char if char.isalnum() or char in {"-", "_", "."} else "-" for char in name
+    ).strip(".-")
+    if cleaned == "":
+        return "project"
+    return cleaned[:48]

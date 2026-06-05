@@ -20,6 +20,12 @@ class LabArchivesClient(Protocol):
         """Create a page in the directory and return its id."""
         ...
 
+    def ensure_directory_path(
+        self, *, parent_directory_id: str, relative_path: str
+    ) -> str:
+        """Create or reuse child directories below a parent and return the final id."""
+        ...
+
     def write_page_html(self, *, page_id: str, html: str) -> None: ...
 
     def attach_file(

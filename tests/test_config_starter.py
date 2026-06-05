@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from save_my_jupyter.application.config.starter import (
     INFERRED_TARGET_ROOT_PATH,
+    build_starter_config,
     ensure_starter_config,
     inspect_starter_config,
 )
@@ -18,6 +19,19 @@ def test_root_notebook_starter_config_is_written_under_server_root(tmp_path) -> 
     content = (tmp_path / ".save-my-jupyter.toml").read_text(encoding="utf-8")
     assert f'target_root_path = "{INFERRED_TARGET_ROOT_PATH}"' in content
     assert f'name = "{tmp_path.name}"' in content
+
+
+def test_starter_config_defaults_to_ask_and_no_watched_files() -> None:
+    content = build_starter_config(project_name="analysis-repo")
+
+    assert 'commit_mode = "ask"' in content
+    assert "watch_paths = []" in content
+    assert "[defaults.metadata]" in content
+    assert '# audience = "team"' in content
+    assert "stage_watched_paths_on_commit = true" in content
+    assert 'commit_mode = "always"' not in content
+    assert 'watch_paths = ["outputs"' not in content
+    assert "stage_watched_paths_on_commit = false" not in content
 
 
 def test_starter_config_is_written_at_discovered_project_marker(tmp_path) -> None:

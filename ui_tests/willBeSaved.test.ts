@@ -23,7 +23,7 @@ function previewFixture(
       includeNotebookFile: true,
       metadataTemplate: { sample: "42" },
       stageNotebookOnCommit: true,
-      stageWatchedPathsOnCommit: false,
+      stageWatchedPathsOnCommit: true,
       target: {
         notebookName: "Jupyter Snapshots",
         rootPath: "Notebook Log/a@b.org/proj/nb.ipynb",
@@ -147,7 +147,13 @@ void test("policy and repository details are included in the review", () => {
     ),
   );
   assert.ok(section.policyRows.some((row) => row.value.includes("outputs/*.csv")));
+  assert.ok(section.policyRows.some((row) => row.label === "Tracked files"));
   assert.ok(section.policyRows.some((row) => row.label === "Stage notebook"));
+  assert.ok(
+    section.policyRows.some(
+      (row) => row.label === "Stage tracked files" && row.value === "Yes",
+    ),
+  );
   assert.ok(section.policyRows.some((row) => row.label === "Commit message"));
   assert.ok(section.policyRows.some((row) => row.value.includes("sample=42")));
   assert.ok(section.repoRows.some((row) => row.value === "/repo"));

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC
+from datetime import timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 def test_system_clock_returns_utc_now() -> None:
     clock: Clock = SystemClock()
-    assert clock.now().tzinfo is UTC
+    assert clock.now().tzinfo is timezone.utc
 
 
 def test_local_filesystem_reads_and_globs(tmp_path: Path) -> None:

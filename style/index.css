@@ -31,6 +31,12 @@
   overflow-wrap: anywhere;
 }
 
+.smj-PanelHeaderAction {
+  display: grid;
+  justify-items: start;
+  padding-top: 6px;
+}
+
 .smj-Panel section {
   border-top: 1px solid var(--jp-border-color2);
   display: grid;
@@ -236,6 +242,26 @@
 
 .smj-Panel li:last-child {
   margin-bottom: 0;
+}
+
+.smj-ActivityDetails,
+.smj-ErrorDetails {
+  border-left: 3px solid var(--jp-error-color2);
+  display: grid;
+  gap: 2px;
+  margin-top: 6px;
+  padding-left: 8px;
+}
+
+.smj-ErrorDetails strong {
+  color: var(--jp-error-color1);
+  font-size: var(--jp-ui-font-size0);
+}
+
+.smj-ActivityDetails p,
+.smj-ErrorDetails p {
+  color: var(--jp-ui-font-color2);
+  margin: 0;
 }
 
 .smj-PhaseList {
@@ -717,10 +743,6 @@
     var(--jp-border-color2)
   );
   color: var(--jp-ui-font-color1);
-}
-
-.smj-ToolbarButton .jp-ToolbarButtonComponent-label {
-  font-weight: 600;
 }
 
 .jp-Notebook .jp-Cell.smj-Cell--trigger {

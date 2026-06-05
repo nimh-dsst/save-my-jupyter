@@ -18,6 +18,7 @@ export interface KernelMetadataExecuteRequest {
   readonly silent: boolean;
   readonly stop_on_error: boolean;
   readonly store_history: boolean;
+  readonly user_expressions?: Record<string, string>;
 }
 
 export interface KernelMetadataFuture {
@@ -29,6 +30,7 @@ export interface KernelMetadataFuture {
 export const DYNAMIC_KERNEL_METADATA_MARKER =
   "__SAVE_MY_JUPYTER_DYNAMIC_METADATA__";
 
+const DYNAMIC_KERNEL_METADATA_EXPRESSION = "__save_my_jupyter_dynamic_metadata";
 const EMPTY_DYNAMIC_METADATA: DynamicKernelMetadata = {
   runLabel: null,
   tags: [],
@@ -36,33 +38,46 @@ const EMPTY_DYNAMIC_METADATA: DynamicKernelMetadata = {
 const DEFAULT_TIMEOUT_MS = 1500;
 
 const PYTHON_DYNAMIC_METADATA_CODE = `
+globals().pop("__save_my_jupyter_dynamic_metadata", None)
 if "smj_tags" not in globals():
     smj_tags = []
 if "smj_run" not in globals():
     smj_run = None
 
+import base64 as __save_my_jupyter_base64
 import json as __save_my_jupyter_json
 
 try:
-    if isinstance(smj_tags, str):
+    if smj_tags is None:
+        __save_my_jupyter_tags = []
+    elif isinstance(smj_tags, str):
         __save_my_jupyter_tags = [smj_tags]
     else:
-        __save_my_jupyter_tags = [
-            __save_my_jupyter_tag
-            for __save_my_jupyter_tag in smj_tags
-            if isinstance(__save_my_jupyter_tag, str)
-        ]
+        try:
+            __save_my_jupyter_iterator = iter(smj_tags)
+        except TypeError:
+            __save_my_jupyter_tags = [str(smj_tags)]
+        else:
+            __save_my_jupyter_tags = [
+                str(__save_my_jupyter_tag)
+                for __save_my_jupyter_tag in __save_my_jupyter_iterator
+                if __save_my_jupyter_tag is not None
+            ]
 except Exception:
     __save_my_jupyter_tags = []
 
 __save_my_jupyter_run = smj_run if isinstance(smj_run, str) else None
-print("${DYNAMIC_KERNEL_METADATA_MARKER}" + __save_my_jupyter_json.dumps({
+__save_my_jupyter_dynamic_metadata = __save_my_jupyter_base64.b64encode(
+    __save_my_jupyter_json.dumps({
     "smj_tags": __save_my_jupyter_tags,
     "smj_run": __save_my_jupyter_run,
-}))
+    }).encode("utf-8")
+).decode("ascii")
+del __save_my_jupyter_base64
 del __save_my_jupyter_json
 del __save_my_jupyter_tags
 del __save_my_jupyter_run
+globals().pop("__save_my_jupyter_iterator", None)
 `.trim();
 
 export async function collectDynamicKernelMetadata(
@@ -77,16 +92,18 @@ export async function collectDynamicKernelMetadata(
     return EMPTY_DYNAMIC_METADATA;
   }
 
-  const stdout: string[] = [];
   let future: KernelMetadataFuture;
   try {
     const candidate = kernel.requestExecute(
       {
         allow_stdin: false,
         code: PYTHON_DYNAMIC_METADATA_CODE,
-        silent: false,
+        silent: true,
         stop_on_error: false,
         store_history: false,
+        user_expressions: {
+          [DYNAMIC_KERNEL_METADATA_EXPRESSION]: `(${DYNAMIC_KERNEL_METADATA_EXPRESSION}, globals().pop("${DYNAMIC_KERNEL_METADATA_EXPRESSION}", None))[0]`,
+        },
       },
       true,
     );
@@ -98,21 +115,44 @@ export async function collectDynamicKernelMetadata(
     return EMPTY_DYNAMIC_METADATA;
   }
 
-  future.onIOPub = (message: unknown): void => {
-    const text = streamText(message);
-    if (text !== null) {
-      stdout.push(text);
-    }
-  };
-
   try {
-    await withTimeout(future.done, timeoutMs);
+    const reply = await withTimeout(future.done, timeoutMs);
+    const metadata = parseDynamicKernelMetadataReply(reply);
+    if (metadata !== EMPTY_DYNAMIC_METADATA) {
+      return metadata;
+    }
   } catch {
     future.dispose?.();
     return EMPTY_DYNAMIC_METADATA;
   }
 
-  return parseDynamicKernelMetadataOutput(stdout.join(""));
+  return EMPTY_DYNAMIC_METADATA;
+}
+
+export function parseDynamicKernelMetadataReply(
+  reply: unknown,
+): DynamicKernelMetadata {
+  const content = asRecord(asRecord(reply)?.["content"]);
+  if (content?.["status"] !== "ok") {
+    return EMPTY_DYNAMIC_METADATA;
+  }
+  const userExpressions = asRecord(content["user_expressions"]);
+  const expression = asRecord(
+    userExpressions?.[DYNAMIC_KERNEL_METADATA_EXPRESSION],
+  );
+  if (expression?.["status"] !== "ok") {
+    return EMPTY_DYNAMIC_METADATA;
+  }
+  const data = asRecord(expression["data"]);
+  const jsonData = data?.["application/json"];
+  if (typeof jsonData === "string") {
+    return parseEncodedDynamicKernelMetadata(jsonData);
+  }
+  const textData = data?.["text/plain"];
+  if (typeof textData === "string") {
+    return parseEncodedDynamicKernelMetadata(stripPythonStringLiteral(textData));
+  }
+  return EMPTY_DYNAMIC_METADATA;
 }
 
 export function parseDynamicKernelMetadataOutput(
@@ -145,20 +185,34 @@ export function parseDynamicKernelMetadataPayload(
 }
 
 function normalizeTags(value: unknown): string[] {
-  const rawTags = typeof value === "string" ? [value] : Array.isArray(value) ? value : [];
+  const rawTags = Array.isArray(value)
+    ? value
+    : value === null || value === undefined
+      ? []
+      : [value];
   const tags: string[] = [];
   const seen = new Set<string>();
   for (const rawTag of rawTags) {
-    if (typeof rawTag !== "string") {
+    const tag = normalizeTag(rawTag);
+    if (tag === null || seen.has(tag)) {
       continue;
     }
-    const tag = rawTag.trim();
-    if (tag !== "" && !seen.has(tag)) {
-      seen.add(tag);
-      tags.push(tag);
-    }
+    seen.add(tag);
+    tags.push(tag);
   }
   return tags;
+}
+
+function normalizeTag(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed === "" ? null : trimmed;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    const trimmed = String(value).trim();
+    return trimmed === "" ? null : trimmed;
+  }
+  return null;
 }
 
 function normalizeRunLabel(value: unknown): string | null {
@@ -167,6 +221,41 @@ function normalizeRunLabel(value: unknown): string | null {
   }
   const trimmed = value.trim();
   return trimmed === "" ? null : trimmed;
+}
+
+function parseEncodedDynamicKernelMetadata(
+  encoded: string,
+): DynamicKernelMetadata {
+  const decoded = decodeBase64Utf8(encoded.trim());
+  if (decoded === null) {
+    return EMPTY_DYNAMIC_METADATA;
+  }
+  try {
+    return parseDynamicKernelMetadataPayload(JSON.parse(decoded));
+  } catch {
+    return EMPTY_DYNAMIC_METADATA;
+  }
+}
+
+function decodeBase64Utf8(encoded: string): string | null {
+  try {
+    const binary = globalThis.atob(encoded);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return null;
+  }
+}
+
+function stripPythonStringLiteral(value: string): string {
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith("'") && trimmed.endsWith("'")) ||
+    (trimmed.startsWith('"') && trimmed.endsWith('"'))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
 }
 
 async function isPythonKernel(
@@ -205,35 +294,18 @@ function kernelInfoLanguageName(info: unknown): string | null {
   return typeof name === "string" ? name.toLowerCase() : null;
 }
 
-function streamText(message: unknown): string | null {
-  if (typeof message !== "object" || message === null) {
-    return null;
-  }
-  const record = message as Record<string, unknown>;
-  if (record["channel"] !== "iopub") {
-    return null;
-  }
-  const header = record["header"];
-  if (typeof header !== "object" || header === null) {
-    return null;
-  }
-  if ((header as Record<string, unknown>)["msg_type"] !== "stream") {
-    return null;
-  }
-  const content = record["content"];
-  if (typeof content !== "object" || content === null) {
-    return null;
-  }
-  const text = (content as Record<string, unknown>)["text"];
-  return typeof text === "string" ? text : null;
-}
-
 function isKernelMetadataFuture(value: unknown): value is KernelMetadataFuture {
   if (typeof value !== "object" || value === null) {
     return false;
   }
   const done = (value as Record<string, unknown>)["done"];
   return typeof done === "object" && done !== null && "then" in done;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {

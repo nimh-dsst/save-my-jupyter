@@ -58,7 +58,7 @@ def plan_capture(
         artifacts.append(
             PlannedArtifact(
                 kind=ArtifactKind.DIFF,
-                summary="Working-tree diff (notebook + watched paths)",
+                summary="Working-tree diff (notebook + tracked paths)",
             )
         )
 

@@ -25,7 +25,7 @@ def _config(**overrides: object) -> EffectiveConfig:
         ),
         "metadata_template": {},
         "stage_notebook_on_commit": True,
-        "stage_watched_paths_on_commit": False,
+        "stage_watched_paths_on_commit": True,
         "commit_message_template": "snapshot: {notebook_name} {timestamp}",
     }
     base.update(overrides)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 class _FixedClock:
     def now(self) -> datetime:
-        return datetime(2026, 5, 26, tzinfo=UTC)
+        return datetime(2026, 5, 26, tzinfo=timezone.utc)
 
 
 class _MemoryKeyring:
@@ -58,7 +58,7 @@ def test_fakes_satisfy_port_protocols() -> None:
     keyring: KeyringStore = _MemoryKeyring()
     filesystem: FileSystem = _MemoryFileSystem({Path("/repo/a.py"): b"x"})
 
-    assert clock.now().tzinfo is UTC
+    assert clock.now().tzinfo is timezone.utc
 
     keyring.set_password("svc", "user", "secret")
     assert keyring.get_password("svc", "user") == "secret"

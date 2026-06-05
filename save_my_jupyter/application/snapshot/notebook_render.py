@@ -15,6 +15,10 @@ import keyword
 import tokenize
 from collections.abc import Mapping, Sequence
 from html import escape
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from save_my_jupyter.domain.delivery import NotebookDiff
 
 _PAGE_STYLE = (
     "font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;color:#24292f;"
@@ -58,7 +62,12 @@ _TOKEN_STYLES = {
 }
 
 
-def render_notebook_artifact_html(filename: str, content: bytes) -> str | None:
+def render_notebook_artifact_html(
+    filename: str,
+    content: bytes,
+    *,
+    notebook_diff: NotebookDiff | None = None,
+) -> str | None:
     """Return readable HTML for a notebook artifact, or ``None`` if invalid."""
     try:
         parsed = json.loads(content.decode("utf-8"))
@@ -66,22 +75,40 @@ def render_notebook_artifact_html(filename: str, content: bytes) -> str | None:
         return None
     if not isinstance(parsed, Mapping):
         return None
-    return render_notebook_html(filename, parsed)
+    return render_notebook_html(filename, parsed, notebook_diff=notebook_diff)
 
 
-def render_notebook_html(filename: str, notebook: Mapping[str, object]) -> str:
-    cells = _cells(notebook)
-    language = _notebook_language(notebook)
+def render_notebook_html(
+    filename: str,
+    notebook: Mapping[str, object],
+    *,
+    notebook_diff: NotebookDiff | None = None,
+) -> str:
     parts = [
         f'<div style="{_PAGE_STYLE}">',
         f"<h2>Notebook {escape(filename)}</h2>",
     ]
-    if not cells:
-        parts.append("<p>No cells.</p>")
-    for index, cell in enumerate(cells, start=1):
-        parts.append(_render_cell(index=index, cell=cell, language=language))
+    if notebook_diff is not None:
+        parts.extend(_render_notebook_diff(notebook_diff))
+    else:
+        cells = _cells(notebook)
+        if not cells:
+            parts.append("<p>No cells.</p>")
+        else:
+            language = _notebook_language(notebook)
+            for index, cell in enumerate(cells, start=1):
+                parts.append(_render_cell(index=index, cell=cell, language=language))
     parts.append("</div>")
     return "\n".join(parts)
+
+
+def _render_notebook_diff(notebook_diff: NotebookDiff) -> list[str]:
+    parts = [
+        "<h3>Notebook diff</h3>",
+        f"<p>{escape(notebook_diff.summary)}</p>",
+    ]
+    parts.extend(entry.html for entry in notebook_diff.entries)
+    return parts
 
 
 def _render_cell(*, index: int, cell: Mapping[str, object], language: str) -> str:
@@ -161,11 +188,6 @@ def _render_mime_bundle(*, label: str, data: Mapping[str, object]) -> str:
     text = _join_text(data.get("text/plain"))
     if text:
         parts.append(f'<pre style="{_SOURCE_STYLE}">{escape(text)}</pre>')
-    html_text = _join_text(data.get("text/html"))
-    if html_text:
-        parts.append(
-            f'<pre style="{_SOURCE_STYLE}">HTML output:\n{escape(html_text)}</pre>'
-        )
     for mime_type in _IMAGE_MIME_TYPES:
         image = _image_data_uri(mime_type, data.get(mime_type))
         if image is not None:

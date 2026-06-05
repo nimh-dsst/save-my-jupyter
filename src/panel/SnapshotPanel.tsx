@@ -21,6 +21,7 @@ import type { ReadableSignal } from "../signals";
 import {
   getSnapshotBlockedMessage,
   isSnapshotActionEnabled,
+  snapshotErrorDetails,
   type PanelState,
   type SnapshotOptionsState,
   type TargetOptionsState,
@@ -90,6 +91,7 @@ export function SnapshotPanelComponent(
   const hasNotebook = state.notebookName !== null;
   const artifactCount = state.willBeSaved?.artifacts.length ?? 0;
   const snapshotBlockedMessage = getSnapshotBlockedMessage(state);
+  const visibleSnapshotErrorDetails = snapshotErrorDetails(state);
 
   useEffect(() => {
     let cancelled = false;
@@ -162,7 +164,7 @@ export function SnapshotPanelComponent(
     setWatchedPathInput("");
     setWatchedPathStatus({
       kind: "success",
-      message: `Watching ${result.path}.`,
+      message: `Tracking ${result.path}.`,
     });
   };
 
@@ -170,15 +172,20 @@ export function SnapshotPanelComponent(
     props.onRemoveWatchedPath(path);
     setWatchedPathStatus({
       kind: "info",
-      message: `Stopped watching ${path}.`,
+      message: `Stopped tracking ${path}.`,
     });
   };
 
   return (
-    <div className="smj-Panel">
+    <div className="smj-Panel" data-lm-suppress-shortcuts="true">
       <header className="smj-PanelHeader">
         <h2>Save My Jupyter</h2>
         <p>{state.notebookName ?? "Open a notebook to enable snapshots."}</p>
+        <div className="smj-PanelHeaderAction">
+          <button type="button" disabled={state.busy} onClick={props.onRefresh}>
+            Update panel
+          </button>
+        </div>
       </header>
       <section className="smj-Snapshot">
         <div className="smj-SectionTitleRow">
@@ -202,9 +209,6 @@ export function SnapshotPanelComponent(
           >
             Snapshot now
           </button>
-          <button type="button" disabled={state.busy} onClick={props.onRefresh}>
-            Refresh
-          </button>
         </div>
         <p className="smj-OutputDisclosure" role="note">
           Snapshots upload the full notebook with outputs, including stdout,
@@ -219,6 +223,17 @@ export function SnapshotPanelComponent(
             <p className={`smj-Status smj-Status-${state.status.kind}`}>
               {state.status.message}
             </p>
+          )}
+          {visibleSnapshotErrorDetails.length > 0 && (
+            <div className="smj-ErrorDetails" role="alert">
+              <strong>Snapshot error details</strong>
+              {visibleSnapshotErrorDetails.map((detail) => (
+                <p key={detail}>{detail}</p>
+              ))}
+              <p className="smj-MetaNote">
+                These details are also kept in Activity.
+              </p>
+            </div>
           )}
         </div>
       </section>
@@ -302,7 +317,7 @@ export function SnapshotPanelComponent(
       </section>
       <section className="smj-WatchedPaths">
         <div className="smj-SectionTitleRow">
-          <h3>Watched files</h3>
+          <h3>Tracked files</h3>
           <span className="smj-Badge">
             {state.watchedPaths.length === 1
               ? "1 path"
@@ -314,7 +329,7 @@ export function SnapshotPanelComponent(
             <span>Path or glob</span>
             <input
               type="text"
-              aria-label="Watched file path or glob"
+              aria-label="Tracked file path or glob"
               disabled={!hasNotebook}
               placeholder="outputs/result.csv"
               value={watchedPathInput}
@@ -323,15 +338,12 @@ export function SnapshotPanelComponent(
               }}
             />
           </label>
-          <button
-            type="submit"
-            disabled={!hasNotebook}
-          >
+          <button type="submit" disabled={!hasNotebook}>
             Add
           </button>
         </form>
         {state.watchedPaths.length === 0 ? (
-          <p>No watched files configured.</p>
+          <p>No tracked files configured.</p>
         ) : (
           <ul className="smj-WatchedPathList">
             {state.watchedPaths.map((path) => (
@@ -425,7 +437,9 @@ export function SnapshotPanelComponent(
                     name="smj-commit-decision"
                     checked={state.snapshotOptions.commitDecision === "always"}
                     onChange={() => {
-                      props.onSnapshotOptionsChange({ commitDecision: "always" });
+                      props.onSnapshotOptionsChange({
+                        commitDecision: "always",
+                      });
                     }}
                   />
                   <span>Commit this snapshot</span>
@@ -436,7 +450,9 @@ export function SnapshotPanelComponent(
                     name="smj-commit-decision"
                     checked={state.snapshotOptions.commitDecision === "never"}
                     onChange={() => {
-                      props.onSnapshotOptionsChange({ commitDecision: "never" });
+                      props.onSnapshotOptionsChange({
+                        commitDecision: "never",
+                      });
                     }}
                   />
                   <span>Reuse HEAD</span>
@@ -652,29 +668,36 @@ export function SnapshotPanelComponent(
                       </span>
                     </>
                   )}
-                {row.url !== null && (
-                  <>
-                    {" "}
-                    <a href={row.url} target="_blank" rel="noreferrer">
-                      Open in LabArchives
-                    </a>
-                  </>
-                )}
-                {row.phaseItems.length > 0 && (
-                  <ol className="smj-PhaseList">
-                    {row.phaseItems.map((phase) => (
-                      <li
-                        key={phase.label}
-                        className={`smj-Phase-${phase.status}`}
-                      >
-                        <span>{phase.label}</span>
-                        <span>{phase.status}</span>
-                      </li>
-                    ))}
-                  </ol>
-                )}
-              </li>
-            ))}
+                  {row.url !== null && (
+                    <>
+                      {" "}
+                      <a href={row.url} target="_blank" rel="noreferrer">
+                        Open in LabArchives
+                      </a>
+                    </>
+                  )}
+                  {row.errorDetails.length > 0 && (
+                    <div className="smj-ActivityDetails">
+                      {row.errorDetails.map((detail) => (
+                        <p key={detail}>{detail}</p>
+                      ))}
+                    </div>
+                  )}
+                  {row.phaseItems.length > 0 && (
+                    <ol className="smj-PhaseList">
+                      {row.phaseItems.map((phase) => (
+                        <li
+                          key={phase.label}
+                          className={`smj-Phase-${phase.status}`}
+                        >
+                          <span>{phase.label}</span>
+                          <span>{phase.status}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </li>
+              ))}
             </ul>
           </>
         )}

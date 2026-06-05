@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping, Sequence
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -30,7 +30,7 @@ from save_my_jupyter.domain.types import (
     RepoRootPath,
 )
 
-_NOW = datetime(2026, 5, 26, 12, 0, 0, tzinfo=UTC)
+_NOW = datetime(2026, 5, 26, 12, 0, 0, tzinfo=timezone.utc)
 _ROOT = Path("/repo")
 
 
@@ -353,8 +353,10 @@ def test_request_watched_paths_are_captured(tmp_path: Path) -> None:
         deps,
     )
 
-    page_names = [artifact.page_name for artifact in delivery.delivered[0].artifacts]
+    artifacts = delivery.delivered[0].artifacts
+    page_names = [artifact.page_name for artifact in artifacts]
     assert "result.csv" in page_names
+    assert "outputs/result.csv" in [artifact.relative_path for artifact in artifacts]
 
 
 def test_non_git_project_config_is_loaded_from_project_root(tmp_path: Path) -> None:
@@ -393,8 +395,10 @@ def test_non_git_project_config_is_loaded_from_project_root(tmp_path: Path) -> N
         deps,
     )
 
-    page_names = [artifact.page_name for artifact in delivery.delivered[0].artifacts]
+    artifacts = delivery.delivered[0].artifacts
+    page_names = [artifact.page_name for artifact in artifacts]
     assert "result.csv" in page_names
+    assert "outputs/result.csv" in [artifact.relative_path for artifact in artifacts]
 
 
 def test_sensitive_watched_files_are_not_staged_for_snapshot_commit(
@@ -431,8 +435,10 @@ def test_sensitive_watched_files_are_not_staged_for_snapshot_commit(
             RelativeRepoPath(".save-my-jupyter.toml"),
         )
     ]
-    page_names = [artifact.page_name for artifact in delivery.delivered[0].artifacts]
+    artifacts = delivery.delivered[0].artifacts
+    page_names = [artifact.page_name for artifact in artifacts]
     assert "result.csv" in page_names
+    assert "outputs/result.csv" in [artifact.relative_path for artifact in artifacts]
     assert ".env" not in page_names
 
 

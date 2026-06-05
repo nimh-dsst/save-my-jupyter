@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TypeAlias
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,4 +21,4 @@ class WatchedPathRejected:
     code: str
 
 
-type WatchedPathValidation = WatchedPathAccepted | WatchedPathRejected
+WatchedPathValidation: TypeAlias = WatchedPathAccepted | WatchedPathRejected

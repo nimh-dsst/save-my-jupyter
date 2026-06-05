@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from save_my_jupyter.application.snapshot.admission import SnapshotAdmission
 from save_my_jupyter.domain.enums import SnapshotSource
@@ -10,7 +10,7 @@ from save_my_jupyter.domain.types import RunFingerprint
 
 class _MovableClock:
     def __init__(self) -> None:
-        self._now = datetime(2026, 5, 26, 12, 0, 0, tzinfo=UTC)
+        self._now = datetime(2026, 5, 26, 12, 0, 0, tzinfo=timezone.utc)
 
     def now(self) -> datetime:
         return self._now

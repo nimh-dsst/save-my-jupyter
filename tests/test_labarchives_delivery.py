@@ -32,10 +32,14 @@ class _FakeClient:
         self,
         *,
         fail_on_attach: bool = False,
+        fail_on_attach_filename: str | None = None,
         fail_on_create: bool = False,
+        fail_on_ensure_directory: bool = False,
         fail_with_snapshot_error: bool = False,
     ) -> None:
         self.pages: list[str] = []
+        self.page_locations: list[tuple[str, str]] = []
+        self.directory_paths: list[tuple[str, str]] = []
         self.html_entries: list[tuple[str, str]] = []
         self.deleted: list[str] = []
         self.attachments: list[str] = []
@@ -43,7 +47,9 @@ class _FakeClient:
         self.attachment_descriptions: list[tuple[str, str]] = []
         self._page_names: dict[str, str] = {}
         self._fail_on_attach = fail_on_attach
+        self._fail_on_attach_filename = fail_on_attach_filename
         self._fail_on_create = fail_on_create
+        self._fail_on_ensure_directory = fail_on_ensure_directory
         self._fail_with_snapshot_error = fail_with_snapshot_error
         self._counter = 0
 
@@ -54,6 +60,14 @@ class _FakeClient:
             raise RuntimeError("create failed")
         return f"dir::{directory_name}"
 
+    def ensure_directory_path(
+        self, *, parent_directory_id: str, relative_path: str
+    ) -> str:
+        if self._fail_on_ensure_directory:
+            raise RuntimeError("directory path failed")
+        self.directory_paths.append((parent_directory_id, relative_path))
+        return f"{parent_directory_id}/{relative_path}"
+
     def create_page(self, *, directory_id: str, page_name: str) -> str:
         if self._fail_with_snapshot_error:
             raise SnapshotError(
@@ -63,6 +77,7 @@ class _FakeClient:
         self._counter += 1
         page_id = f"page-{self._counter}"
         self.pages.append(page_name)
+        self.page_locations.append((directory_id, page_name))
         self._page_names[page_id] = page_name
         return page_id
 
@@ -79,7 +94,7 @@ class _FakeClient:
         description: str | None = None,
     ) -> None:
         del mime_type, content
-        if self._fail_on_attach:
+        if self._fail_on_attach or filename == self._fail_on_attach_filename:
             raise RuntimeError("labarchives attach failed")
         self.attachments.append(filename)
         self.attachment_pages.append((self._page_names[page_id], filename))
@@ -94,7 +109,9 @@ class _FakeClient:
         return f"https://labarchives.test/{directory_id}"
 
 
-def _bundle(*, notebook_diff: NotebookDiff | None = None) -> SnapshotBundle:
+def _bundle(
+    *, notebook_diff: NotebookDiff | None = None, include_notebook: bool = True
+) -> SnapshotBundle:
     metadata = SnapshotMetadata(
         notebook_name="nb.ipynb",
         notebook_path="proj/nb.ipynb",
@@ -128,10 +145,15 @@ def _bundle(*, notebook_diff: NotebookDiff | None = None) -> SnapshotBundle:
                 b'"outputs":[{"output_type":"stream","name":"stdout",'
                 b'"text":"done\\n"}]}]}'
             ),
-        ),
+        )
+        if include_notebook
+        else None,
         files=(
             WatchedFileArtifact(
-                filename="result.csv", mime_type=MimeType("text/csv"), content=b"a,b"
+                filename="result.csv",
+                mime_type=MimeType("text/csv"),
+                content=b"a,b",
+                relative_path="outputs/session-1/result.csv",
             ),
         ),
     )
@@ -144,6 +166,13 @@ def test_successful_delivery_creates_pages_and_returns_receipt() -> None:
 
     # metadata page + notebook + watched file
     assert client.pages == ["00 Metadata", "nb.ipynb", "result.csv"]
+    assert client.directory_paths == [
+        ("dir::2026-05-26T12-00-00.000_snap-1", "outputs/session-1")
+    ]
+    assert (
+        "dir::2026-05-26T12-00-00.000_snap-1/outputs/session-1",
+        "result.csv",
+    ) in client.page_locations
     assert receipt.meta_page_name == "00 Metadata"
     assert receipt.page_count == 3
     assert receipt.directory_name == "2026-05-26T12-00-00.000_snap-1"
@@ -170,7 +199,63 @@ def test_delivery_writes_readable_notebook_page_html() -> None:
     assert client.attachments == ["nb.ipynb", "result.csv"]
 
 
-def test_delivery_writes_rich_notebook_diff_page_entries() -> None:
+def test_delivery_lists_watched_file_relative_path_in_metadata() -> None:
+    client = _FakeClient()
+    delivery: Delivery = LabArchivesDelivery(client)
+
+    delivery.deliver(_bundle())
+
+    metadata_entries = [
+        html for page_name, html in client.html_entries if page_name == "00 Metadata"
+    ]
+    assert len(metadata_entries) == 1
+    assert "outputs/session-1/result.csv" in metadata_entries[0]
+
+
+def test_delivery_merges_rich_notebook_diff_into_notebook_page() -> None:
+    client = _FakeClient()
+    delivery: Delivery = LabArchivesDelivery(client)
+    notebook_diff = NotebookDiff(
+        page_name="01 Notebook Diff",
+        summary="1 of 2 cells changed.",
+        entries=(
+            NotebookDiffEntry(
+                title="Cell 1 changed",
+                html=(
+                    "<section>"
+                    "<h3>Cell 1 changed</h3>"
+                    '<span style="background:#ffebe9;">-x = 1</span>'
+                    '<span style="background:#e6ffed;">+x = 2</span>'
+                    "</section>"
+                ),
+            ),
+            NotebookDiffEntry(
+                title="Cell 2",
+                html="<section><h3>Cell 2</h3><pre>unchanged()</pre></section>",
+            ),
+        ),
+    )
+
+    receipt = delivery.deliver(_bundle(notebook_diff=notebook_diff))
+
+    assert client.pages == ["00 Metadata", "nb.ipynb", "result.csv"]
+    cell_entries = [
+        html for page_name, html in client.html_entries if page_name == "nb.ipynb"
+    ]
+    assert len(cell_entries) == 1
+    assert "Notebook nb.ipynb" in cell_entries[0]
+    assert "1 of 2 cells changed." in cell_entries[0]
+    assert "Cell 1 changed" in cell_entries[0]
+    assert "-x = 1" in cell_entries[0]
+    assert "+x = 2" in cell_entries[0]
+    assert "background:#ffebe9" in cell_entries[0]
+    assert "background:#e6ffed" in cell_entries[0]
+    assert "Cell 2" in cell_entries[0]
+    assert ("nb.ipynb", "nb.ipynb") in client.attachment_pages
+    assert receipt.page_count == 3
+
+
+def test_delivery_keeps_standalone_diff_page_when_notebook_is_not_included() -> None:
     client = _FakeClient()
     delivery: Delivery = LabArchivesDelivery(client)
     notebook_diff = NotebookDiff(
@@ -179,30 +264,57 @@ def test_delivery_writes_rich_notebook_diff_page_entries() -> None:
         entries=(
             NotebookDiffEntry(
                 title="Cell 1 changed",
-                html="<section>Cell 1 changed</section>",
+                html="<section><h3>Cell 1 changed</h3></section>",
             ),
         ),
     )
 
-    receipt = delivery.deliver(_bundle(notebook_diff=notebook_diff))
+    receipt = delivery.deliver(
+        _bundle(notebook_diff=notebook_diff, include_notebook=False)
+    )
 
-    assert client.pages == ["00 Metadata", "01 Notebook Diff", "nb.ipynb", "result.csv"]
-    assert (
-        "01 Notebook Diff",
-        "<section>Cell 1 changed</section>",
-    ) in client.html_entries
-    assert ("nb.ipynb", "nb.ipynb") in client.attachment_pages
-    assert receipt.page_count == 4
+    assert client.pages == ["00 Metadata", "01 Notebook Diff", "result.csv"]
+    assert any(
+        page_name == "01 Notebook Diff" and "Cell 1 changed" in html
+        for page_name, html in client.html_entries
+    )
+    assert receipt.page_count == 3
 
 
 def test_failed_delivery_cleans_up_and_raises() -> None:
-    client = _FakeClient(fail_on_attach=True)
+    client = _FakeClient(fail_on_attach_filename="result.csv")
     delivery = LabArchivesDelivery(client)
     with pytest.raises(SnapshotError) as exc:
         delivery.deliver(_bundle())
     assert exc.value.code == "labarchives_write_failed"
+    assert str(exc.value) == (
+        "LabArchives write failed while trying to attach LabArchives artifact file "
+        "for artifact 'outputs/session-1/result.csv': RuntimeError: "
+        "labarchives attach failed"
+    )
+    assert exc.value.context["operation"] == "attach LabArchives artifact file"
+    assert exc.value.context["artifact_relative_path"] == (
+        "outputs/session-1/result.csv"
+    )
+    assert exc.value.context["artifact_parent_path"] == "outputs/session-1"
+    assert exc.value.context["exception_type"] == "RuntimeError"
+    assert exc.value.context["exception_message"] == "labarchives attach failed"
     # best-effort cleanup moved the directory to API Deleted Items
     assert client.deleted == ["dir::2026-05-26T12-00-00.000_snap-1"]
+
+
+def test_directory_path_failure_reports_artifact_parent_path() -> None:
+    client = _FakeClient(fail_on_ensure_directory=True)
+    delivery = LabArchivesDelivery(client)
+    with pytest.raises(SnapshotError) as exc:
+        delivery.deliver(_bundle())
+
+    assert exc.value.code == "labarchives_write_failed"
+    assert "ensure LabArchives artifact directory" in str(exc.value)
+    assert "outputs/session-1/result.csv" in str(exc.value)
+    assert "RuntimeError: directory path failed" in str(exc.value)
+    assert exc.value.context["operation"] == "ensure LabArchives artifact directory"
+    assert exc.value.context["artifact_parent_path"] == "outputs/session-1"
 
 
 def test_directory_create_failure_is_wrapped_without_cleanup() -> None:
@@ -211,6 +323,9 @@ def test_directory_create_failure_is_wrapped_without_cleanup() -> None:
     with pytest.raises(SnapshotError) as exc:
         delivery.deliver(_bundle())
     assert exc.value.code == "labarchives_write_failed"
+    assert "create LabArchives snapshot directory" in str(exc.value)
+    assert exc.value.context["operation"] == "create LabArchives snapshot directory"
+    assert exc.value.context["exception_message"] == "create failed"
     assert client.deleted == []
 
 

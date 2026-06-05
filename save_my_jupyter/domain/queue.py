@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TypeAlias
 
 # Fixed queue-time rejection messages (contracts C-QUEUE-01/02, C-FAIL-02).
 DUPLICATE_RUN_MESSAGE = "A snapshot already exists for this run."
@@ -32,4 +33,4 @@ class Rejected:
     message: str
 
 
-type AdmissionDecision = Accepted | Coalesced | Rejected
+AdmissionDecision: TypeAlias = Accepted | Coalesced | Rejected

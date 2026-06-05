@@ -91,6 +91,10 @@ def build_starter_config(*, project_name: str) -> str:
             "include_notebook_file = true",
             "include_diff_when_dirty = true",
             "",
+            "[defaults.metadata]",
+            "# Shared metadata fields added to every snapshot.",
+            '# audience = "team"',
+            "",
             "[labarchives]",
             'target_notebook = "Jupyter Snapshots"',
             f'target_root_path = "{INFERRED_TARGET_ROOT_PATH}"',
@@ -98,7 +102,7 @@ def build_starter_config(*, project_name: str) -> str:
             "[git]",
             'commit_message_template = "snapshot: {notebook_name} {timestamp}"',
             "stage_notebook_on_commit = true",
-            "stage_watched_paths_on_commit = false",
+            "stage_watched_paths_on_commit = true",
             "",
         ]
     )

@@ -6,11 +6,11 @@ unparseable TOML file and an unknown repo_root_strategy are hard errors."""
 
 from __future__ import annotations
 
-import tomllib
 from collections.abc import Mapping
 from typing import Literal, cast
 
 from save_my_jupyter.application.snapshot.guards import validate_watched_path
+from save_my_jupyter.compat import tomllib
 from save_my_jupyter.domain.config import (
     NotebookMetadataConfig,
     RelativeWatchPaths,
@@ -66,6 +66,7 @@ def parse_repo_config(toml_text: str, *, default_project_name: str) -> RepoConfi
         default_commit_mode=_opt_commit_mode(defaults, "commit_mode"),
         default_tags=tuple(_str_list(defaults, "default_tags")),
         default_watch_paths=_opt_watch_paths(defaults, "watch_paths"),
+        default_metadata=_str_map(defaults, "metadata"),
         include_notebook_file=_opt_bool(defaults, "include_notebook_file"),
         include_diff_when_dirty=_opt_bool(defaults, "include_diff_when_dirty"),
         default_target_notebook=(

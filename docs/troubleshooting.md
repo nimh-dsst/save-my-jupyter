@@ -13,7 +13,7 @@ python -m jupyter server extension list
 If the package is installed but the UI does not appear:
 
 - restart JupyterLab or Notebook 7
-- confirm the server environment is Python `3.12+`
+- confirm the server environment is Python `3.10+`
 - rebuild the frontend assets if you are working from source:
 
 ```bash
@@ -60,33 +60,33 @@ Common causes:
 - no notebook is open
 - LabArchives auth has not completed
 - the notebook path in the request is invalid
-- the repo config or notebook metadata contains invalid watched paths
+- the repo config or notebook metadata contains invalid tracked paths
 
 Automatic snapshots may also be rejected as duplicates if they land in the same
 run fingerprint. Use `Snapshot Now` if you need a separate snapshot immediately.
 
-## Watched Path Is Rejected
+## Tracked Path Is Rejected
 
-Watched paths must be:
+Tracked paths must be:
 
 - relative
 - under the repo root, or under the notebook directory if no repo is detected
 - free of `..` path escapes
 
-Examples of valid watched paths:
+Examples of valid tracked paths:
 
 - `outputs`
 - `reports/latest.csv`
 - `artifacts/figures`
 
-## Watched-Path Snapshot Did Not Fire
+## Tracked-File Snapshot Did Not Fire
 
-The current watcher implementation polls registered paths instead of using a
-native OS file event backend. That means:
+Tracked files are not a snapshot trigger. They are matched only when a manual
+or trigger-cell snapshot runs. That means:
 
-- changes are detected on the polling interval, not instantly
-- the notebook must have synced its watched-path registration first
-- only configured relative paths are tracked
+- file changes alone do not create snapshots
+- only configured relative paths are attached
+- run `Snapshot Now` or execute a trigger cell to capture the current files
 
 Use the side panel `Refresh` action if you changed notebook metadata or repo
 config and want to resync the current notebook state.
