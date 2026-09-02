@@ -12,7 +12,7 @@ authors = [{ name = "Save My Jupyter Contributors" }]
 dependencies = [
   "dulwich>=1.2.5,<2",
   "jupyter-server>=2.20.0,<3",
-  "jupyterlab>=4.5.9,<5",
+  "jupyterlab>=4.5.10,<5",
   "labapi[dotenv]>=1.1.0",
   "keyring>=25,<26",
   "tomli>=2; python_version < '3.11'",
